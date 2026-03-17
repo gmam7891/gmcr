@@ -3,6 +3,8 @@ import { MetricCard } from "@/components/MetricCard";
 import { NumberField, FieldSection } from "@/components/FieldGroup";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
+import { getUser, getStream, getVods, parseDuration, type TwitchUser, type TwitchStream, type TwitchVod } from "@/lib/twitch-api";
+import { Button } from "@/components/ui/button";
 
 export function TwitchTab() {
   const [channel, setChannel] = useState("");
@@ -18,6 +20,55 @@ export function TwitchTab() {
   const [valueFtdTw, setValueFtdTw] = useState(0);
   const [vodViewsPerHour, setVodViewsPerHour] = useState(0);
 
+  const [loading, setLoading] = useState(false);
+  const [userData, setUserData] = useState<TwitchUser | null>(null);
+  const [streamData, setStreamData] = useState<TwitchStream | null>(null);
+  const [vodStats, setVodStats] = useState<{ count: number; avgViews: number; medianViews: number; vph: number } | null>(null);
+
+  const fetchChannel = async () => {
+    if (!channel.trim()) return;
+    setLoading(true);
+    try {
+      const user = await getUser(channel);
+      setUserData(user);
+      if (!user) { setLoading(false); return; }
+
+      const [stream, vods] = await Promise.all([
+        getStream(channel),
+        getVods(user.id, 20),
+      ]);
+      setStreamData(stream);
+
+      if (vods.length > 0) {
+        const views = vods.map((v: TwitchVod) => v.view_count);
+        const hours = vods.map((v: TwitchVod) => parseDuration(v.duration) / 60);
+        const totalViews = views.reduce((a: number, b: number) => a + b, 0);
+        const totalHours = hours.reduce((a: number, b: number) => a + b, 0);
+        const sorted = [...views].sort((a, b) => a - b);
+        const median = sorted.length % 2 === 0
+          ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+          : sorted[Math.floor(sorted.length / 2)];
+        const vph = totalHours > 0 ? totalViews / totalHours : 0;
+
+        setVodStats({
+          count: vods.length,
+          avgViews: totalViews / vods.length,
+          medianViews: median,
+          vph,
+        });
+        setVodViewsPerHour(Math.round(vph));
+
+        if (stream) {
+          setAvgViewers(stream.viewer_count);
+          setPeakViewers(stream.viewer_count);
+        }
+      }
+    } catch (err) {
+      console.error('Twitch fetch error:', err);
+    }
+    setLoading(false);
+  };
+
   const results = useMemo(() => {
     const liveViews = avgViewers * plannedHours;
     const churnedViews = churnFactor > 0 ? liveViews * churnFactor : liveViews;
@@ -32,7 +83,6 @@ export function TwitchTab() {
     const profit = revenue - fee;
     const targetRoi = roiAlvo / 100;
     const feeMaxRoi = targetRoi > 0 ? revenue / (1 + targetRoi) : null;
-
     return { uniqueViews, clicks, ftd, revenue, roi, cpa, roas, profit, feeMaxRoi };
   }, [avgViewers, plannedHours, churnFactor, vodViewsPerHour, ctrTw, cvrTw, valueFtdTw, fee, roiAlvo]);
 
@@ -44,29 +94,32 @@ export function TwitchTab() {
     return "nogo" as const;
   };
 
+  const isLive = !!streamData;
+  const isCasino = streamData?.game_id === "29452";
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <div className="lg:col-span-2 space-y-6">
         <FieldSection title="Canal">
           <div className="space-y-1.5">
             <label className="text-xs text-muted-foreground uppercase tracking-wider">Login do canal</label>
-            <input
-              type="text"
-              value={channel}
-              onChange={(e) => setChannel(e.target.value.toLowerCase().trim())}
-              placeholder="streamer_login"
-              className="flex h-10 w-full rounded-md border border-input bg-secondary px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={channel}
+                onChange={(e) => setChannel(e.target.value.toLowerCase().trim())}
+                placeholder="streamer_login"
+                className="flex h-10 w-full rounded-md border border-input bg-secondary px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onKeyDown={(e) => e.key === 'Enter' && fetchChannel()}
+              />
+              <Button onClick={fetchChannel} disabled={loading || !channel.trim()}>
+                {loading ? "..." : "Buscar"}
+              </Button>
+            </div>
           </div>
           <NumberField label="Fee / investimento" value={fee} onChange={setFee} step={1000} suffix="R$" />
           <NumberField label="Horas contratadas (mês)" value={plannedHours} onChange={setPlannedHours} />
           <NumberField label="Fator de churn" value={churnFactor} onChange={setChurnFactor} />
-        </FieldSection>
-
-        <FieldSection title="Dados do canal (manual)">
-          <NumberField label="Avg viewers (30d)" value={avgViewers} onChange={setAvgViewers} step={100} />
-          <NumberField label="Peak viewers (30d)" value={peakViewers} onChange={setPeakViewers} step={100} />
-          <NumberField label="VOD views/hora" value={vodViewsPerHour} onChange={setVodViewsPerHour} step={10} />
         </FieldSection>
 
         <FieldSection title="Valuation financeiro">
@@ -76,13 +129,50 @@ export function TwitchTab() {
           <NumberField label="CVR para FTD" value={cvrTw} onChange={setCvrTw} step={0.1} suffix="%" />
           <NumberField label="Valor por FTD" value={valueFtdTw} onChange={setValueFtdTw} step={50} suffix="R$" />
         </FieldSection>
+
+        <FieldSection title="Dados manuais (override)">
+          <NumberField label="Avg viewers (30d)" value={avgViewers} onChange={setAvgViewers} step={100} />
+          <NumberField label="Peak viewers (30d)" value={peakViewers} onChange={setPeakViewers} step={100} />
+          <NumberField label="VOD views/hora" value={vodViewsPerHour} onChange={setVodViewsPerHour} step={10} />
+        </FieldSection>
       </div>
 
       <div className="lg:col-span-3 space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <MetricCard label="Avg viewers (30d)" value={fmtInt(avgViewers)} />
-          <MetricCard label="Peak (30d)" value={fmtInt(peakViewers)} />
+        {/* Channel status */}
+        {userData && (
+          <div className="flex items-center gap-4 card-surface p-4">
+            <img src={userData.profile_image_url} alt={userData.display_name} className="w-12 h-12 rounded-full" />
+            <div className="flex-1">
+              <p className="font-medium text-foreground">{userData.display_name}</p>
+              <p className="text-xs text-muted-foreground">{userData.broadcaster_type}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-accent animate-pulse-slow' : 'bg-muted-foreground'}`} />
+              <span className="text-xs font-mono">{isLive ? 'LIVE' : 'OFFLINE'}</span>
+            </div>
+          </div>
+        )}
+
+        {isLive && !isCasino && (
+          <div className="card-surface border-destructive/30 p-3 text-sm text-destructive">
+            ❌ Canal não está em Virtual Casino. Categoria atual: {streamData?.game_name}
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-3">
+          <MetricCard label="Status" value={isLive ? "✅ LIVE" : "⭕ OFF"} />
+          <MetricCard label="Viewers agora" value={isLive ? fmtInt(streamData?.viewer_count) : "-"} />
+          <MetricCard label={isLive ? "Categoria" : "Avg viewers"} value={isLive ? (streamData?.game_name ?? "-") : fmtInt(avgViewers)} />
         </div>
+
+        {vodStats && (
+          <div className="grid grid-cols-4 gap-3">
+            <MetricCard label="VODs analisados" value={fmtInt(vodStats.count)} />
+            <MetricCard label="Avg views VOD" value={fmtInt(vodStats.avgViews)} />
+            <MetricCard label="Mediana views" value={fmtInt(vodStats.medianViews)} />
+            <MetricCard label="Views/hora (VOD)" value={fmtInt(vodStats.vph)} />
+          </div>
+        )}
 
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider pt-2">Projeção financeira</h2>
         <div className="grid grid-cols-4 gap-3">
