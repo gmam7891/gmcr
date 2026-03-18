@@ -70,7 +70,10 @@ export function TwitchTab() {
   };
 
   const results = useMemo(() => {
-    const liveViews = avgViewers * plannedHours;
+    // Projeção de views baseada nas horas contratadas
+    const avgLiveViews = avgViewers * plannedHours;
+    const peakLiveViews = peakViewers * plannedHours;
+    const liveViews = avgLiveViews;
     const churnedViews = churnFactor > 0 ? liveViews * churnFactor : liveViews;
     const vodViews = vodViewsPerHour * plannedHours;
     const uniqueViews = churnedViews + vodViews;
@@ -83,7 +86,7 @@ export function TwitchTab() {
     const profit = revenue - fee;
     const targetRoi = roiAlvo / 100;
     const feeMaxRoi = targetRoi > 0 ? revenue / (1 + targetRoi) : null;
-    return { uniqueViews, clicks, ftd, revenue, roi, cpa, roas, profit, feeMaxRoi };
+    return { avgLiveViews, peakLiveViews, vodViews, uniqueViews, clicks, ftd, revenue, roi, cpa, roas, profit, feeMaxRoi };
   }, [avgViewers, plannedHours, churnFactor, vodViewsPerHour, ctrTw, cvrTw, valueFtdTw, fee, roiAlvo]);
 
   const getStatus = () => {
@@ -173,6 +176,14 @@ export function TwitchTab() {
             <MetricCard label="Views/hora (VOD)" value={fmtInt(vodStats.vph)} />
           </div>
         )}
+
+        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider pt-2">Projeção de views ({fmtInt(plannedHours)}h contratadas)</h2>
+        <div className="grid grid-cols-4 gap-3">
+          <MetricCard label="Views (avg viewers)" value={fmtInt(results.avgLiveViews)} />
+          <MetricCard label="Views (peak viewers)" value={fmtInt(results.peakLiveViews)} />
+          <MetricCard label="Views VOD" value={fmtInt(results.vodViews)} />
+          <MetricCard label="Views únicas totais" value={fmtInt(results.uniqueViews)} />
+        </div>
 
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider pt-2">Projeção financeira</h2>
         <div className="grid grid-cols-4 gap-3">

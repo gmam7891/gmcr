@@ -3,6 +3,8 @@ import { MetricCard } from "@/components/MetricCard";
 import { NumberField, FieldSection } from "@/components/FieldGroup";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
+import { Button } from "@/components/ui/button";
+import * as XLSX from "xlsx";
 
 export function InstagramTab() {
   const [seguidores, setSeguidores] = useState(0);
@@ -23,25 +25,76 @@ export function InstagramTab() {
   const [fee, setFee] = useState(0);
 
   const results = useMemo(() => {
-    const compradores = Math.round(seguidores * (percIcp / 100));
+    const icpFactor = percIcp / 100;
+    const compradores = Math.round(seguidores * icpFactor);
+
+    // Views totais (sem filtro ICP)
     const reelsTotal = reelsQty * reelsViews;
     const storiesTotal = storiesQty * storiesViews;
     const tiktokTotal = tiktokQty * tiktokViews;
     const totalViews = reelsTotal + storiesTotal + tiktokTotal;
 
+    // Views ICP (filtradas pela % de compradores potenciais)
+    const reelsIcp = reelsTotal * icpFactor;
+    const storiesIcp = storiesTotal * icpFactor;
+    const tiktokIcp = tiktokTotal * icpFactor;
+    const totalViewsIcp = reelsIcp + storiesIcp + tiktokIcp;
+
+    // Cliques calculados sobre views ICP
     const clicks = manualClicks > 0
       ? manualClicks
-      : (reelsTotal * reelsCtr / 100) + (storiesTotal * storiesCtr / 100) + (tiktokTotal * tiktokCtr / 100);
+      : (reelsIcp * reelsCtr / 100) + (storiesIcp * storiesCtr / 100) + (tiktokIcp * tiktokCtr / 100);
 
     const ftd = manualFtd > 0 ? manualFtd : clicks * (cvrPercent / 100);
     const revenue = ftd * valueFtd;
     const roi = fee > 0 ? ((revenue - fee) / fee) * 100 : 0;
     const cpa = ftd > 0 ? fee / ftd : null;
+    const profit = revenue - fee;
+    const feeMaxLucro = revenue > 0 ? revenue : null;
 
-    return { compradores, totalViews, clicks, ftd, revenue, roi, cpa };
+    return { compradores, totalViews, totalViewsIcp, clicks, ftd, revenue, roi, cpa, profit, feeMaxLucro };
   }, [seguidores, percIcp, reelsQty, reelsViews, reelsCtr, storiesQty, storiesViews, storiesCtr, tiktokQty, tiktokViews, tiktokCtr, manualClicks, manualFtd, cvrPercent, valueFtd, fee]);
 
   const roiStatus = results.roi >= 200 ? "go" : results.roi >= 0 ? "warning" : "nogo";
+  const profitStatus = results.profit > 0 ? "go" : results.profit < 0 ? "nogo" : undefined;
+
+  const downloadExcel = () => {
+    const data = [
+      ["Métrica", "Valor"],
+      ["Seguidores", seguidores],
+      ["% ICP", `${percIcp}%`],
+      ["Compradores potenciais (ICP)", results.compradores],
+      ["", ""],
+      ["Reels - Qtd", reelsQty],
+      ["Reels - Views médias", reelsViews],
+      ["Reels - CTR", `${reelsCtr}%`],
+      ["Stories - Qtd", storiesQty],
+      ["Stories - Views médias", storiesViews],
+      ["Stories - CTR", `${storiesCtr}%`],
+      ["TikTok - Qtd", tiktokQty],
+      ["TikTok - Views médias", tiktokViews],
+      ["TikTok - CTR", `${tiktokCtr}%`],
+      ["", ""],
+      ["Views totais", results.totalViews],
+      ["Views ICP", Math.round(results.totalViewsIcp)],
+      ["Cliques estimados", Math.round(results.clicks)],
+      ["FTD projetado", Math.round(results.ftd)],
+      ["CVR para FTD", `${cvrPercent}%`],
+      ["Valor por FTD", valueFtd],
+      ["", ""],
+      ["Fee / investimento", fee],
+      ["Receita projetada", results.revenue],
+      ["Lucro / Prejuízo", results.profit],
+      ["ROI", `${results.roi.toFixed(1)}%`],
+      ["CPA", results.cpa],
+      ["Fee máximo para lucro", results.feeMaxLucro],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [{ wch: 30 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Instagram");
+    XLSX.writeFile(wb, "analise-instagram.xlsx");
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -88,22 +141,39 @@ export function InstagramTab() {
 
       {/* Results */}
       <div className="lg:col-span-3 space-y-4">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Resultados</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Resultados</h2>
+          <Button variant="outline" size="sm" onClick={downloadExcel}>
+            📥 Exportar Excel
+          </Button>
+        </div>
         <div className="grid grid-cols-3 gap-3">
           <MetricCard label="Views totais" value={fmtInt(results.totalViews)} />
+          <MetricCard label="Views ICP" value={fmtInt(results.totalViewsIcp)} />
           <MetricCard label="Cliques estimados" value={fmtInt(results.clicks)} />
-          <MetricCard label="FTD projetado" value={fmtInt(results.ftd)} />
         </div>
         <div className="grid grid-cols-3 gap-3">
+          <MetricCard label="FTD projetado" value={fmtInt(results.ftd)} />
           <MetricCard label="Receita projetada" value={fmtMoney(results.revenue)} status={results.revenue > 0 ? "go" : undefined} />
           <MetricCard label="ROI" value={fee > 0 ? fmtPercent(results.roi, 0) : "-"} status={fee > 0 ? roiStatus : undefined} />
+        </div>
+        <div className="grid grid-cols-3 gap-3">
           <MetricCard label="CPA" value={fee > 0 ? fmtMoney(results.cpa) : "-"} />
+          <MetricCard
+            label="Lucro / Prejuízo"
+            value={fee > 0 ? fmtMoney(results.profit) : "-"}
+            status={fee > 0 ? profitStatus : undefined}
+          />
+          <MetricCard
+            label="Fee máximo p/ lucro"
+            value={results.feeMaxLucro ? fmtMoney(results.feeMaxLucro) : "-"}
+          />
         </div>
         {fee > 0 && (
-          <StatusBadge status={results.roi >= 200 ? "go" : results.roi >= 0 ? "warning" : "nogo"} />
+          <StatusBadge status={results.profit > 0 ? "go" : results.profit === 0 ? "warning" : "nogo"} />
         )}
         <p className="text-xs text-muted-foreground mt-4">
-          O filtro ICP serve para avaliar a qualidade esperada dos cliques/FTD. Views são totais.
+          As views de cliques/FTD são calculadas sobre a audiência ICP (% aplicada às views). O fee máximo indica o valor máximo que você pode pagar para não ter prejuízo.
         </p>
       </div>
     </div>
