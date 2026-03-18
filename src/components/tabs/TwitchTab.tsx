@@ -175,10 +175,10 @@ export function TwitchTab() {
 
         {vodStats && (
           <div className="grid grid-cols-4 gap-3">
-            <MetricCard label="VODs analisados" value={fmtInt(vodStats.count)} />
-            <MetricCard label="Avg views VOD" value={fmtInt(vodStats.avgViews)} />
-            <MetricCard label="Mediana views" value={fmtInt(vodStats.medianViews)} />
-            <MetricCard label="Views/hora (VOD)" value={fmtInt(vodStats.vph)} />
+            <MetricCard label="VODs (últimos 30d)" value={fmtInt(vodStats.count)} />
+            <MetricCard label="Avg views (30d)" value={fmtInt(vodStats.avgViews)} />
+            <MetricCard label="Mediana views (30d)" value={fmtInt(vodStats.medianViews)} />
+            <MetricCard label="Views/hora (30d)" value={fmtInt(vodStats.vph)} />
           </div>
         )}
 
