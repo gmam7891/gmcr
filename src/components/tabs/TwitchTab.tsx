@@ -70,7 +70,10 @@ export function TwitchTab() {
   };
 
   const results = useMemo(() => {
-    const liveViews = avgViewers * plannedHours;
+    // Projeção de views baseada nas horas contratadas
+    const avgLiveViews = avgViewers * plannedHours;
+    const peakLiveViews = peakViewers * plannedHours;
+    const liveViews = avgLiveViews;
     const churnedViews = churnFactor > 0 ? liveViews * churnFactor : liveViews;
     const vodViews = vodViewsPerHour * plannedHours;
     const uniqueViews = churnedViews + vodViews;
