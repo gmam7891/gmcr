@@ -1,9 +1,36 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getUser, getVod, getVods, formatDuration, parseDuration, type TwitchVod } from "@/lib/twitch-api";
+import { getUser, getVod, getVods, getVodChapters, formatDuration, formatSeconds, parseDuration, type TwitchVod, type VodChapter } from "@/lib/twitch-api";
 import { fmtInt } from "@/lib/formatters";
+
+interface GameSummary {
+  game: string;
+  gameBoxArt: string | null;
+  totalSeconds: number;
+  segments: number;
+}
+
+function aggregateChapters(chapters: VodChapter[]): GameSummary[] {
+  const map = new Map<string, GameSummary>();
+  for (const ch of chapters) {
+    const key = ch.game;
+    const existing = map.get(key);
+    if (existing) {
+      existing.totalSeconds += ch.durationSeconds;
+      existing.segments += 1;
+    } else {
+      map.set(key, {
+        game: ch.game,
+        gameBoxArt: ch.gameBoxArt,
+        totalSeconds: ch.durationSeconds,
+        segments: 1,
+      });
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => b.totalSeconds - a.totalSeconds);
+}
 
 export function VodTab() {
   const [vodUrl, setVodUrl] = useState("");
@@ -13,6 +40,11 @@ export function VodTab() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"single" | "channel" | null>(null);
 
+  // Chapter analysis state
+  const [chaptersMap, setChaptersMap] = useState<Record<string, VodChapter[]>>({});
+  const [loadingChapters, setLoadingChapters] = useState<string | null>(null);
+  const [expandedVod, setExpandedVod] = useState<string | null>(null);
+
   const analyze = async () => {
     if (!vodUrl.trim()) return;
     setLoading(true);
@@ -20,11 +52,11 @@ export function VodTab() {
     setVods([]);
     setSingleVod(null);
     setMode(null);
+    setChaptersMap({});
+    setExpandedVod(null);
 
     try {
       const input = vodUrl.trim();
-
-      // Check if it's a VOD URL/ID
       const vodMatch = input.match(/videos\/(\d+)/);
       const isVodId = /^\d+$/.test(input);
 
@@ -35,11 +67,14 @@ export function VodTab() {
         setSingleVod(vod);
         setMode("single");
 
-        // Also fetch other VODs from same user
+        // Auto-fetch chapters for single VOD
+        const chapters = await getVodChapters(vodId);
+        setChaptersMap({ [vodId]: chapters });
+        setExpandedVod(vodId);
+
         const channelVods = await getVods(vod.user_id, 20);
         setVods(channelVods);
       } else {
-        // It's a channel name
         const login = input.replace(/https?:\/\/(www\.)?twitch\.tv\//, "").replace(/\//g, "").toLowerCase();
         const user = await getUser(login);
         if (!user) throw new Error("Canal não encontrado");
@@ -53,16 +88,53 @@ export function VodTab() {
     setLoading(false);
   };
 
+  const fetchChapters = async (vodId: string) => {
+    if (chaptersMap[vodId]) {
+      setExpandedVod(expandedVod === vodId ? null : vodId);
+      return;
+    }
+    setLoadingChapters(vodId);
+    try {
+      const chapters = await getVodChapters(vodId);
+      setChaptersMap(prev => ({ ...prev, [vodId]: chapters }));
+      setExpandedVod(vodId);
+    } catch (err) {
+      console.error('Chapter fetch error:', err);
+    }
+    setLoadingChapters(null);
+  };
+
+  // Aggregate all chapters across all analyzed VODs
+  const allGameSummary = useMemo(() => {
+    const allChapters = Object.values(chaptersMap).flat();
+    return aggregateChapters(allChapters);
+  }, [chaptersMap]);
+
   const totalViews = vods.reduce((s, v) => s + v.view_count, 0);
   const totalHours = vods.reduce((s, v) => s + parseDuration(v.duration) / 60, 0);
   const avgViewsPerHour = totalHours > 0 ? totalViews / totalHours : 0;
 
+  const analyzeAllVods = async () => {
+    for (const vod of vods) {
+      if (!chaptersMap[vod.id]) {
+        setLoadingChapters(vod.id);
+        try {
+          const chapters = await getVodChapters(vod.id);
+          setChaptersMap(prev => ({ ...prev, [vod.id]: chapters }));
+        } catch (err) {
+          console.error('Chapter fetch error for', vod.id, err);
+        }
+      }
+    }
+    setLoadingChapters(null);
+  };
+
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-5xl space-y-6">
       <div className="card-surface p-4 space-y-1">
-        <p className="text-xs text-primary font-medium uppercase tracking-wider">Análise por Metadados v2</p>
+        <p className="text-xs text-primary font-medium uppercase tracking-wider">Análise de VODs + Detecção de Jogos</p>
         <p className="text-sm text-muted-foreground">
-          Cole uma URL de VOD para análise individual, ou nome do canal para ver todas as VODs. Dados via API Twitch — instantâneo.
+          Cole uma URL de VOD ou nome do canal. A ferramenta detecta automaticamente quais jogos foram jogados e por quanto tempo em cada VOD, usando os capítulos da Twitch.
         </p>
       </div>
 
@@ -90,6 +162,7 @@ export function VodTab() {
         <div className="card-surface border-destructive/30 p-4 text-sm text-destructive">{error}</div>
       )}
 
+      {/* Single VOD with chapters */}
       {singleVod && mode === "single" && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">VOD Selecionada</h3>
@@ -99,14 +172,40 @@ export function VodTab() {
             <MetricCard label="Views" value={fmtInt(singleVod.view_count)} />
             <MetricCard label="Views/hora" value={fmtInt(parseDuration(singleVod.duration) > 0 ? singleVod.view_count / (parseDuration(singleVod.duration) / 60) : 0)} />
           </div>
+
+          {/* Chapters for single VOD */}
+          {chaptersMap[singleVod.id] && chaptersMap[singleVod.id].length > 0 && (
+            <ChapterDisplay chapters={chaptersMap[singleVod.id]} />
+          )}
+          {chaptersMap[singleVod.id] && chaptersMap[singleVod.id].length === 0 && (
+            <div className="card-surface p-3 text-sm text-muted-foreground">
+              Nenhum capítulo/jogo detectado nesta VOD.
+            </div>
+          )}
         </div>
       )}
 
-      {vods.length > 0 && (
+      {/* Aggregated game summary */}
+      {allGameSummary.length > 0 && Object.keys(chaptersMap).length > 1 && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-            {mode === "single" ? "Outras VODs do canal" : "VODs do canal"} ({vods.length})
+            Resumo de jogos (todas as VODs analisadas)
           </h3>
+          <GameSummaryTable games={allGameSummary} />
+        </div>
+      )}
+
+      {/* VOD list */}
+      {vods.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+              {mode === "single" ? "Outras VODs do canal" : "VODs do canal"} ({vods.length})
+            </h3>
+            <Button variant="outline" size="sm" onClick={analyzeAllVods} disabled={!!loadingChapters}>
+              {loadingChapters ? "Analisando..." : "🔍 Analisar jogos de todas"}
+            </Button>
+          </div>
 
           <div className="grid grid-cols-4 gap-3">
             <MetricCard label="Total VODs" value={fmtInt(vods.length)} />
@@ -124,6 +223,7 @@ export function VodTab() {
                   <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Views</th>
                   <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Views/h</th>
                   <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Data</th>
+                  <th className="text-center text-xs uppercase tracking-wider text-muted-foreground p-3">Jogos</th>
                 </tr>
               </thead>
               <tbody>
@@ -131,14 +231,37 @@ export function VodTab() {
                   const mins = parseDuration(vod.duration);
                   const hours = mins / 60;
                   const vph = hours > 0 ? vod.view_count / hours : 0;
+                  const hasChapters = chaptersMap[vod.id];
+                  const isExpanded = expandedVod === vod.id;
                   return (
-                    <tr key={vod.id} className="border-b border-border last:border-0 hover:bg-secondary/50 transition-colors">
-                      <td className="p-3 text-sm max-w-[300px] truncate" title={vod.title}>{vod.title}</td>
-                      <td className="p-3 text-right font-mono text-sm">{formatDuration(vod.duration)}</td>
-                      <td className="p-3 text-right font-mono text-sm">{fmtInt(vod.view_count)}</td>
-                      <td className="p-3 text-right font-mono text-sm">{fmtInt(vph)}</td>
-                      <td className="p-3 text-right font-mono text-xs text-muted-foreground">
-                        {new Date(vod.created_at).toLocaleDateString("pt-BR")}
+                    <tr key={vod.id} className="border-b border-border last:border-0">
+                      <td colSpan={6} className="p-0">
+                        <div
+                          className="flex items-center hover:bg-secondary/50 transition-colors cursor-pointer"
+                          onClick={() => fetchChapters(vod.id)}
+                        >
+                          <div className="p-3 text-sm max-w-[300px] truncate flex-1" title={vod.title}>{vod.title}</div>
+                          <div className="p-3 text-right font-mono text-sm w-20">{formatDuration(vod.duration)}</div>
+                          <div className="p-3 text-right font-mono text-sm w-20">{fmtInt(vod.view_count)}</div>
+                          <div className="p-3 text-right font-mono text-sm w-20">{fmtInt(vph)}</div>
+                          <div className="p-3 text-right font-mono text-xs text-muted-foreground w-24">
+                            {new Date(vod.created_at).toLocaleDateString("pt-BR")}
+                          </div>
+                          <div className="p-3 text-center w-16">
+                            {loadingChapters === vod.id ? (
+                              <div className="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            ) : hasChapters ? (
+                              <span className="text-xs text-primary">{hasChapters.length > 0 ? `${hasChapters.length}` : "—"}</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">🔍</span>
+                            )}
+                          </div>
+                        </div>
+                        {isExpanded && hasChapters && hasChapters.length > 0 && (
+                          <div className="px-6 pb-3">
+                            <ChapterDisplay chapters={hasChapters} compact />
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -154,6 +277,109 @@ export function VodTab() {
           Cole a URL de uma VOD ou nome do canal para iniciar a análise.
         </div>
       )}
+    </div>
+  );
+}
+
+function ChapterDisplay({ chapters, compact }: { chapters: VodChapter[]; compact?: boolean }) {
+  const games = aggregateChapters(chapters);
+  const totalSec = chapters.reduce((s, c) => s + c.durationSeconds, 0);
+
+  return (
+    <div className="space-y-2">
+      {!compact && <p className="text-xs text-muted-foreground uppercase tracking-wider">Jogos detectados</p>}
+      <div className="flex flex-wrap gap-1.5">
+        {games.map((g) => {
+          const pct = totalSec > 0 ? ((g.totalSeconds / totalSec) * 100).toFixed(0) : "0";
+          return (
+            <div
+              key={g.game}
+              className="flex items-center gap-2 card-surface px-3 py-1.5 text-xs"
+            >
+              {g.gameBoxArt && (
+                <img
+                  src={g.gameBoxArt.replace('{width}', '28').replace('{height}', '38')}
+                  alt={g.game}
+                  className="w-5 h-7 rounded-sm object-cover"
+                />
+              )}
+              <div>
+                <span className="font-medium text-foreground">{g.game}</span>
+                <span className="text-muted-foreground ml-1.5">{formatSeconds(g.totalSeconds)} ({pct}%)</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {!compact && (
+        <div className="card-surface overflow-hidden mt-2">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Momento</th>
+                <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Jogo / Categoria</th>
+                <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Duração</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chapters.map((ch, i) => (
+                <tr key={i} className="border-b border-border last:border-0">
+                  <td className="p-2 font-mono text-xs text-muted-foreground">{formatSeconds(ch.positionSeconds)}</td>
+                  <td className="p-2 text-sm flex items-center gap-2">
+                    {ch.gameBoxArt && (
+                      <img
+                        src={ch.gameBoxArt.replace('{width}', '20').replace('{height}', '28')}
+                        alt={ch.game}
+                        className="w-4 h-5 rounded-sm object-cover"
+                      />
+                    )}
+                    {ch.game}
+                  </td>
+                  <td className="p-2 text-right font-mono text-sm">{formatSeconds(ch.durationSeconds)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GameSummaryTable({ games }: { games: GameSummary[] }) {
+  const totalSec = games.reduce((s, g) => s + g.totalSeconds, 0);
+  return (
+    <div className="card-surface overflow-hidden">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-3">Jogo</th>
+            <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Tempo total</th>
+            <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">%</th>
+            <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Segmentos</th>
+          </tr>
+        </thead>
+        <tbody>
+          {games.map((g) => (
+            <tr key={g.game} className="border-b border-border last:border-0 hover:bg-secondary/50 transition-colors">
+              <td className="p-3 text-sm flex items-center gap-2">
+                {g.gameBoxArt && (
+                  <img
+                    src={g.gameBoxArt.replace('{width}', '28').replace('{height}', '38')}
+                    alt={g.game}
+                    className="w-5 h-7 rounded-sm object-cover"
+                  />
+                )}
+                {g.game}
+              </td>
+              <td className="p-3 text-right font-mono text-sm">{formatSeconds(g.totalSeconds)}</td>
+              <td className="p-3 text-right font-mono text-sm">{totalSec > 0 ? ((g.totalSeconds / totalSec) * 100).toFixed(1) : 0}%</td>
+              <td className="p-3 text-right font-mono text-sm">{g.segments}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
