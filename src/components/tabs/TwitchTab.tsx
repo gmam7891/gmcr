@@ -177,6 +177,14 @@ export function TwitchTab() {
           </div>
         )}
 
+        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider pt-2">Projeção de views ({fmtInt(plannedHours)}h contratadas)</h2>
+        <div className="grid grid-cols-4 gap-3">
+          <MetricCard label="Views (avg viewers)" value={fmtInt(results.avgLiveViews)} />
+          <MetricCard label="Views (peak viewers)" value={fmtInt(results.peakLiveViews)} />
+          <MetricCard label="Views VOD" value={fmtInt(results.vodViews)} />
+          <MetricCard label="Views únicas totais" value={fmtInt(results.uniqueViews)} />
+        </div>
+
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider pt-2">Projeção financeira</h2>
         <div className="grid grid-cols-4 gap-3">
           <MetricCard label="Cliques estimados" value={fmtInt(results.clicks)} />
