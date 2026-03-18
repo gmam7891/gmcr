@@ -33,11 +33,16 @@ export function TwitchTab() {
       setUserData(user);
       if (!user) { setLoading(false); return; }
 
-      const [stream, vods] = await Promise.all([
+      const [stream, allVods] = await Promise.all([
         getStream(channel),
-        getVods(user.id, 20),
+        getVods(user.id, 50),
       ]);
       setStreamData(stream);
+
+      // Filter VODs to last 30 days only
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const vods = allVods.filter((v: TwitchVod) => new Date(v.created_at) >= thirtyDaysAgo);
 
       if (vods.length > 0) {
         const views = vods.map((v: TwitchVod) => v.view_count);
