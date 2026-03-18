@@ -34,6 +34,15 @@ interface TwitchVod {
   stream_id: string;
 }
 
+interface VodChapter {
+  description: string;
+  positionSeconds: number;
+  durationSeconds: number;
+  game: string;
+  gameId: string | null;
+  gameBoxArt: string | null;
+}
+
 async function callTwitch(body: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke('twitch-api', { body });
   if (error) throw new Error(error.message);
@@ -60,6 +69,11 @@ export async function getVod(vodId: string): Promise<TwitchVod | null> {
   return result?.data?.[0] ?? null;
 }
 
+export async function getVodChapters(vodId: string): Promise<VodChapter[]> {
+  const result = await callTwitch({ action: 'get_vod_chapters', vod_id: vodId });
+  return result?.chapters ?? [];
+}
+
 export function parseDuration(s: string): number {
   if (!s) return 0;
   let h = 0, m = 0, sec = 0;
@@ -79,4 +93,11 @@ export function formatDuration(s: string): string {
   return h > 0 ? `${h}h${m.toString().padStart(2, '0')}m` : `${m}m`;
 }
 
-export type { TwitchUser, TwitchStream, TwitchVod };
+export function formatSeconds(totalSec: number): string {
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  if (h > 0) return `${h}h${m.toString().padStart(2, '0')}m`;
+  return `${m}m`;
+}
+
+export type { TwitchUser, TwitchStream, TwitchVod, VodChapter };

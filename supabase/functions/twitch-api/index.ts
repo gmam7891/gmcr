@@ -6,6 +6,7 @@ const corsHeaders = {
 };
 
 const GATEWAY_URL = 'https://connector-gateway.lovable.dev/twitch';
+const GQL_URL = 'https://gql.twitch.tv/gql';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -69,6 +70,52 @@ Deno.serve(async (req) => {
       const data = await res.json();
       if (!res.ok) throw new Error(`Twitch API error [${res.status}]: ${JSON.stringify(data)}`);
       return new Response(JSON.stringify(data), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Fetch VOD chapters via Twitch GQL (public, no auth needed)
+    if (action === 'get_vod_chapters') {
+      const videoId = vod_id;
+      if (!videoId) throw new Error('vod_id is required for get_vod_chapters');
+
+      const gqlQuery = {
+        operationName: "VideoPlayer_ChapterSelectButtonVideo",
+        variables: { videoID: String(videoId) },
+        extensions: {
+          persistedQuery: {
+            version: 1,
+            sha256Hash: "8d2793384aac3773beab5e59bd5d6f585aedb923d292800571571c2d1f41881c"
+          }
+        }
+      };
+
+      const gqlRes = await fetch(GQL_URL, {
+        method: 'POST',
+        headers: {
+          'Client-ID': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(gqlQuery),
+      });
+
+      const gqlData = await gqlRes.json();
+      
+      // Extract chapters from the GQL response
+      const moments = gqlData?.data?.video?.moments?.edges ?? [];
+      const chapters = moments.map((edge: { node: { description: string; positionMilliseconds: number; durationMilliseconds: number; details: { game?: { displayName: string; id: string; boxArtURL: string } } } }) => {
+        const node = edge.node;
+        return {
+          description: node.description,
+          positionSeconds: Math.round(node.positionMilliseconds / 1000),
+          durationSeconds: Math.round(node.durationMilliseconds / 1000),
+          game: node.details?.game?.displayName ?? node.description,
+          gameId: node.details?.game?.id ?? null,
+          gameBoxArt: node.details?.game?.boxArtURL ?? null,
+        };
+      });
+
+      return new Response(JSON.stringify({ chapters }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
