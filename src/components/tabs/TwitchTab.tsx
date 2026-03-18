@@ -86,7 +86,7 @@ export function TwitchTab() {
     const profit = revenue - fee;
     const targetRoi = roiAlvo / 100;
     const feeMaxRoi = targetRoi > 0 ? revenue / (1 + targetRoi) : null;
-    return { uniqueViews, clicks, ftd, revenue, roi, cpa, roas, profit, feeMaxRoi };
+    return { avgLiveViews, peakLiveViews, vodViews, uniqueViews, clicks, ftd, revenue, roi, cpa, roas, profit, feeMaxRoi };
   }, [avgViewers, plannedHours, churnFactor, vodViewsPerHour, ctrTw, cvrTw, valueFtdTw, fee, roiAlvo]);
 
   const getStatus = () => {
