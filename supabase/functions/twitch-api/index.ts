@@ -146,7 +146,6 @@ Deno.serve(async (req) => {
     if (action === 'get_storyboard_urls') {
       if (!vod_id) throw new Error('vod_id is required');
 
-      // Use raw GQL query to get seekPreviewsURL
       const gqlRes = await fetch(GQL_URL, {
         method: 'POST',
         headers: { 'Client-ID': GQL_CLIENT_ID, 'Content-Type': 'application/json' },
@@ -159,24 +158,40 @@ Deno.serve(async (req) => {
       const seekPreviewsURL = gqlData?.data?.video?.seekPreviewsURL;
 
       if (!seekPreviewsURL) {
-        return jsonResponse({ storyboardUrls: [], error: 'No storyboard URL available' });
+        return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard URL available' });
       }
 
-      // seekPreviewsURL is a base URL like:
-      // https://static-cdn.jtvnw.net/cf_vods/.../storyboards/123456789-strip-0.jpg
-      // We generate URLs for multiple strips
-      const storyboardUrls: string[] = [];
-      const durationSecs = body.duration_seconds || 3600;
-      // Each storyboard strip typically covers ~2 minutes (has ~10 frames at 12s intervals)
-      // So for a 3h stream we need about 90 strips
-      const estimatedStrips = Math.ceil(durationSecs / 120);
-
-      for (let i = 0; i < estimatedStrips; i++) {
-        const url = seekPreviewsURL.replace(/-strip-\d+\.jpg/, `-strip-${i}.jpg`);
-        storyboardUrls.push(url);
+      // seekPreviewsURL is an info.json file, fetch it to get actual strip image URLs
+      const infoRes = await fetch(seekPreviewsURL);
+      if (!infoRes.ok) {
+        return jsonResponse({ storyboardUrls: [], interval: 0, error: `Failed to fetch storyboard info: ${infoRes.status}` });
       }
 
-      return jsonResponse({ storyboardUrls, seekPreviewsURL });
+      const infoData = await infoRes.json();
+      // infoData is an array like:
+      // [{ quality: "low", images: [...], interval: 19, cols: 5, rows: 40, width: 160, height: 90, count: 200 },
+      //  { quality: "high", images: [...], interval: 19, cols: 5, rows: 10, width: 220, height: 124, count: 200 }]
+
+      // Prefer "high" quality
+      const highQuality = infoData.find((q: any) => q.quality === 'high') || infoData[0];
+      if (!highQuality) {
+        return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard quality data' });
+      }
+
+      // Build full URLs for the strip images
+      const baseUrl = seekPreviewsURL.replace(/[^/]+$/, ''); // remove info.json filename
+      const storyboardUrls = highQuality.images.map((img: string) => baseUrl + img);
+
+      return jsonResponse({
+        storyboardUrls,
+        interval: highQuality.interval,
+        cols: highQuality.cols,
+        rows: highQuality.rows,
+        width: highQuality.width,
+        height: highQuality.height,
+        count: highQuality.count,
+        framesPerStrip: highQuality.cols * highQuality.rows,
+      });
     }
 
     // --- Deep VOD analysis with AI Vision using storyboards ---
