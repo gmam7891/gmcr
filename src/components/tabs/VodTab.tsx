@@ -106,17 +106,18 @@ export function VodTab() {
   // Deep AI Vision: sample every 2 min across the entire VOD
   const analyzeWithAI = async (vod: TwitchVod) => {
     setAiLoading(vod.id);
-    setAiProgress("Gerando thumbnails...");
+    setAiProgress("Buscando storyboards...");
     try {
       const durationMins = parseDuration(vod.duration);
       const durationSecs = durationMins * 60;
 
-      // Generate seek thumbnails every 2 minutes
-      const seekThumbs = generateSeekThumbnails(vod.thumbnail_url, durationSecs, 120);
+      // Get storyboard sprite sheet URLs from Twitch GQL
+      const storyboardUrls = await getStoryboardUrls(vod.id, durationSecs);
 
-      if (seekThumbs.length === 0) {
-        // Fallback: at least try the default thumbnail
+      if (storyboardUrls.length === 0) {
+        // Fallback: use the default thumbnail
         const fallbackUrl = vod.thumbnail_url.replace('%{width}', '640').replace('%{height}', '360');
+        setAiProgress("Analisando thumbnail...");
         const result = await analyzeVodFrames([fallbackUrl], vod.title);
         setAiResults(prev => ({ ...prev, [vod.id]: result }));
         setAiLoading(null);
@@ -124,12 +125,22 @@ export function VodTab() {
         return;
       }
 
-      const urls = seekThumbs.map(t => t.url);
-      const timestamps = seekThumbs.map(t => t.offset);
+      // Sample storyboard strips evenly across the VOD
+      // Each strip covers ~2min, pick every Nth to get good coverage without too many API calls
+      const maxStrips = 30; // analyze up to 30 sprite sheets
+      const step = Math.max(1, Math.floor(storyboardUrls.length / maxStrips));
+      const selectedUrls: string[] = [];
+      const selectedTimestamps: number[] = [];
 
-      setAiProgress(`Analisando ${urls.length} frames (a cada 2min)...`);
+      for (let i = 0; i < storyboardUrls.length && selectedUrls.length < maxStrips; i += step) {
+        selectedUrls.push(storyboardUrls[i]);
+        // Each strip covers ~2 minutes, so timestamp = strip_index * 120
+        selectedTimestamps.push(i * 120);
+      }
 
-      const result = await analyzeVodFrames(urls, vod.title, timestamps);
+      setAiProgress(`Analisando ${selectedUrls.length} storyboards da VOD...`);
+
+      const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps);
       setAiResults(prev => ({ ...prev, [vod.id]: result }));
     } catch (err) {
       console.error('AI analysis error:', err);
