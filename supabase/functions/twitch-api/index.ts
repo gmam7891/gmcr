@@ -8,6 +8,7 @@ const corsHeaders = {
 const GATEWAY_URL = 'https://connector-gateway.lovable.dev/twitch';
 const GQL_URL = 'https://gql.twitch.tv/gql';
 const GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
+const AI_GATEWAY = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -37,13 +38,12 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { action, login, user_id, vod_id, vod_count } = body;
 
+    // --- Twitch API proxy actions ---
     if (action === 'get_user') {
       const res = await fetch(`${GATEWAY_URL}/users?login=${encodeURIComponent(login)}`, { headers });
       const data = await res.json();
       if (!res.ok) throw new Error(`Twitch API error [${res.status}]: ${JSON.stringify(data)}`);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse(data);
     }
 
     if (action === 'get_stream') {
@@ -51,39 +51,30 @@ Deno.serve(async (req) => {
       const res = await fetch(`${GATEWAY_URL}/streams?${param}`, { headers });
       const data = await res.json();
       if (!res.ok) throw new Error(`Twitch API error [${res.status}]: ${JSON.stringify(data)}`);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse(data);
     }
 
     if (action === 'get_vods') {
-      const uid = user_id;
       const count = vod_count || 20;
-      const res = await fetch(`${GATEWAY_URL}/videos?user_id=${uid}&first=${count}&type=archive`, { headers });
+      const res = await fetch(`${GATEWAY_URL}/videos?user_id=${user_id}&first=${count}&type=archive`, { headers });
       const data = await res.json();
       if (!res.ok) throw new Error(`Twitch API error [${res.status}]: ${JSON.stringify(data)}`);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse(data);
     }
 
     if (action === 'get_vod') {
       const res = await fetch(`${GATEWAY_URL}/videos?id=${vod_id}`, { headers });
       const data = await res.json();
       if (!res.ok) throw new Error(`Twitch API error [${res.status}]: ${JSON.stringify(data)}`);
-      return new Response(JSON.stringify(data), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse(data);
     }
 
-    // Fetch VOD chapters via Twitch GQL
+    // --- VOD chapters via GQL ---
     if (action === 'get_vod_chapters') {
-      const videoId = vod_id;
-      if (!videoId) throw new Error('vod_id is required for get_vod_chapters');
-
+      if (!vod_id) throw new Error('vod_id is required');
       const gqlQuery = {
         operationName: "VideoPlayer_ChapterSelectButtonVideo",
-        variables: { videoID: String(videoId) },
+        variables: { videoID: String(vod_id) },
         extensions: {
           persistedQuery: {
             version: 1,
@@ -112,15 +103,13 @@ Deno.serve(async (req) => {
         };
       });
 
-      return new Response(JSON.stringify({ chapters }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return jsonResponse({ chapters });
     }
 
-    // Scrape SullyGnome for channel stats (30 days)
+    // --- SullyGnome scrape ---
     if (action === 'scrape_sullygnome') {
       const channelLogin = (body.login || '').toLowerCase().trim();
-      if (!channelLogin) throw new Error('login is required for scrape_sullygnome');
+      if (!channelLogin) throw new Error('login is required');
 
       try {
         const url = `https://sullygnome.com/channel/${encodeURIComponent(channelLogin)}/30`;
@@ -134,7 +123,6 @@ Deno.serve(async (req) => {
         if (!res.ok) throw new Error(`SullyGnome returned ${res.status}`);
         const html = await res.text();
 
-        // Extract stats from InfoStatPanelTLCell elements
         const panelRegex = /<div class="InfoStatPanelTL"><div class="InfoStatPanelTLCell">([\d,]+)<\/div><\/div>/g;
         const values: number[] = [];
         let match;
@@ -142,7 +130,6 @@ Deno.serve(async (req) => {
           values.push(parseInt(match[1].replace(/,/g, ''), 10));
         }
 
-        // Extract per-stream data from the stream summary table
         const streamRows: { date: string; hours: number; avgViewers: number; peakViewers: number; watchHours: number; followers: number }[] = [];
         const rowRegex = /InfoPanelCombinedRow(?:Alt)?[^>]*>[\s\S]*?<a href="[^"]*">([^<]+)<\/a><\/div>\s*<div class="InfoPanelCombinedRowCell">([\d.]+) hrs<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,]+)<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,]+)<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,.]+) hrs<\/div>\s*<div class="InfoPanelCombinedRowCell">(-?[\d,]+)<\/div>/g;
         while ((match = rowRegex.exec(html)) !== null) {
@@ -156,8 +143,7 @@ Deno.serve(async (req) => {
           });
         }
 
-        // Order: Average viewers, Hours watched, Followers gained, Peak viewers, Hours streamed, Streams
-        const result = {
+        return jsonResponse({
           avgViewers: values[0] ?? null,
           hoursWatched: values[1] ?? null,
           followersGained: values[2] ?? null,
@@ -165,131 +151,187 @@ Deno.serve(async (req) => {
           hoursStreamed: values[4] ?? null,
           totalStreams: values[5] ?? null,
           streams: streamRows,
-        };
-
-        return new Response(JSON.stringify(result), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       } catch (err) {
         console.error('SullyGnome scrape error:', err);
-        return new Response(JSON.stringify({ error: `SullyGnome scrape failed: ${err instanceof Error ? err.message : 'unknown'}`, avgViewers: null, peakViewers: null }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        return jsonResponse({ error: `SullyGnome scrape failed: ${err instanceof Error ? err.message : 'unknown'}`, avgViewers: null, peakViewers: null });
       }
     }
 
-    // Analyze VOD frames using AI Vision
+    // --- Deep VOD analysis with AI Vision ---
     if (action === 'analyze_vod_frames') {
-      const { thumbnail_urls, vod_title } = body;
+      const { thumbnail_urls, vod_title, timestamps } = body;
       if (!thumbnail_urls || !Array.isArray(thumbnail_urls) || thumbnail_urls.length === 0) {
         throw new Error('thumbnail_urls array is required');
       }
 
-      // Use Lovable AI to analyze the thumbnails
-      const AI_GATEWAY = 'https://ai.gateway.lovable.dev/v1/chat/completions';
-      
-      const imageContent = thumbnail_urls.slice(0, 8).map((url: string) => ({
-        type: "image_url",
-        image_url: { url, detail: "low" }
-      }));
+      const hasTimestamps = timestamps && Array.isArray(timestamps) && timestamps.length === thumbnail_urls.length;
 
-      const aiRes = await fetch(AI_GATEWAY, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'google/gemini-2.5-flash',
-          messages: [
-            {
-              role: 'system',
-              content: `You are an expert at identifying casino/slot games from screenshots. You must focus on these known providers: Pragmatic Play, Tada Gaming, Games Global, BGaming, Amusnet, PG Soft, Hacksaw Gaming, Playtech, Endorphina, FA Chai.
+      // Process in batches of 8 images per AI call
+      const BATCH_SIZE = 8;
+      const allDetections: { game: string; provider: string | null; category: string; confidence: string; timestampSeconds: number }[] = [];
 
-Analyze each screenshot and identify:
-1. The specific slot/casino game name (e.g., "Gates of Olympus", "Sweet Bonanza", "Big Bass Bonanza", "Sugar Rush", "Starlight Princess")
-2. The game provider — prioritize matching from the list above. Use "Other" only if clearly not from any of them.
-3. If it's not a casino game, describe what's shown (e.g., "Just Chatting", "GTA V gameplay")
+      for (let batchStart = 0; batchStart < thumbnail_urls.length; batchStart += BATCH_SIZE) {
+        const batchUrls = thumbnail_urls.slice(batchStart, batchStart + BATCH_SIZE);
+        const batchTimestamps = hasTimestamps ? timestamps.slice(batchStart, batchStart + BATCH_SIZE) : [];
 
-Return a JSON array with one object per screenshot: [{"game": "name", "provider": "provider or null", "category": "slots|live_casino|table_game|not_casino", "confidence": "high|medium|low"}]
+        const imageContent = batchUrls.map((url: string, idx: number) => ({
+          type: "image_url",
+          image_url: { url, detail: "low" }
+        }));
+
+        const timestampLabels = hasTimestamps
+          ? batchTimestamps.map((t: number, i: number) => `Screenshot ${i + 1}: timestamp ${Math.floor(t / 60)}m${t % 60}s`).join('\n')
+          : '';
+
+        const aiRes = await fetch(AI_GATEWAY, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.5-flash',
+            messages: [
+              {
+                role: 'system',
+                content: `You are an expert at identifying casino/slot games from stream screenshots. You MUST focus on these known providers and identify games from them:
+
+PRIORITY PROVIDERS (check these first):
+- Pragmatic Play (games: Gates of Olympus, Sweet Bonanza, Big Bass Bonanza, Sugar Rush, Starlight Princess, Dog House, Wolf Gold, etc.)
+- Tada Gaming
+- Games Global (formerly Microgaming - games: Immortal Romance, Mega Moolah, Thunderstruck, Book of Oz, etc.)
+- BGaming (games: Elvis Frog, Aloha King Elvis, Space XY, etc.)
+- Amusnet (formerly EGT - games: 40 Burning Hot, Rise of Ra, etc.)
+- PG Soft (games: Fortune Tiger, Fortune Ox, Fortune Mouse, Mahjong Ways, etc.)
+- Hacksaw Gaming (games: Wanted Dead or a Wild, Chaos Crew, IteroClassic, etc.)
+- Playtech (games: Age of the Gods, Buffalo Blitz, etc.)
+- Endorphina (games: Lucky Streak, Satoshi's Secret, etc.)
+- FA Chai (games: Golden Empire, Boxing King, etc.)
+
+For EACH screenshot, you must return one detection. Analyze carefully:
+1. Look at the game UI, symbols, layout, logo, and any visible text
+2. Match it to a specific game name and provider from the list above
+3. If it's clearly a casino game but you can't identify the exact provider, use your best guess
+4. If it's not a casino game, describe what's shown (e.g., "Just Chatting", "GTA V gameplay")
+
+Return a JSON array with EXACTLY one object per screenshot in order:
+[{"game": "name", "provider": "provider or null", "category": "slots|live_casino|table_game|not_casino", "confidence": "high|medium|low", "screenshot_index": 0}]
 Only return the JSON array, no other text.`
-            },
-            {
-              role: 'user',
-              content: [
-                { type: "text", text: `Analyze these ${thumbnail_urls.length} screenshots from the VOD "${vod_title || 'unknown'}". Identify each casino/slot game shown:` },
-                ...imageContent
-              ]
-            }
-          ],
-          max_tokens: 2000,
-        }),
-      });
+              },
+              {
+                role: 'user',
+                content: [
+                  { type: "text", text: `Analyze these ${batchUrls.length} screenshots from the VOD "${vod_title || 'unknown'}". Identify each casino/slot game shown. ${timestampLabels ? 'Timestamps:\n' + timestampLabels : ''}` },
+                  ...imageContent
+                ]
+              }
+            ],
+            max_tokens: 3000,
+          }),
+        });
 
-      if (!aiRes.ok) {
-        const errText = await aiRes.text();
-        throw new Error(`AI analysis failed [${aiRes.status}]: ${errText}`);
-      }
+        if (!aiRes.ok) {
+          const errText = await aiRes.text();
+          console.error(`AI batch error [${aiRes.status}]:`, errText);
+          continue; // Skip failed batch, continue with others
+        }
 
-      const aiData = await aiRes.json();
-      const content = aiData?.choices?.[0]?.message?.content ?? '[]';
-      
-      // Parse the JSON response
-      let games;
-      try {
-        const jsonMatch = content.match(/\[[\s\S]*\]/);
-        games = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-      } catch {
-        games = [{ raw: content }];
-      }
+        const aiData = await aiRes.json();
+        const content = aiData?.choices?.[0]?.message?.content ?? '[]';
 
-      return new Response(JSON.stringify({ games }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Get VOD seek thumbnails at specific timestamps
-    if (action === 'get_vod_seek_thumbnails') {
-      const videoId = vod_id;
-      if (!videoId) throw new Error('vod_id is required');
-      const { offsets } = body; // Array of seconds
-      if (!offsets || !Array.isArray(offsets)) throw new Error('offsets array required');
-
-      // Use GQL to get seek preview URLs
-      const thumbnailUrls: { offset: number; url: string }[] = [];
-      
-      for (const offset of offsets.slice(0, 20)) {
-        const gqlQuery = {
-          operationName: "VideoPreviewCard__VideoMomentEdge",
-          variables: { videoID: String(videoId), offsetSeconds: offset },
-          extensions: {
-            persistedQuery: {
-              version: 1,
-              sha256Hash: "cb5816f5b29f84a55a1e9e9e1f8f8a1e8f1e8a1e8f1e8a1e8f1e8a1e8f1e8a1e"
-            }
+        try {
+          const jsonMatch = content.match(/\[[\s\S]*\]/);
+          const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+          for (let i = 0; i < batchGames.length; i++) {
+            const ts = hasTimestamps ? batchTimestamps[i] ?? 0 : 0;
+            allDetections.push({ ...batchGames[i], timestampSeconds: ts });
           }
+        } catch {
+          console.error('Failed to parse AI batch response:', content);
+        }
+
+        // Small delay between batches to avoid rate limiting
+        if (batchStart + BATCH_SIZE < thumbnail_urls.length) {
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+
+      // Build timeline: group consecutive same-game detections into segments
+      const gameTimeline: { game: string; provider: string | null; category: string; startSeconds: number; endSeconds: number; durationSeconds: number }[] = [];
+
+      if (hasTimestamps && allDetections.length > 0) {
+        // Sort by timestamp
+        allDetections.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
+
+        // Calculate interval between samples
+        const interval = allDetections.length > 1
+          ? (allDetections[allDetections.length - 1].timestampSeconds - allDetections[0].timestampSeconds) / (allDetections.length - 1)
+          : 120;
+
+        let currentSegment = {
+          game: allDetections[0].game,
+          provider: allDetections[0].provider,
+          category: allDetections[0].category,
+          startSeconds: Math.max(0, allDetections[0].timestampSeconds - interval / 2),
+          endSeconds: allDetections[0].timestampSeconds + interval / 2,
         };
 
-        // Alternative: construct thumbnail URL directly from the VOD thumbnail pattern
-        // Twitch VOD thumbnails support offset via the animated thumbnail endpoint
-        const thumbUrl = `https://static-cdn.jtvnw.net/cf_vods/d1m7jfoe9zdc1j/` +
-          `${videoId}//thumb/thumb${offset}-640x360.jpg`;
-        thumbnailUrls.push({ offset, url: thumbUrl });
+        for (let i = 1; i < allDetections.length; i++) {
+          const det = allDetections[i];
+          const isSameGame = det.game === currentSegment.game && det.provider === currentSegment.provider;
+
+          if (isSameGame) {
+            currentSegment.endSeconds = det.timestampSeconds + interval / 2;
+          } else {
+            gameTimeline.push({
+              ...currentSegment,
+              durationSeconds: Math.round(currentSegment.endSeconds - currentSegment.startSeconds),
+            });
+            currentSegment = {
+              game: det.game,
+              provider: det.provider,
+              category: det.category,
+              startSeconds: det.timestampSeconds - interval / 2,
+              endSeconds: det.timestampSeconds + interval / 2,
+            };
+          }
+        }
+        // Push last segment
+        gameTimeline.push({
+          ...currentSegment,
+          durationSeconds: Math.round(currentSegment.endSeconds - currentSegment.startSeconds),
+        });
       }
 
-      return new Response(JSON.stringify({ thumbnails: thumbnailUrls }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      // Unique games list (deduplicated)
+      const uniqueGames = new Map<string, typeof allDetections[0]>();
+      for (const det of allDetections) {
+        const key = `${det.game}|${det.provider}`;
+        if (!uniqueGames.has(key)) {
+          uniqueGames.set(key, det);
+        }
+      }
+
+      return jsonResponse({
+        games: Array.from(uniqueGames.values()),
+        gameTimeline,
+        totalSamples: allDetections.length,
+        allDetections,
       });
     }
 
-    return new Response(JSON.stringify({ error: 'Unknown action' }), {
-      status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'Unknown action' }, 400);
   } catch (error: unknown) {
     console.error('Twitch function error:', error);
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: msg }, 500);
   }
 });
+
+function jsonResponse(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
