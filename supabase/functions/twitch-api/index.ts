@@ -186,7 +186,7 @@ Deno.serve(async (req) => {
       }
 
       // Use Lovable AI to analyze the thumbnails
-      const AI_GATEWAY = 'https://ai-gateway.lovable.dev/v1/chat/completions';
+      const AI_GATEWAY = 'https://ai.gateway.lovable.dev/v1/chat/completions';
       
       const imageContent = thumbnail_urls.slice(0, 8).map((url: string) => ({
         type: "image_url",
