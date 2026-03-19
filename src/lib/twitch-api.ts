@@ -68,6 +68,21 @@ interface AiGameDetection {
   provider: string | null;
   category: string;
   confidence: string;
+  timestampSeconds?: number;
+}
+
+interface AiVodAnalysis {
+  games: AiGameDetection[];
+  gameTimeline: GameTimeSegment[];
+}
+
+interface GameTimeSegment {
+  game: string;
+  provider: string | null;
+  category: string;
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
 }
 
 async function callTwitch(body: Record<string, unknown>) {
