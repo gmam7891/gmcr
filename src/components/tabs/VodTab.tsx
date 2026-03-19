@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, formatDuration, formatSeconds, parseDuration, generateSeekThumbnails, type TwitchVod, type VodChapter, type AiGameDetection, type AiVodAnalysis, type GameTimeSegment } from "@/lib/twitch-api";
+import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, getStoryboardUrls, formatDuration, formatSeconds, parseDuration, type TwitchVod, type VodChapter, type AiGameDetection, type AiVodAnalysis, type GameTimeSegment } from "@/lib/twitch-api";
 import { fmtInt } from "@/lib/formatters";
 
 interface GameSummary {
