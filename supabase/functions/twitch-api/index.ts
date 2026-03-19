@@ -204,9 +204,11 @@ Deno.serve(async (req) => {
           messages: [
             {
               role: 'system',
-              content: `You are an expert at identifying casino/slot games from screenshots. Analyze each screenshot and identify:
-1. The specific slot/casino game name (e.g., "Gates of Olympus", "Sweet Bonanza", "Big Bass Bonanza")
-2. The game provider (e.g., "Pragmatic Play", "PG Soft", "NetEnt", "Evolution")
+              content: `You are an expert at identifying casino/slot games from screenshots. You must focus on these known providers: Pragmatic Play, Tada Gaming, Games Global, BGaming, Amusnet, PG Soft, Hacksaw Gaming, Playtech, Endorphina, FA Chai.
+
+Analyze each screenshot and identify:
+1. The specific slot/casino game name (e.g., "Gates of Olympus", "Sweet Bonanza", "Big Bass Bonanza", "Sugar Rush", "Starlight Princess")
+2. The game provider — prioritize matching from the list above. Use "Other" only if clearly not from any of them.
 3. If it's not a casino game, describe what's shown (e.g., "Just Chatting", "GTA V gameplay")
 
 Return a JSON array with one object per screenshot: [{"game": "name", "provider": "provider or null", "category": "slots|live_casino|table_game|not_casino", "confidence": "high|medium|low"}]
