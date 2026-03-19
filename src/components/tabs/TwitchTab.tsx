@@ -3,7 +3,7 @@ import { MetricCard } from "@/components/MetricCard";
 import { NumberField, FieldSection } from "@/components/FieldGroup";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
-import { getUser, getStream, getVods, parseDuration, type TwitchUser, type TwitchStream, type TwitchVod } from "@/lib/twitch-api";
+import { getUser, getStream, getVods, scrapeSullyGnome, parseDuration, type TwitchUser, type TwitchStream, type TwitchVod, type SullyGnomeStats } from "@/lib/twitch-api";
 import { Button } from "@/components/ui/button";
 
 export function TwitchTab() {
@@ -24,6 +24,8 @@ export function TwitchTab() {
   const [userData, setUserData] = useState<TwitchUser | null>(null);
   const [streamData, setStreamData] = useState<TwitchStream | null>(null);
   const [vodStats, setVodStats] = useState<{ count: number; avgViews: number; medianViews: number; vph: number } | null>(null);
+  const [sullyData, setSullyData] = useState<SullyGnomeStats | null>(null);
+  const [sullyLoading, setSullyLoading] = useState(false);
 
   const fetchChannel = async () => {
     if (!channel.trim()) return;
@@ -39,7 +41,7 @@ export function TwitchTab() {
       ]);
       setStreamData(stream);
 
-      // Filter VODs to last 30 days only
+      // Filter VODs to last 30 days
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       const vods = allVods.filter((v: TwitchVod) => new Date(v.created_at) >= thirtyDaysAgo);
@@ -54,20 +56,21 @@ export function TwitchTab() {
           ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
           : sorted[Math.floor(sorted.length / 2)];
         const vph = totalHours > 0 ? totalViews / totalHours : 0;
-
-        setVodStats({
-          count: vods.length,
-          avgViews: totalViews / vods.length,
-          medianViews: median,
-          vph,
-        });
+        setVodStats({ count: vods.length, avgViews: totalViews / vods.length, medianViews: median, vph });
         setVodViewsPerHour(Math.round(vph));
-
-        if (stream) {
-          setAvgViewers(stream.viewer_count);
-          setPeakViewers(stream.viewer_count);
-        }
       }
+
+      // Fetch SullyGnome data in parallel (don't block main flow)
+      setSullyLoading(true);
+      scrapeSullyGnome(channel).then((data) => {
+        setSullyData(data);
+        if (data.avgViewers != null) setAvgViewers(data.avgViewers);
+        if (data.peakViewers != null) setPeakViewers(data.peakViewers);
+        setSullyLoading(false);
+      }).catch(() => {
+        setSullyLoading(false);
+      });
+
     } catch (err) {
       console.error('Twitch fetch error:', err);
     }
@@ -75,7 +78,6 @@ export function TwitchTab() {
   };
 
   const results = useMemo(() => {
-    // Projeção de views baseada nas horas contratadas
     const avgLiveViews = avgViewers * plannedHours;
     const peakLiveViews = peakViewers * plannedHours;
     const liveViews = avgLiveViews;
@@ -92,7 +94,7 @@ export function TwitchTab() {
     const targetRoi = roiAlvo / 100;
     const feeMaxRoi = targetRoi > 0 ? revenue / (1 + targetRoi) : null;
     return { avgLiveViews, peakLiveViews, vodViews, uniqueViews, clicks, ftd, revenue, roi, cpa, roas, profit, feeMaxRoi };
-  }, [avgViewers, plannedHours, churnFactor, vodViewsPerHour, ctrTw, cvrTw, valueFtdTw, fee, roiAlvo]);
+  }, [avgViewers, peakViewers, plannedHours, churnFactor, vodViewsPerHour, ctrTw, cvrTw, valueFtdTw, fee, roiAlvo]);
 
   const getStatus = () => {
     if (fee <= 0) return undefined;
@@ -173,12 +175,71 @@ export function TwitchTab() {
           <MetricCard label={isLive ? "Categoria" : "Avg viewers"} value={isLive ? (streamData?.game_name ?? "-") : fmtInt(avgViewers)} />
         </div>
 
+        {/* SullyGnome Stats */}
+        {(sullyData || sullyLoading) && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                Dados SullyGnome (30 dias)
+              </h2>
+              {sullyLoading && <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />}
+            </div>
+            {sullyData && !sullyData.error && (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <MetricCard label="Avg viewers" value={fmtInt(sullyData.avgViewers)} />
+                  <MetricCard label="Peak viewers" value={fmtInt(sullyData.peakViewers)} />
+                  <MetricCard label="Horas streamed" value={sullyData.hoursStreamed != null ? `${sullyData.hoursStreamed}h` : "-"} />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <MetricCard label="Horas assistidas" value={fmtInt(sullyData.hoursWatched)} />
+                  <MetricCard label="Followers ganhos" value={fmtInt(sullyData.followersGained)} />
+                  <MetricCard label="Streams" value={fmtInt(sullyData.totalStreams)} />
+                </div>
+
+                {/* Per-stream breakdown */}
+                {sullyData.streams && sullyData.streams.length > 0 && (
+                  <div className="card-surface overflow-hidden mt-2">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border">
+                          <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Data</th>
+                          <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Horas</th>
+                          <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Avg</th>
+                          <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Peak</th>
+                          <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Watch hrs</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sullyData.streams.map((s, i) => (
+                          <tr key={i} className="border-b border-border last:border-0 hover:bg-secondary/50 transition-colors">
+                            <td className="p-2 text-xs">{s.date}</td>
+                            <td className="p-2 text-right font-mono text-xs">{s.hours}h</td>
+                            <td className="p-2 text-right font-mono text-xs">{fmtInt(s.avgViewers)}</td>
+                            <td className="p-2 text-right font-mono text-xs">{fmtInt(s.peakViewers)}</td>
+                            <td className="p-2 text-right font-mono text-xs">{fmtInt(s.watchHours)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+            {sullyData?.error && (
+              <div className="card-surface p-3 text-xs text-muted-foreground">
+                ⚠️ SullyGnome indisponível. Use os campos manuais para inserir avg/peak viewers.
+              </div>
+            )}
+          </div>
+        )}
+
         {vodStats && (
           <div className="grid grid-cols-4 gap-3">
             <MetricCard label="VODs (últimos 30d)" value={fmtInt(vodStats.count)} />
-            <MetricCard label="Avg views (30d)" value={fmtInt(vodStats.avgViews)} />
-            <MetricCard label="Mediana views (30d)" value={fmtInt(vodStats.medianViews)} />
-            <MetricCard label="Views/hora (30d)" value={fmtInt(vodStats.vph)} />
+            <MetricCard label="Avg views VOD" value={fmtInt(vodStats.avgViews)} />
+            <MetricCard label="Mediana views" value={fmtInt(vodStats.medianViews)} />
+            <MetricCard label="Views/hora VOD" value={fmtInt(vodStats.vph)} />
           </div>
         )}
 
