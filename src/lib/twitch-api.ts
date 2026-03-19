@@ -68,6 +68,21 @@ interface AiGameDetection {
   provider: string | null;
   category: string;
   confidence: string;
+  timestampSeconds?: number;
+}
+
+interface AiVodAnalysis {
+  games: AiGameDetection[];
+  gameTimeline: GameTimeSegment[];
+}
+
+interface GameTimeSegment {
+  game: string;
+  provider: string | null;
+  category: string;
+  startSeconds: number;
+  endSeconds: number;
+  durationSeconds: number;
 }
 
 async function callTwitch(body: Record<string, unknown>) {
@@ -106,9 +121,12 @@ export async function scrapeSullyGnome(login: string): Promise<SullyGnomeStats> 
   return result as SullyGnomeStats;
 }
 
-export async function analyzeVodFrames(thumbnailUrls: string[], vodTitle?: string): Promise<AiGameDetection[]> {
-  const result = await callTwitch({ action: 'analyze_vod_frames', thumbnail_urls: thumbnailUrls, vod_title: vodTitle });
-  return result?.games ?? [];
+export async function analyzeVodFrames(thumbnailUrls: string[], vodTitle?: string, timestamps?: number[]): Promise<AiVodAnalysis> {
+  const result = await callTwitch({ action: 'analyze_vod_frames', thumbnail_urls: thumbnailUrls, vod_title: vodTitle, timestamps });
+  return {
+    games: result?.games ?? [],
+    gameTimeline: result?.gameTimeline ?? [],
+  };
 }
 
 export function parseDuration(s: string): number {
@@ -138,11 +156,22 @@ export function formatSeconds(totalSec: number): string {
 }
 
 export function getVodThumbnailAtOffset(thumbnailUrl: string, offsetSeconds: number, width = 640, height = 360): string {
-  // Twitch VOD thumbnails support time offset by replacing the thumbnail URL pattern
-  return thumbnailUrl
+  const base = thumbnailUrl
     .replace('%{width}', String(width))
-    .replace('%{height}', String(height))
-    .replace(/-preview-\d+x\d+\.jpg/, `-preview-${width}x${height}.jpg`);
+    .replace('%{height}', String(height));
+  // Twitch VOD seek thumbnails: replace thumb0-WxH or thumb-WxH with thumb{offset}-WxH
+  return base.replace(/thumb\d*-\d+x\d+/, `thumb${offsetSeconds}-${width}x${height}`);
 }
 
-export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, SullyGnomeStats, SullyGnomeStream, AiGameDetection };
+export function generateSeekThumbnails(thumbnailUrl: string, durationSeconds: number, intervalSeconds = 120): { url: string; offset: number }[] {
+  const thumbnails: { url: string; offset: number }[] = [];
+  for (let offset = 60; offset < durationSeconds - 30; offset += intervalSeconds) {
+    thumbnails.push({
+      url: getVodThumbnailAtOffset(thumbnailUrl, offset),
+      offset,
+    });
+  }
+  return thumbnails;
+}
+
+export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, SullyGnomeStats, SullyGnomeStream, AiGameDetection, AiVodAnalysis, GameTimeSegment };
