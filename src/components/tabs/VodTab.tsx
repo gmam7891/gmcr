@@ -112,10 +112,9 @@ export function VodTab() {
       const durationSecs = durationMins * 60;
 
       // Get storyboard sprite sheet URLs from Twitch GQL
-      const storyboardUrls = await getStoryboardUrls(vod.id, durationSecs);
+      const storyboards = await getStoryboardUrls(vod.id, durationSecs);
 
-      if (storyboardUrls.length === 0) {
-        // Fallback: use the default thumbnail
+      if (storyboards.urls.length === 0) {
         const fallbackUrl = vod.thumbnail_url.replace('%{width}', '640').replace('%{height}', '360');
         setAiProgress("Analisando thumbnail...");
         const result = await analyzeVodFrames([fallbackUrl], vod.title);
@@ -125,17 +124,17 @@ export function VodTab() {
         return;
       }
 
-      // Sample storyboard strips evenly across the VOD
-      // Each strip covers ~2min, pick every Nth to get good coverage without too many API calls
-      const maxStrips = 30; // analyze up to 30 sprite sheets
-      const step = Math.max(1, Math.floor(storyboardUrls.length / maxStrips));
+      // Each strip covers framesPerStrip * interval seconds
+      // Sample strips evenly, max 20 to keep costs down
+      const maxStrips = 20;
+      const step = Math.max(1, Math.floor(storyboards.urls.length / maxStrips));
       const selectedUrls: string[] = [];
       const selectedTimestamps: number[] = [];
+      const secondsPerStrip = storyboards.framesPerStrip * storyboards.interval;
 
-      for (let i = 0; i < storyboardUrls.length && selectedUrls.length < maxStrips; i += step) {
-        selectedUrls.push(storyboardUrls[i]);
-        // Each strip covers ~2 minutes, so timestamp = strip_index * 120
-        selectedTimestamps.push(i * 120);
+      for (let i = 0; i < storyboards.urls.length && selectedUrls.length < maxStrips; i += step) {
+        selectedUrls.push(storyboards.urls[i]);
+        selectedTimestamps.push(i * secondsPerStrip);
       }
 
       setAiProgress(`Analisando ${selectedUrls.length} storyboards da VOD...`);
