@@ -121,9 +121,12 @@ export async function scrapeSullyGnome(login: string): Promise<SullyGnomeStats> 
   return result as SullyGnomeStats;
 }
 
-export async function analyzeVodFrames(thumbnailUrls: string[], vodTitle?: string): Promise<AiGameDetection[]> {
-  const result = await callTwitch({ action: 'analyze_vod_frames', thumbnail_urls: thumbnailUrls, vod_title: vodTitle });
-  return result?.games ?? [];
+export async function analyzeVodFrames(thumbnailUrls: string[], vodTitle?: string, timestamps?: number[]): Promise<AiVodAnalysis> {
+  const result = await callTwitch({ action: 'analyze_vod_frames', thumbnail_urls: thumbnailUrls, vod_title: vodTitle, timestamps });
+  return {
+    games: result?.games ?? [],
+    gameTimeline: result?.gameTimeline ?? [],
+  };
 }
 
 export function parseDuration(s: string): number {
