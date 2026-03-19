@@ -10,6 +10,13 @@ const GQL_URL = 'https://gql.twitch.tv/gql';
 const GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 const AI_GATEWAY = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 
+function jsonResponse(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -17,19 +24,15 @@ Deno.serve(async (req) => {
 
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
   if (!LOVABLE_API_KEY) {
-    return new Response(JSON.stringify({ error: 'LOVABLE_API_KEY not configured' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'LOVABLE_API_KEY not configured' }, 500);
   }
 
   const TWITCH_API_KEY = Deno.env.get('TWITCH_API_KEY');
   if (!TWITCH_API_KEY) {
-    return new Response(JSON.stringify({ error: 'TWITCH_API_KEY not configured' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    return jsonResponse({ error: 'TWITCH_API_KEY not configured' }, 500);
   }
 
-  const headers = {
+  const twitchHeaders = {
     'Authorization': `Bearer ${LOVABLE_API_KEY}`,
     'X-Connection-Api-Key': TWITCH_API_KEY!,
   };
@@ -38,9 +41,9 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { action, login, user_id, vod_id, vod_count } = body;
 
-    // --- Twitch API proxy actions ---
+    // --- Twitch API proxy ---
     if (action === 'get_user') {
-      const res = await fetch(`${GATEWAY_URL}/users?login=${encodeURIComponent(login)}`, { headers });
+      const res = await fetch(`${GATEWAY_URL}/users?login=${encodeURIComponent(login)}`, { headers: twitchHeaders });
       const data = await res.json();
       if (!res.ok) throw new Error(`Twitch API error [${res.status}]: ${JSON.stringify(data)}`);
       return jsonResponse(data);
@@ -48,7 +51,7 @@ Deno.serve(async (req) => {
 
     if (action === 'get_stream') {
       const param = login ? `user_login=${encodeURIComponent(login)}` : `user_id=${user_id}`;
-      const res = await fetch(`${GATEWAY_URL}/streams?${param}`, { headers });
+      const res = await fetch(`${GATEWAY_URL}/streams?${param}`, { headers: twitchHeaders });
       const data = await res.json();
       if (!res.ok) throw new Error(`Twitch API error [${res.status}]: ${JSON.stringify(data)}`);
       return jsonResponse(data);
@@ -56,14 +59,14 @@ Deno.serve(async (req) => {
 
     if (action === 'get_vods') {
       const count = vod_count || 20;
-      const res = await fetch(`${GATEWAY_URL}/videos?user_id=${user_id}&first=${count}&type=archive`, { headers });
+      const res = await fetch(`${GATEWAY_URL}/videos?user_id=${user_id}&first=${count}&type=archive`, { headers: twitchHeaders });
       const data = await res.json();
       if (!res.ok) throw new Error(`Twitch API error [${res.status}]: ${JSON.stringify(data)}`);
       return jsonResponse(data);
     }
 
     if (action === 'get_vod') {
-      const res = await fetch(`${GATEWAY_URL}/videos?id=${vod_id}`, { headers });
+      const res = await fetch(`${GATEWAY_URL}/videos?id=${vod_id}`, { headers: twitchHeaders });
       const data = await res.json();
       if (!res.ok) throw new Error(`Twitch API error [${res.status}]: ${JSON.stringify(data)}`);
       return jsonResponse(data);
@@ -72,26 +75,18 @@ Deno.serve(async (req) => {
     // --- VOD chapters via GQL ---
     if (action === 'get_vod_chapters') {
       if (!vod_id) throw new Error('vod_id is required');
-      const gqlQuery = {
-        operationName: "VideoPlayer_ChapterSelectButtonVideo",
-        variables: { videoID: String(vod_id) },
-        extensions: {
-          persistedQuery: {
-            version: 1,
-            sha256Hash: "8d2793384aac3773beab5e59bd5d6f585aedb923d292800571571c2d1f41881c"
-          }
-        }
-      };
-
       const gqlRes = await fetch(GQL_URL, {
         method: 'POST',
         headers: { 'Client-ID': GQL_CLIENT_ID, 'Content-Type': 'application/json' },
-        body: JSON.stringify(gqlQuery),
+        body: JSON.stringify({
+          operationName: "VideoPlayer_ChapterSelectButtonVideo",
+          variables: { videoID: String(vod_id) },
+          extensions: { persistedQuery: { version: 1, sha256Hash: "8d2793384aac3773beab5e59bd5d6f585aedb923d292800571571c2d1f41881c" } }
+        }),
       });
-
       const gqlData = await gqlRes.json();
       const moments = gqlData?.data?.video?.moments?.edges ?? [];
-      const chapters = moments.map((edge: { node: { description: string; positionMilliseconds: number; durationMilliseconds: number; details: { game?: { displayName: string; id: string; boxArtURL: string } } } }) => {
+      const chapters = moments.map((edge: any) => {
         const node = edge.node;
         return {
           description: node.description,
@@ -102,7 +97,6 @@ Deno.serve(async (req) => {
           gameBoxArt: node.details?.game?.boxArtURL ?? null,
         };
       });
-
       return jsonResponse({ chapters });
     }
 
@@ -110,7 +104,6 @@ Deno.serve(async (req) => {
     if (action === 'scrape_sullygnome') {
       const channelLogin = (body.login || '').toLowerCase().trim();
       if (!channelLogin) throw new Error('login is required');
-
       try {
         const url = `https://sullygnome.com/channel/${encodeURIComponent(channelLogin)}/30`;
         const res = await fetch(url, {
@@ -119,38 +112,29 @@ Deno.serve(async (req) => {
             'Accept': 'text/html,application/xhtml+xml',
           },
         });
-
         if (!res.ok) throw new Error(`SullyGnome returned ${res.status}`);
         const html = await res.text();
-
         const panelRegex = /<div class="InfoStatPanelTL"><div class="InfoStatPanelTLCell">([\d,]+)<\/div><\/div>/g;
         const values: number[] = [];
         let match;
         while ((match = panelRegex.exec(html)) !== null) {
           values.push(parseInt(match[1].replace(/,/g, ''), 10));
         }
-
-        const streamRows: { date: string; hours: number; avgViewers: number; peakViewers: number; watchHours: number; followers: number }[] = [];
+        const streamRows: any[] = [];
         const rowRegex = /InfoPanelCombinedRow(?:Alt)?[^>]*>[\s\S]*?<a href="[^"]*">([^<]+)<\/a><\/div>\s*<div class="InfoPanelCombinedRowCell">([\d.]+) hrs<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,]+)<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,]+)<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,.]+) hrs<\/div>\s*<div class="InfoPanelCombinedRowCell">(-?[\d,]+)<\/div>/g;
         while ((match = rowRegex.exec(html)) !== null) {
           streamRows.push({
-            date: match[1],
-            hours: parseFloat(match[2]),
+            date: match[1], hours: parseFloat(match[2]),
             avgViewers: parseInt(match[3].replace(/,/g, ''), 10),
             peakViewers: parseInt(match[4].replace(/,/g, ''), 10),
             watchHours: parseFloat(match[5].replace(/,/g, '')),
             followers: parseInt(match[6].replace(/,/g, ''), 10),
           });
         }
-
         return jsonResponse({
-          avgViewers: values[0] ?? null,
-          hoursWatched: values[1] ?? null,
-          followersGained: values[2] ?? null,
-          peakViewers: values[3] ?? null,
-          hoursStreamed: values[4] ?? null,
-          totalStreams: values[5] ?? null,
-          streams: streamRows,
+          avgViewers: values[0] ?? null, hoursWatched: values[1] ?? null,
+          followersGained: values[2] ?? null, peakViewers: values[3] ?? null,
+          hoursStreamed: values[4] ?? null, totalStreams: values[5] ?? null, streams: streamRows,
         });
       } catch (err) {
         console.error('SullyGnome scrape error:', err);
@@ -158,7 +142,59 @@ Deno.serve(async (req) => {
       }
     }
 
-    // --- Deep VOD analysis with AI Vision ---
+    // --- Get VOD storyboard URLs via GQL ---
+    if (action === 'get_storyboard_urls') {
+      if (!vod_id) throw new Error('vod_id is required');
+
+      const gqlRes = await fetch(GQL_URL, {
+        method: 'POST',
+        headers: { 'Client-ID': GQL_CLIENT_ID, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: `query { video(id: "${vod_id}") { seekPreviewsURL } }`,
+        }),
+      });
+
+      const gqlData = await gqlRes.json();
+      const seekPreviewsURL = gqlData?.data?.video?.seekPreviewsURL;
+
+      if (!seekPreviewsURL) {
+        return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard URL available' });
+      }
+
+      // seekPreviewsURL is an info.json file, fetch it to get actual strip image URLs
+      const infoRes = await fetch(seekPreviewsURL);
+      if (!infoRes.ok) {
+        return jsonResponse({ storyboardUrls: [], interval: 0, error: `Failed to fetch storyboard info: ${infoRes.status}` });
+      }
+
+      const infoData = await infoRes.json();
+      // infoData is an array like:
+      // [{ quality: "low", images: [...], interval: 19, cols: 5, rows: 40, width: 160, height: 90, count: 200 },
+      //  { quality: "high", images: [...], interval: 19, cols: 5, rows: 10, width: 220, height: 124, count: 200 }]
+
+      // Prefer "high" quality
+      const highQuality = infoData.find((q: any) => q.quality === 'high') || infoData[0];
+      if (!highQuality) {
+        return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard quality data' });
+      }
+
+      // Build full URLs for the strip images
+      const baseUrl = seekPreviewsURL.replace(/[^/]+$/, ''); // remove info.json filename
+      const storyboardUrls = highQuality.images.map((img: string) => baseUrl + img);
+
+      return jsonResponse({
+        storyboardUrls,
+        interval: highQuality.interval,
+        cols: highQuality.cols,
+        rows: highQuality.rows,
+        width: highQuality.width,
+        height: highQuality.height,
+        count: highQuality.count,
+        framesPerStrip: highQuality.cols * highQuality.rows,
+      });
+    }
+
+    // --- Deep VOD analysis with AI Vision using storyboards ---
     if (action === 'analyze_vod_frames') {
       const { thumbnail_urls, vod_title, timestamps } = body;
       if (!thumbnail_urls || !Array.isArray(thumbnail_urls) || thumbnail_urls.length === 0) {
@@ -167,21 +203,21 @@ Deno.serve(async (req) => {
 
       const hasTimestamps = timestamps && Array.isArray(timestamps) && timestamps.length === thumbnail_urls.length;
 
-      // Process in batches of 8 images per AI call
-      const BATCH_SIZE = 8;
+      // Process in batches of 6 images per AI call (storyboard sprites are larger)
+      const BATCH_SIZE = 6;
       const allDetections: { game: string; provider: string | null; category: string; confidence: string; timestampSeconds: number }[] = [];
 
       for (let batchStart = 0; batchStart < thumbnail_urls.length; batchStart += BATCH_SIZE) {
         const batchUrls = thumbnail_urls.slice(batchStart, batchStart + BATCH_SIZE);
         const batchTimestamps = hasTimestamps ? timestamps.slice(batchStart, batchStart + BATCH_SIZE) : [];
 
-        const imageContent = batchUrls.map((url: string, idx: number) => ({
+        const imageContent = batchUrls.map((url: string) => ({
           type: "image_url",
           image_url: { url, detail: "low" }
         }));
 
-        const timestampLabels = hasTimestamps
-          ? batchTimestamps.map((t: number, i: number) => `Screenshot ${i + 1}: timestamp ${Math.floor(t / 60)}m${t % 60}s`).join('\n')
+        const timestampInfo = hasTimestamps
+          ? `\nTimestamps: ${batchTimestamps.map((t: number, i: number) => `Image ${i + 1}: ~${Math.floor(t / 60)}min`).join(', ')}`
           : '';
 
         const aiRes = await fetch(AI_GATEWAY, {
@@ -195,34 +231,33 @@ Deno.serve(async (req) => {
             messages: [
               {
                 role: 'system',
-                content: `You are an expert at identifying casino/slot games from stream screenshots. You MUST focus on these known providers and identify games from them:
+                content: `You are an expert at identifying casino/slot games from stream screenshots and storyboard sprite sheets.
 
-PRIORITY PROVIDERS (check these first):
-- Pragmatic Play (games: Gates of Olympus, Sweet Bonanza, Big Bass Bonanza, Sugar Rush, Starlight Princess, Dog House, Wolf Gold, etc.)
+IMPORTANT: Each image may be a STORYBOARD SPRITE SHEET containing multiple small thumbnails arranged in a grid. Analyze ALL thumbnails visible in each sprite sheet.
+
+PRIORITY PROVIDERS (identify games from these):
+- Pragmatic Play (Gates of Olympus, Sweet Bonanza, Big Bass Bonanza, Sugar Rush, Starlight Princess, Dog House, Wolf Gold, Fruit Party, etc.)
 - Tada Gaming
-- Games Global (formerly Microgaming - games: Immortal Romance, Mega Moolah, Thunderstruck, Book of Oz, etc.)
-- BGaming (games: Elvis Frog, Aloha King Elvis, Space XY, etc.)
-- Amusnet (formerly EGT - games: 40 Burning Hot, Rise of Ra, etc.)
-- PG Soft (games: Fortune Tiger, Fortune Ox, Fortune Mouse, Mahjong Ways, etc.)
-- Hacksaw Gaming (games: Wanted Dead or a Wild, Chaos Crew, IteroClassic, etc.)
-- Playtech (games: Age of the Gods, Buffalo Blitz, etc.)
-- Endorphina (games: Lucky Streak, Satoshi's Secret, etc.)
-- FA Chai (games: Golden Empire, Boxing King, etc.)
+- Games Global / Microgaming (Immortal Romance, Mega Moolah, Thunderstruck, Book of Oz, Lara Croft, etc.)
+- BGaming (Elvis Frog, Aloha King Elvis, Space XY, etc.)
+- Amusnet / EGT (40 Burning Hot, Rise of Ra, etc.)
+- PG Soft (Fortune Tiger, Fortune Ox, Fortune Mouse, Mahjong Ways, etc.)
+- Hacksaw Gaming (Wanted Dead or a Wild, Chaos Crew, etc.)
+- Playtech (Age of the Gods, Buffalo Blitz, etc.)
+- Endorphina (Lucky Streak, Satoshi's Secret, etc.)
+- FA Chai (Golden Empire, Boxing King, etc.)
 
-For EACH screenshot, you must return one detection. Analyze carefully:
-1. Look at the game UI, symbols, layout, logo, and any visible text
-2. Match it to a specific game name and provider from the list above
-3. If it's clearly a casino game but you can't identify the exact provider, use your best guess
-4. If it's not a casino game, describe what's shown (e.g., "Just Chatting", "GTA V gameplay")
+For each image/sprite sheet, identify ALL distinct casino games visible. Return one entry per distinct game detected:
+[{"game": "name", "provider": "provider", "category": "slots|live_casino|table_game|not_casino", "confidence": "high|medium|low", "image_index": 0}]
 
-Return a JSON array with EXACTLY one object per screenshot in order:
-[{"game": "name", "provider": "provider or null", "category": "slots|live_casino|table_game|not_casino", "confidence": "high|medium|low", "screenshot_index": 0}]
+If a sprite sheet shows multiple different games, return multiple entries with the same image_index.
+If it's not a casino game (e.g., Just Chatting, gameplay), return one entry with category "not_casino".
 Only return the JSON array, no other text.`
               },
               {
                 role: 'user',
                 content: [
-                  { type: "text", text: `Analyze these ${batchUrls.length} screenshots from the VOD "${vod_title || 'unknown'}". Identify each casino/slot game shown. ${timestampLabels ? 'Timestamps:\n' + timestampLabels : ''}` },
+                  { type: "text", text: `Analyze these ${batchUrls.length} images from the VOD "${vod_title || 'unknown'}". Some may be storyboard sprite sheets with multiple thumbnails. Identify every casino game visible.${timestampInfo}` },
                   ...imageContent
                 ]
               }
@@ -234,7 +269,7 @@ Only return the JSON array, no other text.`
         if (!aiRes.ok) {
           const errText = await aiRes.text();
           console.error(`AI batch error [${aiRes.status}]:`, errText);
-          continue; // Skip failed batch, continue with others
+          continue;
         }
 
         const aiData = await aiRes.json();
@@ -243,35 +278,31 @@ Only return the JSON array, no other text.`
         try {
           const jsonMatch = content.match(/\[[\s\S]*\]/);
           const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-          for (let i = 0; i < batchGames.length; i++) {
-            const ts = hasTimestamps ? batchTimestamps[i] ?? 0 : 0;
-            allDetections.push({ ...batchGames[i], timestampSeconds: ts });
+          for (const g of batchGames) {
+            const imgIdx = g.image_index ?? 0;
+            const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
+            allDetections.push({ ...g, timestampSeconds: ts });
           }
         } catch {
-          console.error('Failed to parse AI batch response:', content);
+          console.error('Failed to parse AI response:', content);
         }
 
-        // Small delay between batches to avoid rate limiting
+        // Delay between batches
         if (batchStart + BATCH_SIZE < thumbnail_urls.length) {
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, 1500));
         }
       }
 
-      // Build timeline: group consecutive same-game detections into segments
-      const gameTimeline: { game: string; provider: string | null; category: string; startSeconds: number; endSeconds: number; durationSeconds: number }[] = [];
-
+      // Build timeline from detections sorted by timestamp
+      const gameTimeline: any[] = [];
       if (hasTimestamps && allDetections.length > 0) {
-        // Sort by timestamp
         allDetections.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
-
-        // Calculate interval between samples
         const interval = allDetections.length > 1
           ? (allDetections[allDetections.length - 1].timestampSeconds - allDetections[0].timestampSeconds) / (allDetections.length - 1)
           : 120;
 
-        let currentSegment = {
-          game: allDetections[0].game,
-          provider: allDetections[0].provider,
+        let seg = {
+          game: allDetections[0].game, provider: allDetections[0].provider,
           category: allDetections[0].category,
           startSeconds: Math.max(0, allDetections[0].timestampSeconds - interval / 2),
           endSeconds: allDetections[0].timestampSeconds + interval / 2,
@@ -279,45 +310,31 @@ Only return the JSON array, no other text.`
 
         for (let i = 1; i < allDetections.length; i++) {
           const det = allDetections[i];
-          const isSameGame = det.game === currentSegment.game && det.provider === currentSegment.provider;
-
-          if (isSameGame) {
-            currentSegment.endSeconds = det.timestampSeconds + interval / 2;
+          if (det.game === seg.game && det.provider === seg.provider) {
+            seg.endSeconds = det.timestampSeconds + interval / 2;
           } else {
-            gameTimeline.push({
-              ...currentSegment,
-              durationSeconds: Math.round(currentSegment.endSeconds - currentSegment.startSeconds),
-            });
-            currentSegment = {
-              game: det.game,
-              provider: det.provider,
-              category: det.category,
+            gameTimeline.push({ ...seg, durationSeconds: Math.round(seg.endSeconds - seg.startSeconds) });
+            seg = {
+              game: det.game, provider: det.provider, category: det.category,
               startSeconds: det.timestampSeconds - interval / 2,
               endSeconds: det.timestampSeconds + interval / 2,
             };
           }
         }
-        // Push last segment
-        gameTimeline.push({
-          ...currentSegment,
-          durationSeconds: Math.round(currentSegment.endSeconds - currentSegment.startSeconds),
-        });
+        gameTimeline.push({ ...seg, durationSeconds: Math.round(seg.endSeconds - seg.startSeconds) });
       }
 
-      // Unique games list (deduplicated)
-      const uniqueGames = new Map<string, typeof allDetections[0]>();
+      // Unique games
+      const uniqueGames = new Map<string, any>();
       for (const det of allDetections) {
         const key = `${det.game}|${det.provider}`;
-        if (!uniqueGames.has(key)) {
-          uniqueGames.set(key, det);
-        }
+        if (!uniqueGames.has(key)) uniqueGames.set(key, det);
       }
 
       return jsonResponse({
         games: Array.from(uniqueGames.values()),
         gameTimeline,
         totalSamples: allDetections.length,
-        allDetections,
       });
     }
 
@@ -328,10 +345,3 @@ Only return the JSON array, no other text.`
     return jsonResponse({ error: msg }, 500);
   }
 });
-
-function jsonResponse(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
