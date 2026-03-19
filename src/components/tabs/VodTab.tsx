@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, formatDuration, formatSeconds, parseDuration, type TwitchVod, type VodChapter, type AiGameDetection } from "@/lib/twitch-api";
+import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, formatDuration, formatSeconds, parseDuration, generateSeekThumbnails, type TwitchVod, type VodChapter, type AiGameDetection, type AiVodAnalysis, type GameTimeSegment } from "@/lib/twitch-api";
 import { fmtInt } from "@/lib/formatters";
 
 interface GameSummary {
@@ -39,9 +39,10 @@ export function VodTab() {
   const [loadingChapters, setLoadingChapters] = useState<string | null>(null);
   const [expandedVod, setExpandedVod] = useState<string | null>(null);
 
-  // AI Vision analysis state
-  const [aiResults, setAiResults] = useState<Record<string, AiGameDetection[]>>({});
+  // AI Vision analysis state - now stores full analysis
+  const [aiResults, setAiResults] = useState<Record<string, AiVodAnalysis>>({});
   const [aiLoading, setAiLoading] = useState<string | null>(null);
+  const [aiProgress, setAiProgress] = useState<string | null>(null);
 
   const analyze = async () => {
     if (!vodUrl.trim()) return;
@@ -73,7 +74,7 @@ export function VodTab() {
         const channelVods = await getVods(vod.user_id, 20);
         setVods(channelVods);
       } else {
-        const login = input.replace(/https?:\/\/(www\.)?twitch\.tv\//, "").replace(/\//g, "").toLowerCase();
+        const login = input.replace(/https?:\/\/(www\.|m\.)?twitch\.tv\//, "").replace(/\//g, "").toLowerCase();
         const user = await getUser(login);
         if (!user) throw new Error("Canal não encontrado");
         const channelVods = await getVods(user.id, 20);
@@ -102,34 +103,46 @@ export function VodTab() {
     setLoadingChapters(null);
   };
 
-  // AI Vision: analyze a single VOD's thumbnails for casino game detection
+  // Deep AI Vision: sample every 2 min across the entire VOD
   const analyzeWithAI = async (vod: TwitchVod) => {
     setAiLoading(vod.id);
+    setAiProgress("Gerando thumbnails...");
     try {
-      // Generate thumbnail URLs at different time offsets
       const durationMins = parseDuration(vod.duration);
       const durationSecs = durationMins * 60;
-      const intervalSecs = Math.max(300, Math.floor(durationSecs / 8)); // Every 5 min or 8 samples max
-      const thumbnailUrls: string[] = [];
 
-      for (let offset = 0; offset < durationSecs; offset += intervalSecs) {
-        if (thumbnailUrls.length >= 8) break;
-        // Use Twitch's thumbnail URL pattern with time offset
-        const url = vod.thumbnail_url
-          .replace('%{width}', '640')
-          .replace('%{height}', '360');
-        thumbnailUrls.push(url);
+      // Generate seek thumbnails every 2 minutes
+      const seekThumbs = generateSeekThumbnails(vod.thumbnail_url, durationSecs, 120);
+
+      if (seekThumbs.length === 0) {
+        // Fallback: at least try the default thumbnail
+        const fallbackUrl = vod.thumbnail_url.replace('%{width}', '640').replace('%{height}', '360');
+        const result = await analyzeVodFrames([fallbackUrl], vod.title);
+        setAiResults(prev => ({ ...prev, [vod.id]: result }));
+        setAiLoading(null);
+        setAiProgress(null);
+        return;
       }
 
-      // If we only get 1 unique URL (no offset support), try to at least analyze what we have
-      const uniqueUrls = [...new Set(thumbnailUrls)];
-      const results = await analyzeVodFrames(uniqueUrls, vod.title);
-      setAiResults(prev => ({ ...prev, [vod.id]: results }));
+      const urls = seekThumbs.map(t => t.url);
+      const timestamps = seekThumbs.map(t => t.offset);
+
+      setAiProgress(`Analisando ${urls.length} frames (a cada 2min)...`);
+
+      const result = await analyzeVodFrames(urls, vod.title, timestamps);
+      setAiResults(prev => ({ ...prev, [vod.id]: result }));
     } catch (err) {
       console.error('AI analysis error:', err);
-      setAiResults(prev => ({ ...prev, [vod.id]: [{ game: 'Erro na análise', provider: null, category: 'error', confidence: 'low' }] }));
+      setAiResults(prev => ({
+        ...prev,
+        [vod.id]: {
+          games: [{ game: 'Erro na análise', provider: null, category: 'error', confidence: 'low' }],
+          gameTimeline: [],
+        },
+      }));
     }
     setAiLoading(null);
+    setAiProgress(null);
   };
 
   const allGameSummary = useMemo(() => {
@@ -161,7 +174,7 @@ export function VodTab() {
       <div className="card-surface p-4 space-y-1">
         <p className="text-xs text-primary font-medium uppercase tracking-wider">Análise de VODs + Detecção de Jogos</p>
         <p className="text-sm text-muted-foreground">
-          Cole uma URL de VOD ou nome do canal. A ferramenta detecta categorias via capítulos da Twitch e pode usar <strong>IA Vision</strong> para identificar jogos específicos de cassino (ex: Gates of Olympus, Sweet Bonanza).
+          Cole uma URL de VOD ou nome do canal. A IA analisa <strong>cada 2 minutos</strong> da VOD para detectar jogos específicos de cassino e calcular o tempo gasto em cada jogo.
         </p>
       </div>
 
@@ -205,7 +218,7 @@ export function VodTab() {
           )}
           {chaptersMap[singleVod.id] && chaptersMap[singleVod.id].length === 0 && (
             <div className="card-surface p-3 text-sm text-muted-foreground">
-              Nenhum capítulo/jogo detectado nesta VOD.
+              Nenhum capítulo/jogo detectado via Twitch.
             </div>
           )}
 
@@ -217,12 +230,12 @@ export function VodTab() {
               onClick={() => analyzeWithAI(singleVod)}
               disabled={!!aiLoading}
             >
-              {aiLoading === singleVod.id ? "🤖 Analisando com IA..." : "🤖 Detectar jogos com IA Vision"}
+              {aiLoading === singleVod.id ? `🤖 ${aiProgress || 'Analisando...'}` : "🤖 Varredura profunda com IA"}
             </Button>
-            <span className="text-xs text-muted-foreground">Identifica jogos específicos (ex: Gates of Olympus, Sweet Bonanza)</span>
+            <span className="text-xs text-muted-foreground">Analisa cada 2min da VOD para detectar jogos e provedoras</span>
           </div>
           {aiResults[singleVod.id] && (
-            <AiResultsDisplay results={aiResults[singleVod.id]} />
+            <AiResultsDisplay analysis={aiResults[singleVod.id]} vodDurationSecs={parseDuration(singleVod.duration) * 60} />
           )}
         </div>
       )}
@@ -304,12 +317,12 @@ export function VodTab() {
                             {aiLoading === vod.id ? (
                               <div className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
                             ) : hasAiResult ? (
-                              <span className="text-xs text-accent">✓</span>
+                              <span className="text-xs text-accent">✓ {hasAiResult.games.filter(g => g.category !== 'not_casino').length}</span>
                             ) : (
                               <button
                                 className="text-xs text-muted-foreground hover:text-accent transition-colors"
                                 onClick={(e) => { e.stopPropagation(); analyzeWithAI(vod); }}
-                                title="Analisar com IA Vision"
+                                title="Varredura profunda com IA"
                               >
                                 🤖
                               </button>
@@ -321,7 +334,7 @@ export function VodTab() {
                             {hasChapters && hasChapters.length > 0 && (
                               <ChapterDisplay chapters={hasChapters} compact />
                             )}
-                            {hasAiResult && <AiResultsDisplay results={hasAiResult} compact />}
+                            {hasAiResult && <AiResultsDisplay analysis={hasAiResult} vodDurationSecs={mins * 60} compact />}
                             {!hasAiResult && (
                               <Button
                                 variant="outline"
@@ -329,7 +342,7 @@ export function VodTab() {
                                 onClick={() => analyzeWithAI(vod)}
                                 disabled={!!aiLoading}
                               >
-                                🤖 Detectar jogos específicos com IA
+                                {aiLoading === vod.id ? `🤖 ${aiProgress || 'Analisando...'}` : "🤖 Varredura profunda com IA"}
                               </Button>
                             )}
                           </div>
@@ -353,36 +366,122 @@ export function VodTab() {
   );
 }
 
-function AiResultsDisplay({ results, compact }: { results: AiGameDetection[]; compact?: boolean }) {
-  const casinoGames = results.filter(r => r.category !== 'not_casino' && r.category !== 'error');
-  const otherGames = results.filter(r => r.category === 'not_casino');
+function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: AiVodAnalysis; vodDurationSecs: number; compact?: boolean }) {
+  const casinoGames = analysis.games.filter(r => r.category !== 'not_casino' && r.category !== 'error');
+  const otherGames = analysis.games.filter(r => r.category === 'not_casino');
+  const timeline = analysis.gameTimeline || [];
+
+  // Aggregate time per game from timeline
+  const timeByGame = new Map<string, { game: string; provider: string | null; totalSeconds: number; category: string }>();
+  for (const seg of timeline) {
+    const key = `${seg.game}|${seg.provider}`;
+    const existing = timeByGame.get(key);
+    if (existing) {
+      existing.totalSeconds += seg.durationSeconds;
+    } else {
+      timeByGame.set(key, { game: seg.game, provider: seg.provider, totalSeconds: seg.durationSeconds, category: seg.category });
+    }
+  }
+  const timeAggregated = Array.from(timeByGame.values()).sort((a, b) => b.totalSeconds - a.totalSeconds);
 
   return (
-    <div className="space-y-2">
-      {!compact && <p className="text-xs text-accent font-medium uppercase tracking-wider">🤖 Jogos detectados pela IA Vision</p>}
-      {results.length === 0 && (
+    <div className="space-y-3">
+      {!compact && <p className="text-xs text-accent font-medium uppercase tracking-wider">🤖 Varredura profunda — Jogos detectados pela IA</p>}
+
+      {casinoGames.length === 0 && otherGames.length === 0 && (
         <p className="text-xs text-muted-foreground">Nenhum jogo detectado.</p>
       )}
-      <div className="flex flex-wrap gap-1.5">
-        {casinoGames.map((r, i) => (
-          <div key={i} className="flex items-center gap-2 card-surface px-3 py-1.5 text-xs border border-accent/20">
-            <span className="text-accent">🎰</span>
-            <div>
-              <span className="font-medium text-foreground">{r.game}</span>
-              {r.provider && <span className="text-muted-foreground ml-1">({r.provider})</span>}
-              <span className={`ml-1.5 text-xs ${r.confidence === 'high' ? 'text-accent' : r.confidence === 'medium' ? 'text-yellow-500' : 'text-muted-foreground'}`}>
-                {r.confidence === 'high' ? '●' : r.confidence === 'medium' ? '◐' : '○'}
-              </span>
+
+      {/* Time-based summary (main view) */}
+      {timeAggregated.length > 0 && (
+        <div className="card-surface overflow-hidden">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Jogo</th>
+                <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Provedora</th>
+                <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Tempo estimado</th>
+                <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {timeAggregated.map((g, i) => {
+                const pct = vodDurationSecs > 0 ? ((g.totalSeconds / vodDurationSecs) * 100).toFixed(1) : "0";
+                const isCasino = g.category !== 'not_casino';
+                return (
+                  <tr key={i} className="border-b border-border last:border-0 hover:bg-secondary/50 transition-colors">
+                    <td className="p-2 text-sm">
+                      <span className="mr-1.5">{isCasino ? '🎰' : '🎮'}</span>
+                      <span className="font-medium text-foreground">{g.game}</span>
+                    </td>
+                    <td className="p-2 text-sm text-muted-foreground">{g.provider || '—'}</td>
+                    <td className="p-2 text-right font-mono text-sm">{formatSeconds(g.totalSeconds)}</td>
+                    <td className="p-2 text-right font-mono text-sm">{pct}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Timeline visualization */}
+      {!compact && timeline.length > 0 && vodDurationSecs > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider">Timeline</p>
+          <div className="flex h-6 rounded overflow-hidden border border-border">
+            {timeline.map((seg, i) => {
+              const widthPct = (seg.durationSeconds / vodDurationSecs) * 100;
+              if (widthPct < 0.5) return null;
+              const isCasino = seg.category !== 'not_casino';
+              const colors = [
+                'bg-primary', 'bg-accent', 'bg-chart-1', 'bg-chart-2', 'bg-chart-3', 'bg-chart-4', 'bg-chart-5'
+              ];
+              const colorClass = isCasino ? colors[i % colors.length] : 'bg-muted';
+              return (
+                <div
+                  key={i}
+                  className={`${colorClass} relative group`}
+                  style={{ width: `${widthPct}%` }}
+                  title={`${seg.game} (${formatSeconds(seg.durationSeconds)})`}
+                >
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10">
+                    <div className="card-surface px-2 py-1 text-xs whitespace-nowrap shadow-lg border border-border">
+                      <span className="font-medium">{seg.game}</span>
+                      {seg.provider && <span className="text-muted-foreground ml-1">({seg.provider})</span>}
+                      <span className="text-muted-foreground ml-1">{formatSeconds(seg.durationSeconds)}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Compact game chips (fallback when no timeline) */}
+      {timeAggregated.length === 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {casinoGames.map((r, i) => (
+            <div key={i} className="flex items-center gap-2 card-surface px-3 py-1.5 text-xs border border-accent/20">
+              <span className="text-accent">🎰</span>
+              <div>
+                <span className="font-medium text-foreground">{r.game}</span>
+                {r.provider && <span className="text-muted-foreground ml-1">({r.provider})</span>}
+                <span className={`ml-1.5 text-xs ${r.confidence === 'high' ? 'text-accent' : r.confidence === 'medium' ? 'text-yellow-500' : 'text-muted-foreground'}`}>
+                  {r.confidence === 'high' ? '●' : r.confidence === 'medium' ? '◐' : '○'}
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
-        {otherGames.map((r, i) => (
-          <div key={`other-${i}`} className="flex items-center gap-2 card-surface px-3 py-1.5 text-xs">
-            <span>🎮</span>
-            <span className="text-muted-foreground">{r.game}</span>
-          </div>
-        ))}
-      </div>
+          ))}
+          {otherGames.map((r, i) => (
+            <div key={`other-${i}`} className="flex items-center gap-2 card-surface px-3 py-1.5 text-xs">
+              <span>🎮</span>
+              <span className="text-muted-foreground">{r.game}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
