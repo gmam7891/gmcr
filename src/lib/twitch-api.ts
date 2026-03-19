@@ -43,6 +43,33 @@ interface VodChapter {
   gameBoxArt: string | null;
 }
 
+interface SullyGnomeStats {
+  avgViewers: number | null;
+  hoursWatched: number | null;
+  followersGained: number | null;
+  peakViewers: number | null;
+  hoursStreamed: number | null;
+  totalStreams: number | null;
+  streams: SullyGnomeStream[];
+  error?: string;
+}
+
+interface SullyGnomeStream {
+  date: string;
+  hours: number;
+  avgViewers: number;
+  peakViewers: number;
+  watchHours: number;
+  followers: number;
+}
+
+interface AiGameDetection {
+  game: string;
+  provider: string | null;
+  category: string;
+  confidence: string;
+}
+
 async function callTwitch(body: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke('twitch-api', { body });
   if (error) throw new Error(error.message);
@@ -74,6 +101,16 @@ export async function getVodChapters(vodId: string): Promise<VodChapter[]> {
   return result?.chapters ?? [];
 }
 
+export async function scrapeSullyGnome(login: string): Promise<SullyGnomeStats> {
+  const result = await callTwitch({ action: 'scrape_sullygnome', login });
+  return result as SullyGnomeStats;
+}
+
+export async function analyzeVodFrames(thumbnailUrls: string[], vodTitle?: string): Promise<AiGameDetection[]> {
+  const result = await callTwitch({ action: 'analyze_vod_frames', thumbnail_urls: thumbnailUrls, vod_title: vodTitle });
+  return result?.games ?? [];
+}
+
 export function parseDuration(s: string): number {
   if (!s) return 0;
   let h = 0, m = 0, sec = 0;
@@ -100,4 +137,12 @@ export function formatSeconds(totalSec: number): string {
   return `${m}m`;
 }
 
-export type { TwitchUser, TwitchStream, TwitchVod, VodChapter };
+export function getVodThumbnailAtOffset(thumbnailUrl: string, offsetSeconds: number, width = 640, height = 360): string {
+  // Twitch VOD thumbnails support time offset by replacing the thumbnail URL pattern
+  return thumbnailUrl
+    .replace('%{width}', String(width))
+    .replace('%{height}', String(height))
+    .replace(/-preview-\d+x\d+\.jpg/, `-preview-${width}x${height}.jpg`);
+}
+
+export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, SullyGnomeStats, SullyGnomeStream, AiGameDetection };

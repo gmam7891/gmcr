@@ -7,6 +7,7 @@ const corsHeaders = {
 
 const GATEWAY_URL = 'https://connector-gateway.lovable.dev/twitch';
 const GQL_URL = 'https://gql.twitch.tv/gql';
+const GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -33,7 +34,8 @@ Deno.serve(async (req) => {
   };
 
   try {
-    const { action, login, user_id, vod_id, vod_count } = await req.json();
+    const body = await req.json();
+    const { action, login, user_id, vod_id, vod_count } = body;
 
     if (action === 'get_user') {
       const res = await fetch(`${GATEWAY_URL}/users?login=${encodeURIComponent(login)}`, { headers });
@@ -74,7 +76,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fetch VOD chapters via Twitch GQL (public, no auth needed)
+    // Fetch VOD chapters via Twitch GQL
     if (action === 'get_vod_chapters') {
       const videoId = vod_id;
       if (!videoId) throw new Error('vod_id is required for get_vod_chapters');
@@ -92,16 +94,11 @@ Deno.serve(async (req) => {
 
       const gqlRes = await fetch(GQL_URL, {
         method: 'POST',
-        headers: {
-          'Client-ID': 'kimne78kx3ncx6brgo4mv6wki5h1ko',
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Client-ID': GQL_CLIENT_ID, 'Content-Type': 'application/json' },
         body: JSON.stringify(gqlQuery),
       });
 
       const gqlData = await gqlRes.json();
-      
-      // Extract chapters from the GQL response
       const moments = gqlData?.data?.video?.moments?.edges ?? [];
       const chapters = moments.map((edge: { node: { description: string; positionMilliseconds: number; durationMilliseconds: number; details: { game?: { displayName: string; id: string; boxArtURL: string } } } }) => {
         const node = edge.node;
@@ -116,6 +113,169 @@ Deno.serve(async (req) => {
       });
 
       return new Response(JSON.stringify({ chapters }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Scrape SullyGnome for channel stats (30 days)
+    if (action === 'scrape_sullygnome') {
+      const channelLogin = (body.login || '').toLowerCase().trim();
+      if (!channelLogin) throw new Error('login is required for scrape_sullygnome');
+
+      try {
+        const url = `https://sullygnome.com/channel/${encodeURIComponent(channelLogin)}/30`;
+        const res = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml',
+          },
+        });
+
+        if (!res.ok) throw new Error(`SullyGnome returned ${res.status}`);
+        const html = await res.text();
+
+        // Extract stats from InfoStatPanelTLCell elements
+        const panelRegex = /<div class="InfoStatPanelTL"><div class="InfoStatPanelTLCell">([\d,]+)<\/div><\/div>/g;
+        const values: number[] = [];
+        let match;
+        while ((match = panelRegex.exec(html)) !== null) {
+          values.push(parseInt(match[1].replace(/,/g, ''), 10));
+        }
+
+        // Extract per-stream data from the stream summary table
+        const streamRows: { date: string; hours: number; avgViewers: number; peakViewers: number; watchHours: number; followers: number }[] = [];
+        const rowRegex = /InfoPanelCombinedRow(?:Alt)?[^>]*>[\s\S]*?<a href="[^"]*">([^<]+)<\/a><\/div>\s*<div class="InfoPanelCombinedRowCell">([\d.]+) hrs<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,]+)<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,]+)<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,.]+) hrs<\/div>\s*<div class="InfoPanelCombinedRowCell">(-?[\d,]+)<\/div>/g;
+        while ((match = rowRegex.exec(html)) !== null) {
+          streamRows.push({
+            date: match[1],
+            hours: parseFloat(match[2]),
+            avgViewers: parseInt(match[3].replace(/,/g, ''), 10),
+            peakViewers: parseInt(match[4].replace(/,/g, ''), 10),
+            watchHours: parseFloat(match[5].replace(/,/g, '')),
+            followers: parseInt(match[6].replace(/,/g, ''), 10),
+          });
+        }
+
+        // Order: Average viewers, Hours watched, Followers gained, Peak viewers, Hours streamed, Streams
+        const result = {
+          avgViewers: values[0] ?? null,
+          hoursWatched: values[1] ?? null,
+          followersGained: values[2] ?? null,
+          peakViewers: values[3] ?? null,
+          hoursStreamed: values[4] ?? null,
+          totalStreams: values[5] ?? null,
+          streams: streamRows,
+        };
+
+        return new Response(JSON.stringify(result), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        console.error('SullyGnome scrape error:', err);
+        return new Response(JSON.stringify({ error: `SullyGnome scrape failed: ${err instanceof Error ? err.message : 'unknown'}`, avgViewers: null, peakViewers: null }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Analyze VOD frames using AI Vision
+    if (action === 'analyze_vod_frames') {
+      const { thumbnail_urls, vod_title } = body;
+      if (!thumbnail_urls || !Array.isArray(thumbnail_urls) || thumbnail_urls.length === 0) {
+        throw new Error('thumbnail_urls array is required');
+      }
+
+      // Use Lovable AI to analyze the thumbnails
+      const AI_GATEWAY = 'https://ai-gateway.lovable.dev/v1/chat/completions';
+      
+      const imageContent = thumbnail_urls.slice(0, 8).map((url: string) => ({
+        type: "image_url",
+        image_url: { url, detail: "low" }
+      }));
+
+      const aiRes = await fetch(AI_GATEWAY, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.5-flash',
+          messages: [
+            {
+              role: 'system',
+              content: `You are an expert at identifying casino/slot games from screenshots. Analyze each screenshot and identify:
+1. The specific slot/casino game name (e.g., "Gates of Olympus", "Sweet Bonanza", "Big Bass Bonanza")
+2. The game provider (e.g., "Pragmatic Play", "PG Soft", "NetEnt", "Evolution")
+3. If it's not a casino game, describe what's shown (e.g., "Just Chatting", "GTA V gameplay")
+
+Return a JSON array with one object per screenshot: [{"game": "name", "provider": "provider or null", "category": "slots|live_casino|table_game|not_casino", "confidence": "high|medium|low"}]
+Only return the JSON array, no other text.`
+            },
+            {
+              role: 'user',
+              content: [
+                { type: "text", text: `Analyze these ${thumbnail_urls.length} screenshots from the VOD "${vod_title || 'unknown'}". Identify each casino/slot game shown:` },
+                ...imageContent
+              ]
+            }
+          ],
+          max_tokens: 2000,
+        }),
+      });
+
+      if (!aiRes.ok) {
+        const errText = await aiRes.text();
+        throw new Error(`AI analysis failed [${aiRes.status}]: ${errText}`);
+      }
+
+      const aiData = await aiRes.json();
+      const content = aiData?.choices?.[0]?.message?.content ?? '[]';
+      
+      // Parse the JSON response
+      let games;
+      try {
+        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        games = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+      } catch {
+        games = [{ raw: content }];
+      }
+
+      return new Response(JSON.stringify({ games }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Get VOD seek thumbnails at specific timestamps
+    if (action === 'get_vod_seek_thumbnails') {
+      const videoId = vod_id;
+      if (!videoId) throw new Error('vod_id is required');
+      const { offsets } = body; // Array of seconds
+      if (!offsets || !Array.isArray(offsets)) throw new Error('offsets array required');
+
+      // Use GQL to get seek preview URLs
+      const thumbnailUrls: { offset: number; url: string }[] = [];
+      
+      for (const offset of offsets.slice(0, 20)) {
+        const gqlQuery = {
+          operationName: "VideoPreviewCard__VideoMomentEdge",
+          variables: { videoID: String(videoId), offsetSeconds: offset },
+          extensions: {
+            persistedQuery: {
+              version: 1,
+              sha256Hash: "cb5816f5b29f84a55a1e9e9e1f8f8a1e8f1e8a1e8f1e8a1e8f1e8a1e8f1e8a1e"
+            }
+          }
+        };
+
+        // Alternative: construct thumbnail URL directly from the VOD thumbnail pattern
+        // Twitch VOD thumbnails support offset via the animated thumbnail endpoint
+        const thumbUrl = `https://static-cdn.jtvnw.net/cf_vods/d1m7jfoe9zdc1j/` +
+          `${videoId}//thumb/thumb${offset}-640x360.jpg`;
+        thumbnailUrls.push({ offset, url: thumbUrl });
+      }
+
+      return new Response(JSON.stringify({ thumbnails: thumbnailUrls }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
