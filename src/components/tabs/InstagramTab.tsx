@@ -89,11 +89,12 @@ export function InstagramTab() {
 
       setProfile(data);
       setSeguidores(data.followers);
-      // Auto-fill views and CTRs, but NOT quantities
-      if (data.avgReelsViews) setReelsViews(data.avgReelsViews);
-      if (data.estimatedCtr) setReelsCtr(data.estimatedCtr);
-      if (data.storiesViewEstimate) setStoriesViews(data.storiesViewEstimate);
-      if (data.estimatedCtr) setStoriesCtr(Math.round(data.estimatedCtr * 1.5 * 10) / 10);
+      // Auto-fill views and CTRs (with 8% safety discount), but NOT quantities
+      const discount = 0.92;
+      if (data.avgReelsViews) setReelsViews(Math.round(data.avgReelsViews * discount));
+      if (data.estimatedCtr) setReelsCtr(Math.round(data.estimatedCtr * discount * 10) / 10);
+      if (data.storiesViewEstimate) setStoriesViews(Math.round(data.storiesViewEstimate * discount));
+      if (data.estimatedCtr) setStoriesCtr(Math.round(data.estimatedCtr * 1.5 * discount * 10) / 10);
       toast.success(`Perfil @${data.username} carregado!`, {
         description: `${fmtInt(data.followers)} seguidores · ${data.engagementRate.toFixed(2)}% engajamento`,
       });
