@@ -89,6 +89,11 @@ export function InstagramTab() {
 
       setProfile(data);
       setSeguidores(data.followers);
+      // Auto-fill views and CTRs, but NOT quantities
+      if (data.avgReelsViews) setReelsViews(data.avgReelsViews);
+      if (data.estimatedCtr) setReelsCtr(data.estimatedCtr);
+      if (data.storiesViewEstimate) setStoriesViews(data.storiesViewEstimate);
+      if (data.estimatedCtr) setStoriesCtr(Math.round(data.estimatedCtr * 1.5 * 10) / 10);
       toast.success(`Perfil @${data.username} carregado!`, {
         description: `${fmtInt(data.followers)} seguidores · ${data.engagementRate.toFixed(2)}% engajamento`,
       });
