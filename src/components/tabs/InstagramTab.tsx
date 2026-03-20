@@ -77,7 +77,36 @@ export function InstagramTab() {
   const roiStatus = results.roi >= 200 ? "go" : results.roi >= 0 ? "warning" : "nogo";
   const profitStatus = results.profit > 0 ? "go" : results.profit < 0 ? "nogo" : undefined;
 
-  const downloadExcel = () => {
+  const fetchProfile = async () => {
+    if (!username.trim()) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('instagram-profile', {
+        body: { username: username.trim() },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setProfile(data);
+      setSeguidores(data.followers);
+      setReelsViews(data.avgReelsViews);
+      setReelsCtr(data.estimatedCtr);
+      setStoriesViews(data.storiesViewEstimate);
+      setStoriesCtr(Math.round(data.estimatedCtr * 0.8 * 10) / 10);
+      setReelsQty(data.videoCount > 0 ? Math.min(data.videoCount, 8) : 4);
+      setStoriesQty(10);
+      toast.success(`Perfil @${data.username} carregado!`, {
+        description: `${fmtInt(data.followers)} seguidores · ${data.engagementRate.toFixed(2)}% engajamento`,
+      });
+    } catch (err: any) {
+      console.error('Fetch profile error:', err);
+      toast.error('Erro ao buscar perfil', { description: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
     const data = [
       ["Métrica", "Valor"],
       ["Seguidores", seguidores],
