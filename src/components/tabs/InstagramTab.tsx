@@ -148,6 +148,38 @@ export function InstagramTab() {
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       {/* Inputs */}
       <div className="lg:col-span-2 space-y-6">
+        {/* Profile Lookup */}
+        <FieldSection title="Buscar perfil">
+          <div className="flex gap-2">
+            <Input
+              placeholder="@username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && fetchProfile()}
+              className="font-mono"
+            />
+            <Button onClick={fetchProfile} disabled={loading} size="sm" className="shrink-0">
+              {loading ? "Buscando…" : "Buscar"}
+            </Button>
+          </div>
+          {profile && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/50 border border-border mt-2">
+              {profile.profilePicUrl && (
+                <img src={profile.profilePicUrl} alt={profile.username} className="w-10 h-10 rounded-full" />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-sm truncate">@{profile.username}</span>
+                  {profile.isVerified && <span className="text-blue-500 text-xs">✓</span>}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {fmtInt(profile.followers)} seg · {profile.engagementRate.toFixed(2)}% eng
+                </span>
+              </div>
+            </div>
+          )}
+        </FieldSection>
+
         <FieldSection title="Audiência ICP">
           <NumberField label="Total de seguidores" value={seguidores} onChange={setSeguidores} step={1000} />
           <NumberField label="% ICP" value={percIcp} onChange={setPercIcp} step={0.1} max={100} suffix="%" />
