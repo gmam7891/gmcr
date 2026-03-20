@@ -89,12 +89,6 @@ export function InstagramTab() {
 
       setProfile(data);
       setSeguidores(data.followers);
-      setReelsViews(data.avgReelsViews);
-      setReelsCtr(data.estimatedCtr);
-      setStoriesViews(data.storiesViewEstimate);
-      setStoriesCtr(Math.round(data.estimatedCtr * 0.8 * 10) / 10);
-      setReelsQty(data.videoCount > 0 ? Math.min(data.videoCount, 8) : 4);
-      setStoriesQty(10);
       toast.success(`Perfil @${data.username} carregado!`, {
         description: `${fmtInt(data.followers)} seguidores · ${data.engagementRate.toFixed(2)}% engajamento`,
       });
