@@ -4,7 +4,23 @@ import { NumberField, FieldSection } from "@/components/FieldGroup";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import * as XLSX from "xlsx";
+
+interface ProfileData {
+  username: string;
+  fullName: string;
+  profilePicUrl: string;
+  followers: number;
+  avgReelsViews: number;
+  videoCount: number;
+  estimatedCtr: number;
+  storiesViewEstimate: number;
+  engagementRate: number;
+  isVerified: boolean;
+}
 
 export function InstagramTab() {
   const [seguidores, setSeguidores] = useState(0);
