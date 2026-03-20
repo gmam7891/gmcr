@@ -4,9 +4,28 @@ import { NumberField, FieldSection } from "@/components/FieldGroup";
 import { StatusBadge } from "@/components/StatusBadge";
 import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import * as XLSX from "xlsx";
 
+interface ProfileData {
+  username: string;
+  fullName: string;
+  profilePicUrl: string;
+  followers: number;
+  avgReelsViews: number;
+  videoCount: number;
+  estimatedCtr: number;
+  storiesViewEstimate: number;
+  engagementRate: number;
+  isVerified: boolean;
+}
+
 export function InstagramTab() {
+  const [username, setUsername] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
   const [seguidores, setSeguidores] = useState(0);
   const [percIcp, setPercIcp] = useState(0);
   const [reelsQty, setReelsQty] = useState(0);
@@ -58,6 +77,35 @@ export function InstagramTab() {
   const roiStatus = results.roi >= 200 ? "go" : results.roi >= 0 ? "warning" : "nogo";
   const profitStatus = results.profit > 0 ? "go" : results.profit < 0 ? "nogo" : undefined;
 
+  const fetchProfile = async () => {
+    if (!username.trim()) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('instagram-profile', {
+        body: { username: username.trim() },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setProfile(data);
+      setSeguidores(data.followers);
+      setReelsViews(data.avgReelsViews);
+      setReelsCtr(data.estimatedCtr);
+      setStoriesViews(data.storiesViewEstimate);
+      setStoriesCtr(Math.round(data.estimatedCtr * 0.8 * 10) / 10);
+      setReelsQty(data.videoCount > 0 ? Math.min(data.videoCount, 8) : 4);
+      setStoriesQty(10);
+      toast.success(`Perfil @${data.username} carregado!`, {
+        description: `${fmtInt(data.followers)} seguidores · ${data.engagementRate.toFixed(2)}% engajamento`,
+      });
+    } catch (err: any) {
+      console.error('Fetch profile error:', err);
+      toast.error('Erro ao buscar perfil', { description: err.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const downloadExcel = () => {
     const data = [
       ["Métrica", "Valor"],
@@ -100,6 +148,38 @@ export function InstagramTab() {
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       {/* Inputs */}
       <div className="lg:col-span-2 space-y-6">
+        {/* Profile Lookup */}
+        <FieldSection title="Buscar perfil">
+          <div className="flex gap-2">
+            <Input
+              placeholder="@username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && fetchProfile()}
+              className="font-mono"
+            />
+            <Button onClick={fetchProfile} disabled={loading} size="sm" className="shrink-0">
+              {loading ? "Buscando…" : "Buscar"}
+            </Button>
+          </div>
+          {profile && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/50 border border-border mt-2">
+              {profile.profilePicUrl && (
+                <img src={profile.profilePicUrl} alt={profile.username} className="w-10 h-10 rounded-full" />
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-sm truncate">@{profile.username}</span>
+                  {profile.isVerified && <span className="text-primary text-xs">✓</span>}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {fmtInt(profile.followers)} seg · {profile.engagementRate.toFixed(2)}% eng
+                </span>
+              </div>
+            </div>
+          )}
+        </FieldSection>
+
         <FieldSection title="Audiência ICP">
           <NumberField label="Total de seguidores" value={seguidores} onChange={setSeguidores} step={1000} />
           <NumberField label="% ICP" value={percIcp} onChange={setPercIcp} step={0.1} max={100} suffix="%" />
