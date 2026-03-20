@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
-const VALID_USER = "gulhermemontanari";
+const VALID_USER = "guilhermemontanari";
 const VALID_PASS = "Guim1987!";
 
 interface LoginGateProps {
