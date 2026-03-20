@@ -170,7 +170,7 @@ export function InstagramTab() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                   <span className="font-medium text-sm truncate">@{profile.username}</span>
-                  {profile.isVerified && <span className="text-blue-500 text-xs">✓</span>}
+                  {profile.isVerified && <span className="text-primary text-xs">✓</span>}
                 </div>
                 <span className="text-xs text-muted-foreground">
                   {fmtInt(profile.followers)} seg · {profile.engagementRate.toFixed(2)}% eng
