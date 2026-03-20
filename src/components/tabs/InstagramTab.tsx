@@ -23,6 +23,9 @@ interface ProfileData {
 }
 
 export function InstagramTab() {
+  const [username, setUsername] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
   const [seguidores, setSeguidores] = useState(0);
   const [percIcp, setPercIcp] = useState(0);
   const [reelsQty, setReelsQty] = useState(0);
