@@ -106,7 +106,7 @@ export function InstagramTab() {
     }
   };
 
-
+  const downloadExcel = () => {
     const data = [
       ["Métrica", "Valor"],
       ["Seguidores", seguidores],
