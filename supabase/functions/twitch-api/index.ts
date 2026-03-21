@@ -238,7 +238,9 @@ IMPORTANT: Each image may be a STORYBOARD SPRITE SHEET containing multiple small
 PRIORITY PROVIDERS (identify games from these):
 - Pragmatic Play (Gates of Olympus, Sweet Bonanza, Big Bass Bonanza, Sugar Rush, Starlight Princess, Dog House, Wolf Gold, Fruit Party, etc.)
 - Tada Gaming
-- Games Global / Microgaming (Immortal Romance, Mega Moolah, Thunderstruck, Book of Oz, Lara Croft, etc.)
+- Games Global / Microgaming and ALL their studios — detect ANY of these as provider "Games Global":
+  Studios: Stormcraft Studios, Triple Edge Studios, Gameburger Studios, All41 Studios, SpinPlay Games, Neon Valley Studios, Gold Coin Studios, Snowborn Games, Alchemy Gaming, Buck Stakes Entertainment, Crazy Tooth Studio, Electric Elephant, Fantasma Games, Fortune Factory Studios, Foxium, Just For The Win (JFTW), Neko Games, Northern Lights Gaming, Old Skool Studios, Pulse 8 Studios, Rabcat, Real Dealer Studios, Slingshot Studios, Switch Studios, Area Link
+  Known games: Immortal Romance, Mega Moolah, Thunderstruck, Book of Oz, Lara Croft, Break Da Bank, Avalon, 9 Masks of Fire, Hyper Gold, Amazing Link, Area Link, Book of Atem, African Legends, Agent Jane Blonde, Dragonz, Jungle Jim, Lost Vegas, Tarzan, Jurassic World, Game of Thrones, Tomb Raider, Absolootly Mad, Mega Vault Millionaire, etc.
 - BGaming (Elvis Frog, Aloha King Elvis, Space XY, etc.)
 - Amusnet / EGT (40 Burning Hot, Rise of Ra, etc.)
 - PG Soft (Fortune Tiger, Fortune Ox, Fortune Mouse, Mahjong Ways, etc.)
