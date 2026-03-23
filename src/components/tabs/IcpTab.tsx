@@ -35,6 +35,28 @@ export function IcpTab() {
 
   const maxFunnel = Math.max(...funnel.map(f => f.value), 1);
 
+  const downloadExcel = () => {
+    const data = [
+      ["Métrica", "Valor"],
+      ["Total de seguidores", seguidores],
+      ["% Idade ICP", `${percIdade}%`],
+      ["% País-alvo", `${percPais}%`],
+      ["% Gênero", `${percGenero}%`],
+      ["Taxa engajamento", `${taxaEng}%`],
+      ["Base atual", tamanhoBase],
+      ["", ""],
+      ["% real compradores (ICP)", `${results.percIcp.toFixed(2)}%`],
+      ["Pessoas no ICP", Math.round(results.potenciais)],
+      ["Leads realistas", Math.round(results.leads)],
+      ["Crescimento da base", tamanhoBase > 0 ? `${results.crescimento.toFixed(1)}%` : "-"],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [{ wch: 30 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "ICP");
+    XLSX.writeFile(wb, "analise-icp.xlsx");
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div className="space-y-6">
