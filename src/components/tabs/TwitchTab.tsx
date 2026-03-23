@@ -5,6 +5,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
 import { getUser, getStream, getVods, scrapeSullyGnome, parseDuration, type TwitchUser, type TwitchStream, type TwitchVod, type SullyGnomeStats } from "@/lib/twitch-api";
 import { Button } from "@/components/ui/button";
+import * as XLSX from "xlsx";
 
 export function TwitchTab() {
   const [channel, setChannel] = useState("");
