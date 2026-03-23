@@ -108,6 +108,53 @@ export function TwitchTab() {
   const isLive = !!streamData;
   const isCasino = streamData?.game_id === "29452";
 
+  const downloadExcel = () => {
+    const data = [
+      ["Métrica", "Valor"],
+      ["Canal", channel],
+      ["Status", isLive ? "LIVE" : "OFFLINE"],
+      ["Avg viewers (30d)", avgViewers],
+      ["Peak viewers (30d)", peakViewers],
+      ["Horas contratadas", plannedHours],
+      ["Fator de churn", churnFactor],
+      ["VOD views/hora", vodViewsPerHour],
+      ["", ""],
+      ["CTR Twitch", `${ctrTw}%`],
+      ["CVR para FTD", `${cvrTw}%`],
+      ["Valor por FTD", valueFtdTw],
+      ["Fee / investimento", fee],
+      ["ROI alvo", `${roiAlvo}%`],
+      ["CPA alvo", cpaAlvo],
+      ["", ""],
+      ["Views (avg viewers)", results.avgLiveViews],
+      ["Views (peak viewers)", results.peakLiveViews],
+      ["Views VOD", results.vodViews],
+      ["Views únicas totais", results.uniqueViews],
+      ["Cliques estimados", Math.round(results.clicks)],
+      ["FTD projetado", Math.round(results.ftd)],
+      ["Receita projetada", results.revenue],
+      ["ROAS", results.roas],
+      ["CPA (FTD)", results.cpa],
+      ["ROI", `${results.roi.toFixed(1)}%`],
+      ["Lucro / Prejuízo", results.profit],
+      ["Fee máximo", results.feeMaxRoi],
+    ];
+    if (sullyData && !sullyData.error) {
+      data.push(["", ""], ["--- SullyGnome (30d) ---", ""]);
+      data.push(["Avg viewers", sullyData.avgViewers]);
+      data.push(["Peak viewers", sullyData.peakViewers]);
+      data.push(["Horas streamed", sullyData.hoursStreamed]);
+      data.push(["Horas assistidas", sullyData.hoursWatched]);
+      data.push(["Followers ganhos", sullyData.followersGained]);
+      data.push(["Streams", sullyData.totalStreams]);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [{ wch: 30 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Twitch");
+    XLSX.writeFile(wb, `analise-twitch-${channel || 'canal'}.xlsx`);
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <div className="lg:col-span-2 space-y-6">
