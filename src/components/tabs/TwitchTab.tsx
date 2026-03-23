@@ -196,6 +196,12 @@ export function TwitchTab() {
       </div>
 
       <div className="lg:col-span-3 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Resultados</h2>
+          <Button variant="outline" size="sm" onClick={downloadExcel}>
+            📥 Exportar Excel
+          </Button>
+        </div>
         {/* Channel status */}
         {userData && (
           <div className="flex items-center gap-4 card-surface p-4">
