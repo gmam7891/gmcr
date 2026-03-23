@@ -90,7 +90,7 @@ export function InstagramTab() {
       setProfile(data);
       setSeguidores(data.followers);
       // Auto-fill views and CTRs (with 8% safety discount), but NOT quantities
-      const discount = 0.92;
+      const discount = 0.95;
       if (data.avgReelsViews) setReelsViews(Math.round(data.avgReelsViews * discount));
       if (data.estimatedCtr) setReelsCtr(Math.round(data.estimatedCtr * discount * 10) / 10);
       if (data.storiesViewEstimate) setStoriesViews(Math.round(data.storiesViewEstimate * discount));
