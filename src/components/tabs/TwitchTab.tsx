@@ -5,6 +5,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
 import { getUser, getStream, getVods, scrapeSullyGnome, parseDuration, type TwitchUser, type TwitchStream, type TwitchVod, type SullyGnomeStats } from "@/lib/twitch-api";
 import { Button } from "@/components/ui/button";
+import * as XLSX from "xlsx";
 
 export function TwitchTab() {
   const [channel, setChannel] = useState("");
@@ -107,6 +108,53 @@ export function TwitchTab() {
   const isLive = !!streamData;
   const isCasino = streamData?.game_id === "29452";
 
+  const downloadExcel = () => {
+    const data = [
+      ["Métrica", "Valor"],
+      ["Canal", channel],
+      ["Status", isLive ? "LIVE" : "OFFLINE"],
+      ["Avg viewers (30d)", avgViewers],
+      ["Peak viewers (30d)", peakViewers],
+      ["Horas contratadas", plannedHours],
+      ["Fator de churn", churnFactor],
+      ["VOD views/hora", vodViewsPerHour],
+      ["", ""],
+      ["CTR Twitch", `${ctrTw}%`],
+      ["CVR para FTD", `${cvrTw}%`],
+      ["Valor por FTD", valueFtdTw],
+      ["Fee / investimento", fee],
+      ["ROI alvo", `${roiAlvo}%`],
+      ["CPA alvo", cpaAlvo],
+      ["", ""],
+      ["Views (avg viewers)", results.avgLiveViews],
+      ["Views (peak viewers)", results.peakLiveViews],
+      ["Views VOD", results.vodViews],
+      ["Views únicas totais", results.uniqueViews],
+      ["Cliques estimados", Math.round(results.clicks)],
+      ["FTD projetado", Math.round(results.ftd)],
+      ["Receita projetada", results.revenue],
+      ["ROAS", results.roas],
+      ["CPA (FTD)", results.cpa],
+      ["ROI", `${results.roi.toFixed(1)}%`],
+      ["Lucro / Prejuízo", results.profit],
+      ["Fee máximo", results.feeMaxRoi],
+    ];
+    if (sullyData && !sullyData.error) {
+      data.push(["", ""], ["--- SullyGnome (30d) ---", ""]);
+      data.push(["Avg viewers", sullyData.avgViewers]);
+      data.push(["Peak viewers", sullyData.peakViewers]);
+      data.push(["Horas streamed", sullyData.hoursStreamed]);
+      data.push(["Horas assistidas", sullyData.hoursWatched]);
+      data.push(["Followers ganhos", sullyData.followersGained]);
+      data.push(["Streams", sullyData.totalStreams]);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = [{ wch: 30 }, { wch: 20 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Twitch");
+    XLSX.writeFile(wb, `analise-twitch-${channel || 'canal'}.xlsx`);
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <div className="lg:col-span-2 space-y-6">
@@ -148,6 +196,12 @@ export function TwitchTab() {
       </div>
 
       <div className="lg:col-span-3 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Resultados</h2>
+          <Button variant="outline" size="sm" onClick={downloadExcel}>
+            📥 Exportar Excel
+          </Button>
+        </div>
         {/* Channel status */}
         {userData && (
           <div className="flex items-center gap-4 card-surface p-4">
