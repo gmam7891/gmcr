@@ -165,6 +165,45 @@ export function VodTab() {
   const totalHours = vods.reduce((s, v) => s + parseDuration(v.duration) / 60, 0);
   const avgViewsPerHour = totalHours > 0 ? totalViews / totalHours : 0;
 
+  const downloadExcel = () => {
+    const rows: any[][] = [
+      ["VOD Analyzer - Relatório"],
+      [""],
+      ["Resumo", ""],
+      ["Total VODs", vods.length],
+      ["Total views", totalViews],
+      ["Total horas", `${totalHours.toFixed(1)}h`],
+      ["Avg views/hora", Math.round(avgViewsPerHour)],
+      [""],
+      ["VODs", "", "", "", ""],
+      ["Título", "Duração", "Views", "Views/h", "Data"],
+    ];
+    for (const vod of vods) {
+      const mins = parseDuration(vod.duration);
+      const hours = mins / 60;
+      const vph = hours > 0 ? vod.view_count / hours : 0;
+      rows.push([vod.title, formatDuration(vod.duration), vod.view_count, Math.round(vph), new Date(vod.created_at).toLocaleDateString("pt-BR")]);
+    }
+    // AI results
+    const allAiGames = Object.entries(aiResults);
+    if (allAiGames.length > 0) {
+      rows.push([""], ["--- Detecção de Jogos (IA) ---"]);
+      for (const [vodId, analysis] of allAiGames) {
+        const vod = vods.find(v => v.id === vodId) || singleVod;
+        rows.push([""], [`VOD: ${vod?.title || vodId}`]);
+        rows.push(["Jogo", "Provedora", "Categoria", "Confiança"]);
+        for (const g of analysis.games) {
+          rows.push([g.game, g.provider || "-", g.category, g.confidence]);
+        }
+      }
+    }
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 40 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 15 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "VODs");
+    XLSX.writeFile(wb, "analise-vods.xlsx");
+  };
+
   const analyzeAllVods = async () => {
     for (const vod of vods) {
       if (!chaptersMap[vod.id]) {
