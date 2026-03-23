@@ -221,11 +221,16 @@ export function VodTab() {
 
   return (
     <div className="max-w-5xl space-y-6">
-      <div className="card-surface p-4 space-y-1">
-        <p className="text-xs text-primary font-medium uppercase tracking-wider">Análise de VODs + Detecção de Jogos</p>
-        <p className="text-sm text-muted-foreground">
-          Cole uma URL de VOD ou nome do canal. A IA analisa <strong>cada 2 minutos</strong> da VOD para detectar jogos específicos de cassino e calcular o tempo gasto em cada jogo.
-        </p>
+      <div className="card-surface p-4 space-y-1 flex items-start justify-between">
+        <div>
+          <p className="text-xs text-primary font-medium uppercase tracking-wider">Análise de VODs + Detecção de Jogos</p>
+          <p className="text-sm text-muted-foreground">
+            Cole uma URL de VOD ou nome do canal. A IA analisa <strong>cada 2 minutos</strong> da VOD para detectar jogos específicos de cassino e calcular o tempo gasto em cada jogo.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0">
+          📥 Exportar Excel
+        </Button>
       </div>
 
       <div className="flex gap-3">
