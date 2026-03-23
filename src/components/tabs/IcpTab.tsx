@@ -80,7 +80,12 @@ export function IcpTab() {
       </div>
 
       <div className="space-y-4">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Alcance real do ICP</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Alcance real do ICP</h2>
+          <Button variant="outline" size="sm" onClick={downloadExcel}>
+            📥 Exportar Excel
+          </Button>
+        </div>
 
         {seguidores > 0 && (percIdade > 0 || percPais > 0 || percGenero > 0) ? (
           <>
