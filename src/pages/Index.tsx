@@ -5,6 +5,7 @@ import { YouTubeTab } from "@/components/tabs/YouTubeTab";
 import { KickTab } from "@/components/tabs/KickTab";
 import { IcpTab } from "@/components/tabs/IcpTab";
 import { VodTab } from "@/components/tabs/VodTab";
+import { SimulatorTab } from "@/components/tabs/SimulatorTab";
 
 const Index = () => {
   return (
@@ -22,28 +23,32 @@ const Index = () => {
       </header>
 
       <main className="p-6">
-        <Tabs defaultValue="instagram" className="space-y-6">
+        <Tabs defaultValue="simulator" className="space-y-6">
           <TabsList className="bg-secondary/50 border border-border p-1 h-auto gap-1 flex-wrap">
+            <TabsTrigger value="simulator" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
+              ⚡ Simulador
+            </TabsTrigger>
             <TabsTrigger value="instagram" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
-              [01] Instagram
+              Instagram
             </TabsTrigger>
             <TabsTrigger value="twitch" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
-              [02] Twitch
+              Twitch
             </TabsTrigger>
             <TabsTrigger value="youtube" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
-              [03] YouTube
+              YouTube
             </TabsTrigger>
             <TabsTrigger value="kick" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
-              [04] Kick
+              Kick
             </TabsTrigger>
             <TabsTrigger value="icp" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
-              [05] ICP Calc
+              ICP Calc
             </TabsTrigger>
             <TabsTrigger value="vod" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
-              [06] VOD Analyzer
+              VOD Analyzer
             </TabsTrigger>
           </TabsList>
 
+          <TabsContent value="simulator"><SimulatorTab /></TabsContent>
           <TabsContent value="instagram"><InstagramTab /></TabsContent>
           <TabsContent value="twitch"><TwitchTab /></TabsContent>
           <TabsContent value="youtube"><YouTubeTab /></TabsContent>
