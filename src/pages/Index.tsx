@@ -5,6 +5,7 @@ import { YouTubeTab } from "@/components/tabs/YouTubeTab";
 import { KickTab } from "@/components/tabs/KickTab";
 import { IcpTab } from "@/components/tabs/IcpTab";
 import { VodTab } from "@/components/tabs/VodTab";
+import { SimulatorTab } from "@/components/tabs/SimulatorTab";
 
 const Index = () => {
   return (
