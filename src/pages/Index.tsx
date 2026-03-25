@@ -6,6 +6,7 @@ import { KickTab } from "@/components/tabs/KickTab";
 import { IcpTab } from "@/components/tabs/IcpTab";
 import { VodTab } from "@/components/tabs/VodTab";
 import { SimulatorTab } from "@/components/tabs/SimulatorTab";
+import { MonitorTab } from "@/components/tabs/MonitorTab";
 
 const Index = () => {
   return (
@@ -14,7 +15,7 @@ const Index = () => {
         <div className="flex items-center gap-3">
           <h1 className="text-base font-semibold tracking-tight text-foreground">VALUATION PRO</h1>
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
-            Media Buying Tool v2.2
+            Media Buying Tool v2.3
           </span>
         </div>
         <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
@@ -27,6 +28,9 @@ const Index = () => {
           <TabsList className="bg-secondary/50 border border-border p-1 h-auto gap-1 flex-wrap">
             <TabsTrigger value="simulator" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
               ⚡ Simulador
+            </TabsTrigger>
+            <TabsTrigger value="monitor" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
+              📡 Monitor
             </TabsTrigger>
             <TabsTrigger value="instagram" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2">
               Instagram
@@ -49,6 +53,7 @@ const Index = () => {
           </TabsList>
 
           <TabsContent value="simulator"><SimulatorTab /></TabsContent>
+          <TabsContent value="monitor"><MonitorTab /></TabsContent>
           <TabsContent value="instagram"><InstagramTab /></TabsContent>
           <TabsContent value="twitch"><TwitchTab /></TabsContent>
           <TabsContent value="youtube"><YouTubeTab /></TabsContent>

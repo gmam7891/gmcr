@@ -14,7 +14,77 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      monitored_streamers: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          is_active: boolean
+          login: string
+          twitch_id: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          is_active?: boolean
+          login: string
+          twitch_id?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          is_active?: boolean
+          login?: string
+          twitch_id?: string | null
+        }
+        Relationships: []
+      }
+      stream_snapshots: {
+        Row: {
+          captured_at: string
+          game_id: string | null
+          game_name: string | null
+          id: string
+          is_live: boolean
+          stream_title: string | null
+          streamer_login: string
+          viewer_count: number
+        }
+        Insert: {
+          captured_at?: string
+          game_id?: string | null
+          game_name?: string | null
+          id?: string
+          is_live?: boolean
+          stream_title?: string | null
+          streamer_login: string
+          viewer_count?: number
+        }
+        Update: {
+          captured_at?: string
+          game_id?: string | null
+          game_name?: string | null
+          id?: string
+          is_live?: boolean
+          stream_title?: string | null
+          streamer_login?: string
+          viewer_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stream_snapshots_streamer_login_fkey"
+            columns: ["streamer_login"]
+            isOneToOne: false
+            referencedRelation: "monitored_streamers"
+            referencedColumns: ["login"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
