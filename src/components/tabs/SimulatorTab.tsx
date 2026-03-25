@@ -136,22 +136,22 @@ function RiskSection({ ivs }: { ivs: IvsResult }) {
 
 export function SimulatorTab() {
   // Base scenario
-  const [baseFee, setBaseFee] = useState(10000);
-  const [baseCtr, setBaseCtr] = useState(1.5);
-  const [baseCvr, setBaseCvr] = useState(3);
-  const [baseValueFtd, setBaseValueFtd] = useState(500);
-  const [basePercIcp, setBasePercIcp] = useState(25);
-  const [baseAvgViewers, setBaseAvgViewers] = useState(5000);
-  const [basePeakViewers, setBasePeakViewers] = useState(15000);
-  const [basePlannedHours, setBasePlannedHours] = useState(20);
-  const [baseTargetRoi, setBaseTargetRoi] = useState(300);
+  const [baseFee, setBaseFee] = useState(0);
+  const [baseCtr, setBaseCtr] = useState(0);
+  const [baseCvr, setBaseCvr] = useState(0);
+  const [baseValueFtd, setBaseValueFtd] = useState(0);
+  const [basePercIcp, setBasePercIcp] = useState(0);
+  const [baseAvgViewers, setBaseAvgViewers] = useState(0);
+  const [basePeakViewers, setBasePeakViewers] = useState(0);
+  const [basePlannedHours, setBasePlannedHours] = useState(0);
+  const [baseTargetRoi, setBaseTargetRoi] = useState(0);
 
   // Simulated scenario (sliders)
-  const [simFee, setSimFee] = useState(10000);
-  const [simCtr, setSimCtr] = useState(1.5);
-  const [simCvr, setSimCvr] = useState(3);
-  const [simValueFtd, setSimValueFtd] = useState(500);
-  const [simPercIcp, setSimPercIcp] = useState(25);
+  const [simFee, setSimFee] = useState(0);
+  const [simCtr, setSimCtr] = useState(0);
+  const [simCvr, setSimCvr] = useState(0);
+  const [simValueFtd, setSimValueFtd] = useState(0);
+  const [simPercIcp, setSimPercIcp] = useState(0);
 
   // Sync base → sim on base change
   const applyBaseToSim = () => {
