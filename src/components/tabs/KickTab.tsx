@@ -70,14 +70,14 @@ export function KickTab() {
   const totalViews = videos.reduce((s, v) => s + v.viewCount, 0);
 
   const results = useMemo(() => {
-    const liveViews = avgViewers * plannedHours;
-    const clicks = liveViews * (ctr / 100);
+    const viewerHours = avgViewers * plannedHours;
+    const clicks = viewerHours * (ctr / 100);
     const ftd = clicks * (cvr / 100);
     const revenue = ftd * valueFtd;
     const roi = fee > 0 ? ((revenue - fee) / fee) * 100 : 0;
     const cpa = ftd > 0 ? fee / ftd : null;
     const profit = revenue - fee;
-    return { liveViews, clicks, ftd, revenue, roi, cpa, profit };
+    return { viewerHours, clicks, ftd, revenue, roi, cpa, profit };
   }, [avgViewers, plannedHours, ctr, cvr, valueFtd, fee]);
 
   const downloadExcel = () => {
