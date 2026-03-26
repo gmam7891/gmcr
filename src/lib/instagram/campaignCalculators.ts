@@ -95,9 +95,8 @@ const calculators: Record<CampaignType, (inputs: Inputs) => Record<string, numbe
   },
 
   conversion: (i) => {
-    const base = getBasePerContent(i);
-    const totalDeliveries = getTotalDeliveries(i);
-    const qualifiedAudience = base * totalDeliveries * (i.icpPercent / 100);
+    const totalExposure = getBase(i);
+    const qualifiedAudience = totalExposure * (i.icpPercent / 100);
     const estimatedClicks = qualifiedAudience * (i.estimatedCtr / 100);
     const estimatedConversions = estimatedClicks * (i.finalConversionRate / 100);
     const grossRevenue = estimatedConversions * i.valuePerConversion;
