@@ -67,13 +67,16 @@ export function TwitchTab() {
   };
 
   const results = useMemo(() => {
-    const avgLiveViews = avgViewers * plannedHours;
-    const peakLiveViews = peakViewers * plannedHours;
-    const liveViews = avgLiveViews;
-    const churnedViews = churnFactor > 0 ? liveViews * churnFactor : liveViews;
+    // Viewer-hours = avg viewers × hours (total impressions over time)
+    const avgViewerHours = avgViewers * plannedHours;
+    const peakViewerHours = peakViewers * plannedHours;
+    // Churn factor reduces unique reach (e.g. 0.7 = 70% são únicos, 30% são viewers repetidos)
+    // If 0 or not set, assume no churn adjustment (100% unique)
+    const churnMultiplier = churnFactor > 0 && churnFactor <= 1 ? churnFactor : 1;
+    const uniqueLiveViewers = avgViewers * churnMultiplier;
     const vodViews = vodViewsPerHour * plannedHours;
-    const uniqueViews = churnedViews + vodViews;
-    const clicks = uniqueViews * (ctrTw / 100);
+    const totalReach = (uniqueLiveViewers * plannedHours) + vodViews;
+    const clicks = totalReach * (ctrTw / 100);
     const ftd = clicks * (cvrTw / 100);
     const revenue = ftd * valueFtdTw;
     const roi = fee > 0 ? ((revenue - fee) / fee) * 100 : 0;
@@ -82,7 +85,7 @@ export function TwitchTab() {
     const profit = revenue - fee;
     const targetRoi = roiAlvo / 100;
     const feeMaxRoi = targetRoi > 0 ? revenue / (1 + targetRoi) : null;
-    return { avgLiveViews, peakLiveViews, vodViews, uniqueViews, clicks, ftd, revenue, roi, cpa, roas, profit, feeMaxRoi };
+    return { avgViewerHours, peakViewerHours, uniqueLiveViewers, vodViews, totalReach, clicks, ftd, revenue, roi, cpa, roas, profit, feeMaxRoi };
   }, [avgViewers, peakViewers, plannedHours, churnFactor, vodViewsPerHour, ctrTw, cvrTw, valueFtdTw, fee, roiAlvo]);
 
   const getStatus = () => {
