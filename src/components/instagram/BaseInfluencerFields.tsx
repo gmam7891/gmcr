@@ -41,8 +41,13 @@ export function BaseInfluencerFields({ values, onChange, username, setUsername }
 
       setProfile(data);
       onChange("followers", data.followers);
+      if (data.engagementRate) {
+        const eng = Math.round(data.engagementRate * 100) / 100;
+        onChange("engagementRate", eng);
+        onChange("reelsEngagement", eng);
+        onChange("storiesEngagement", eng);
+      }
       if (data.avgReelsViews) onChange("reelsViews", Math.round(data.avgReelsViews * 0.95));
-      if (data.engagementRate) onChange("reelsEngagement", Math.round(data.engagementRate * 100) / 100);
       if (data.storiesViewEstimate) {
         onChange("storiesViews", Math.round(data.storiesViewEstimate * 0.95));
         onChange("avgReach", Math.round(data.storiesViewEstimate * 0.95));
