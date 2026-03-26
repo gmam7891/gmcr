@@ -72,7 +72,8 @@ Deno.serve(async (req) => {
     let totalLikes = 0;
     let totalComments = 0;
     let videoCount = 0;
-    let imagePostCount = 0;
+    let reelsLikes = 0;
+    let reelsComments = 0;
 
     for (const post of latestPosts) {
       const views = post.videoViewCount || post.videoPlayCount || 0;
@@ -82,17 +83,26 @@ Deno.serve(async (req) => {
       if (views > 0) {
         totalViews += views;
         videoCount++;
-      } else {
-        imagePostCount++;
+        reelsLikes += likes;
+        reelsComments += comments;
       }
       totalLikes += likes;
       totalComments += comments;
     }
 
     const avgReelsViews = videoCount > 0 ? Math.round(totalViews / videoCount) : 0;
+
+    // Total engagement rate (all content)
     const totalEngagements = totalLikes + totalComments;
     const avgEngagement = latestPosts.length > 0 ? totalEngagements / latestPosts.length : 0;
     const engagementRate = followers > 0 ? (avgEngagement / followers) * 100 : 0;
+
+    // Reels-specific engagement rate
+    const reelsAvgEngagement = videoCount > 0 ? (reelsLikes + reelsComments) / videoCount : 0;
+    const reelsEngagementRate = followers > 0 ? (reelsAvgEngagement / followers) * 100 : 0;
+
+    // Stories engagement estimate (typically lower than reels, ~60-80% of total ER)
+    const storiesEngagementRate = engagementRate * 0.65;
 
     // Estimate CTR from engagement rate (typically 1-5% of engaged users click)
     const estimatedCtr = Math.min(engagementRate * 0.3, 5);
