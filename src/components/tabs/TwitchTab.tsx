@@ -59,16 +59,6 @@ export function TwitchTab() {
         setVodViewsPerHour(Math.round(vph));
       }
 
-      // Fetch SullyGnome data in parallel (don't block main flow)
-      setSullyLoading(true);
-      scrapeSullyGnome(channel).then((data) => {
-        setSullyData(data);
-        if (data.avgViewers != null) setAvgViewers(data.avgViewers);
-        if (data.peakViewers != null) setPeakViewers(data.peakViewers);
-        setSullyLoading(false);
-      }).catch(() => {
-        setSullyLoading(false);
-      });
 
     } catch (err) {
       console.error('Twitch fetch error:', err);
