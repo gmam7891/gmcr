@@ -128,6 +128,8 @@ Deno.serve(async (req) => {
       estimatedCtr: Math.round(estimatedCtr * 10) / 10,
       storiesViewEstimate,
       engagementRate: Math.round(engagementRate * 100) / 100,
+      reelsEngagementRate: Math.round(reelsEngagementRate * 100) / 100,
+      storiesEngagementRate: Math.round(storiesEngagementRate * 100) / 100,
       latestPostsSample: latestPosts.slice(0, 6).map((p: any) => ({
         type: p.type,
         likes: p.likesCount || 0,
