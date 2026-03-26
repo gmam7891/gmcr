@@ -212,64 +212,6 @@ export function TwitchTab() {
           <MetricCard label={isLive ? "Categoria" : "Avg viewers"} value={isLive ? (streamData?.game_name ?? "-") : fmtInt(avgViewers)} />
         </div>
 
-        {/* SullyGnome Stats */}
-        {(sullyData || sullyLoading) && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                Dados SullyGnome (30 dias)
-              </h2>
-              {sullyLoading && <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />}
-            </div>
-            {sullyData && !sullyData.error && (
-              <>
-                <div className="grid grid-cols-3 gap-3">
-                  <MetricCard label="Avg viewers" value={fmtInt(sullyData.avgViewers)} />
-                  <MetricCard label="Peak viewers" value={fmtInt(sullyData.peakViewers)} />
-                  <MetricCard label="Horas streamed" value={sullyData.hoursStreamed != null ? `${sullyData.hoursStreamed}h` : "-"} />
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <MetricCard label="Horas assistidas" value={fmtInt(sullyData.hoursWatched)} />
-                  <MetricCard label="Followers ganhos" value={fmtInt(sullyData.followersGained)} />
-                  <MetricCard label="Streams" value={fmtInt(sullyData.totalStreams)} />
-                </div>
-
-                {/* Per-stream breakdown */}
-                {sullyData.streams && sullyData.streams.length > 0 && (
-                  <div className="card-surface overflow-hidden mt-2">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Data</th>
-                          <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Horas</th>
-                          <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Avg</th>
-                          <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Peak</th>
-                          <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Watch hrs</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sullyData.streams.map((s, i) => (
-                          <tr key={i} className="border-b border-border last:border-0 hover:bg-secondary/50 transition-colors">
-                            <td className="p-2 text-xs">{s.date}</td>
-                            <td className="p-2 text-right font-mono text-xs">{s.hours}h</td>
-                            <td className="p-2 text-right font-mono text-xs">{fmtInt(s.avgViewers)}</td>
-                            <td className="p-2 text-right font-mono text-xs">{fmtInt(s.peakViewers)}</td>
-                            <td className="p-2 text-right font-mono text-xs">{fmtInt(s.watchHours)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
-            )}
-            {sullyData?.error && (
-              <div className="card-surface p-3 text-xs text-muted-foreground">
-                ⚠️ SullyGnome indisponível. Use os campos manuais para inserir avg/peak viewers.
-              </div>
-            )}
-          </div>
-        )}
 
         {vodStats && (
           <div className="grid grid-cols-4 gap-3">
