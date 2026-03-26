@@ -58,11 +58,10 @@ const calculators: Record<CampaignType, (inputs: Inputs) => Record<string, numbe
   },
 
   awareness: (i) => {
-    const basePerContent = getBasePerContent(i);
-    const totalDeliveries = getTotalDeliveries(i);
+    const totalExposure = getBase(i);
     const freq = Math.max(i.averageFrequency || 1, 1);
-    const estimatedImpressions = basePerContent * totalDeliveries * freq;
-    const estimatedUniqueReach = basePerContent * totalDeliveries;
+    const estimatedImpressions = totalExposure * freq;
+    const estimatedUniqueReach = totalExposure;
     const effectiveRate = i.qualifiedReachRate > 0 ? i.qualifiedReachRate : i.icpPercent;
     const qualifiedReach = estimatedUniqueReach * (effectiveRate / 100);
     const realCpm = safeDivide(i.influencerFee, Math.max(estimatedImpressions, 1)) * 1000;
