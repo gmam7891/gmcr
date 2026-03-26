@@ -3,14 +3,41 @@ import type { CampaignType } from "./campaignTypes";
 
 type Inputs = Record<string, number>;
 
+/** Combined base audience from Reels + Stories, preferring reach or views */
 function getBase(inputs: Inputs, preferReach = true): number {
-  if (preferReach) return inputs.avgReach > 0 ? inputs.avgReach : inputs.avgViews;
-  return inputs.avgViews > 0 ? inputs.avgViews : inputs.avgReach;
+  // Weighted total exposure across both formats
+  const reelsTotal = (inputs.reelsViews || 0) * Math.max(inputs.reelsDeliveries || 0, 1);
+  const storiesTotal = (inputs.storiesViews || 0) * Math.max(inputs.storiesDeliveries || 0, 1);
+  const viewsBase = reelsTotal + storiesTotal;
+
+  const reachBase = inputs.avgReach || 0;
+  const totalDeliveries = (inputs.reelsDeliveries || 0) + (inputs.storiesDeliveries || 0);
+  const reachTotal = reachBase * Math.max(totalDeliveries, 1);
+
+  if (preferReach) return reachTotal > 0 ? reachTotal : viewsBase;
+  return viewsBase > 0 ? viewsBase : reachTotal;
+}
+
+/** Single-delivery base (avg per content) */
+function getBasePerContent(inputs: Inputs, preferReach = true): number {
+  const reelsViews = inputs.reelsViews || 0;
+  const storiesViews = inputs.storiesViews || 0;
+  const avgViews = reelsViews > 0 && storiesViews > 0
+    ? (reelsViews + storiesViews) / 2
+    : reelsViews || storiesViews;
+  const reach = inputs.avgReach || 0;
+
+  if (preferReach) return reach > 0 ? reach : avgViews;
+  return avgViews > 0 ? avgViews : reach;
+}
+
+function getTotalDeliveries(inputs: Inputs): number {
+  return (inputs.reelsDeliveries || 0) + (inputs.storiesDeliveries || 0);
 }
 
 const calculators: Record<CampaignType, (inputs: Inputs) => Record<string, number>> = {
   igaming: (i) => {
-    const base = getBase(i);
+    const base = getBasePerContent(i);
     const qualifiedAudience = base * (i.icpPercent / 100);
     const estimatedClicks = qualifiedAudience * (i.estimatedCtr / 100);
     const estimatedRegistrations = estimatedClicks * (i.registrationRate / 100);
@@ -31,10 +58,11 @@ const calculators: Record<CampaignType, (inputs: Inputs) => Record<string, numbe
   },
 
   awareness: (i) => {
-    const base = getBase(i);
+    const basePerContent = getBasePerContent(i);
+    const totalDeliveries = getTotalDeliveries(i);
     const freq = Math.max(i.averageFrequency || 1, 1);
-    const estimatedImpressions = base * i.estimatedDeliveries * freq;
-    const estimatedUniqueReach = base * i.estimatedDeliveries;
+    const estimatedImpressions = basePerContent * totalDeliveries * freq;
+    const estimatedUniqueReach = basePerContent * totalDeliveries;
     const effectiveRate = i.qualifiedReachRate > 0 ? i.qualifiedReachRate : i.icpPercent;
     const qualifiedReach = estimatedUniqueReach * (effectiveRate / 100);
     const realCpm = safeDivide(i.influencerFee, Math.max(estimatedImpressions, 1)) * 1000;
@@ -48,7 +76,7 @@ const calculators: Record<CampaignType, (inputs: Inputs) => Record<string, numbe
   },
 
   consideration: (i) => {
-    const base = getBase(i, false);
+    const base = getBasePerContent(i, false);
     const qualifiedAudience = base * (i.icpPercent / 100);
     const estimatedClicks = qualifiedAudience * (i.estimatedCtr / 100);
     const engagedUsers = qualifiedAudience * (i.qualifiedEngagementRate / 100);
@@ -68,8 +96,9 @@ const calculators: Record<CampaignType, (inputs: Inputs) => Record<string, numbe
   },
 
   conversion: (i) => {
-    const base = getBase(i);
-    const qualifiedAudience = base * i.estimatedDeliveries * (i.icpPercent / 100);
+    const base = getBasePerContent(i);
+    const totalDeliveries = getTotalDeliveries(i);
+    const qualifiedAudience = base * totalDeliveries * (i.icpPercent / 100);
     const estimatedClicks = qualifiedAudience * (i.estimatedCtr / 100);
     const estimatedConversions = estimatedClicks * (i.finalConversionRate / 100);
     const grossRevenue = estimatedConversions * i.valuePerConversion;
@@ -87,7 +116,7 @@ const calculators: Record<CampaignType, (inputs: Inputs) => Record<string, numbe
   },
 
   retention: (i) => {
-    const base = getBase(i);
+    const base = getBasePerContent(i);
     const qualifiedAudience = base * (i.icpPercent / 100);
     const retainedUsers = qualifiedAudience * (i.repurchaseRate / 100);
     const reactivatedUsers = qualifiedAudience * (i.reactivationRate / 100);
