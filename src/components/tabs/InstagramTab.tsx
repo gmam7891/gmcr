@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import * as XLSX from "xlsx";
 
 const BASE_KEYS = [
-  "followers", "avgReach", "influencerFee",
+  "followers", "avgReach", "influencerFee", "engagementRate",
   "reelsDeliveries", "reelsViews", "reelsEngagement",
   "storiesDeliveries", "storiesViews", "storiesEngagement",
 ];
