@@ -172,7 +172,7 @@ export function KickTab() {
         </div>
 
         <div className="grid grid-cols-3 gap-3">
-          <MetricCard label="Views estimadas (live)" value={fmtInt(results.liveViews)} />
+          <MetricCard label="Viewer-hours (live)" value={fmtInt(results.viewerHours)} />
           <MetricCard label="Cliques estimados" value={fmtInt(results.clicks)} />
           <MetricCard label="FTD projetado" value={fmtInt(results.ftd)} />
         </div>

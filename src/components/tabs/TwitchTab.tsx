@@ -160,7 +160,7 @@ export function TwitchTab() {
           </div>
           <NumberField label="Fee / investimento" value={fee} onChange={setFee} step={1000} suffix="R$" />
           <NumberField label="Horas contratadas (mês)" value={plannedHours} onChange={setPlannedHours} />
-          <NumberField label="Fator de churn" value={churnFactor} onChange={setChurnFactor} />
+          <NumberField label="Fator de unicidade (0-1)" value={churnFactor} onChange={setChurnFactor} step={0.1} />
         </FieldSection>
 
         <FieldSection title="Valuation financeiro">

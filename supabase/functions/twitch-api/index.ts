@@ -100,47 +100,6 @@ Deno.serve(async (req) => {
       return jsonResponse({ chapters });
     }
 
-    // --- SullyGnome scrape ---
-    if (action === 'scrape_sullygnome') {
-      const channelLogin = (body.login || '').toLowerCase().trim();
-      if (!channelLogin) throw new Error('login is required');
-      try {
-        const url = `https://sullygnome.com/channel/${encodeURIComponent(channelLogin)}/30`;
-        const res = await fetch(url, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml',
-          },
-        });
-        if (!res.ok) throw new Error(`SullyGnome returned ${res.status}`);
-        const html = await res.text();
-        const panelRegex = /<div class="InfoStatPanelTL"><div class="InfoStatPanelTLCell">([\d,]+)<\/div><\/div>/g;
-        const values: number[] = [];
-        let match;
-        while ((match = panelRegex.exec(html)) !== null) {
-          values.push(parseInt(match[1].replace(/,/g, ''), 10));
-        }
-        const streamRows: any[] = [];
-        const rowRegex = /InfoPanelCombinedRow(?:Alt)?[^>]*>[\s\S]*?<a href="[^"]*">([^<]+)<\/a><\/div>\s*<div class="InfoPanelCombinedRowCell">([\d.]+) hrs<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,]+)<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,]+)<\/div>\s*<div class="InfoPanelCombinedRowCell">([\d,.]+) hrs<\/div>\s*<div class="InfoPanelCombinedRowCell">(-?[\d,]+)<\/div>/g;
-        while ((match = rowRegex.exec(html)) !== null) {
-          streamRows.push({
-            date: match[1], hours: parseFloat(match[2]),
-            avgViewers: parseInt(match[3].replace(/,/g, ''), 10),
-            peakViewers: parseInt(match[4].replace(/,/g, ''), 10),
-            watchHours: parseFloat(match[5].replace(/,/g, '')),
-            followers: parseInt(match[6].replace(/,/g, ''), 10),
-          });
-        }
-        return jsonResponse({
-          avgViewers: values[0] ?? null, hoursWatched: values[1] ?? null,
-          followersGained: values[2] ?? null, peakViewers: values[3] ?? null,
-          hoursStreamed: values[4] ?? null, totalStreams: values[5] ?? null, streams: streamRows,
-        });
-      } catch (err) {
-        console.error('SullyGnome scrape error:', err);
-        return jsonResponse({ error: `SullyGnome scrape failed: ${err instanceof Error ? err.message : 'unknown'}`, avgViewers: null, peakViewers: null });
-      }
-    }
 
     // --- Get VOD storyboard URLs via GQL ---
     if (action === 'get_storyboard_urls') {
