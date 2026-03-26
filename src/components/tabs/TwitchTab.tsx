@@ -25,8 +25,6 @@ export function TwitchTab() {
   const [userData, setUserData] = useState<TwitchUser | null>(null);
   const [streamData, setStreamData] = useState<TwitchStream | null>(null);
   const [vodStats, setVodStats] = useState<{ count: number; avgViews: number; medianViews: number; vph: number } | null>(null);
-  const [sullyData, setSullyData] = useState<SullyGnomeStats | null>(null);
-  const [sullyLoading, setSullyLoading] = useState(false);
 
   const fetchChannel = async () => {
     if (!channel.trim()) return;
