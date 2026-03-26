@@ -10,7 +10,11 @@ import type { CampaignType } from "@/lib/instagram/campaignTypes";
 import { Button } from "@/components/ui/button";
 import * as XLSX from "xlsx";
 
-const BASE_KEYS = ["followers", "avgReach", "avgViews", "engagementRate", "influencerFee", "estimatedDeliveries"];
+const BASE_KEYS = [
+  "followers", "avgReach", "influencerFee",
+  "reelsDeliveries", "reelsViews", "reelsEngagement",
+  "storiesDeliveries", "storiesViews", "storiesEngagement",
+];
 
 export function InstagramTab() {
   const [campaignType, setCampaignType] = useState<CampaignType>("igaming");
@@ -42,7 +46,15 @@ export function InstagramTab() {
       ["Tipo de campanha", config.label],
       [""],
       ["Campo", "Valor"],
-      ...BASE_KEYS.map((k) => [k, values[k] ?? 0]),
+      ["Seguidores", values.followers ?? 0],
+      ["Alcance médio", values.avgReach ?? 0],
+      ["Fee (R$)", values.influencerFee ?? 0],
+      ["Reels · Qtd", values.reelsDeliveries ?? 0],
+      ["Reels · Views médias", values.reelsViews ?? 0],
+      ["Reels · Engajamento (%)", values.reelsEngagement ?? 0],
+      ["Stories · Qtd", values.storiesDeliveries ?? 0],
+      ["Stories · Views médias", values.storiesViews ?? 0],
+      ["Stories · Engajamento (%)", values.storiesEngagement ?? 0],
       ...config.fields.map((f) => [f.label, values[f.key] ?? f.defaultValue ?? 0]),
       [""],
       ["Resultado", "Valor"],
