@@ -179,4 +179,4 @@ export function generateSeekThumbnails(thumbnailUrl: string, durationSeconds: nu
   return thumbnails;
 }
 
-export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, SullyGnomeStats, SullyGnomeStream, AiGameDetection, AiVodAnalysis, GameTimeSegment };
+export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, AiGameDetection, AiVodAnalysis, GameTimeSegment };
