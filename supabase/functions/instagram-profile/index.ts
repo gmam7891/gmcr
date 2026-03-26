@@ -111,6 +111,9 @@ Deno.serve(async (req) => {
     // Stories engagement = storiesViews / followers * 100
     const storiesEngagementRate = followers > 0 ? (storiesViewEstimate / followers) * 100 : 0;
 
+    // Estimate CTR from total engagement rate (typically 1-5% of engaged users click)
+    const estimatedCtr = Math.min(engagementRate * 0.3, 5);
+
     const result = {
       username: profile.username || cleanUsername,
       fullName: profile.fullName || '',
