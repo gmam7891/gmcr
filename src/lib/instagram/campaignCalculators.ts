@@ -31,9 +31,6 @@ function getBasePerContent(inputs: Inputs, preferReach = true): number {
   return avgViews > 0 ? avgViews : reach;
 }
 
-function getTotalDeliveries(inputs: Inputs): number {
-  return (inputs.reelsDeliveries || 0) + (inputs.storiesDeliveries || 0);
-}
 
 const calculators: Record<CampaignType, (inputs: Inputs) => Record<string, number>> = {
   igaming: (i) => {
