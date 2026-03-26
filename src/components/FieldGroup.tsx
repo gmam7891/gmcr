@@ -16,7 +16,7 @@ interface FieldProps {
 export function NumberField({ label, value, onChange, step = 1, min = 0, max, suffix, className }: FieldProps) {
   return (
     <div className={cn("space-y-1.5", className)}>
-      <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+      <Label className="text-[11px] leading-tight text-muted-foreground uppercase tracking-wider">
         {label}{suffix && <span className="text-muted-foreground/60 ml-1 normal-case">({suffix})</span>}
       </Label>
       <Input

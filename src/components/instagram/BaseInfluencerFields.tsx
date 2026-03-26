@@ -94,8 +94,11 @@ export function BaseInfluencerFields({ values, onChange, username, setUsername }
       <FieldSection title="Dados do influenciador">
         <div className="grid grid-cols-2 gap-3">
           <NumberField label="Seguidores totais" value={values.followers} onChange={(v) => onChange("followers", v)} step={1000} />
-          <NumberField label="Alcance médio por conteúdo" value={values.avgReach} onChange={(v) => onChange("avgReach", v)} step={1000} />
+          <NumberField label="Alcance médio" value={values.avgReach} onChange={(v) => onChange("avgReach", v)} step={1000} />
+        </div>
+        <div className="grid grid-cols-2 gap-3 mt-3">
           <NumberField label="Fee do influenciador" value={values.influencerFee} onChange={(v) => onChange("influencerFee", v)} step={1000} suffix="R$" />
+          <NumberField label="Engajamento total" value={values.engagementRate} onChange={(v) => onChange("engagementRate", v)} step={0.1} suffix="%" />
         </div>
       </FieldSection>
 
@@ -103,7 +106,7 @@ export function BaseInfluencerFields({ values, onChange, username, setUsername }
         <div className="grid grid-cols-3 gap-3">
           <NumberField label="Quantidade" value={values.reelsDeliveries} onChange={(v) => onChange("reelsDeliveries", v)} step={1} />
           <NumberField label="Views médias" value={values.reelsViews} onChange={(v) => onChange("reelsViews", v)} step={1000} />
-          <NumberField label="Engajamento médio (%)" value={values.reelsEngagement} onChange={(v) => onChange("reelsEngagement", v)} step={0.1} suffix="%" />
+          <NumberField label="Engajamento" value={values.reelsEngagement} onChange={(v) => onChange("reelsEngagement", v)} step={0.1} suffix="%" />
         </div>
       </FieldSection>
 
@@ -111,7 +114,7 @@ export function BaseInfluencerFields({ values, onChange, username, setUsername }
         <div className="grid grid-cols-3 gap-3">
           <NumberField label="Quantidade" value={values.storiesDeliveries} onChange={(v) => onChange("storiesDeliveries", v)} step={1} />
           <NumberField label="Views médias" value={values.storiesViews} onChange={(v) => onChange("storiesViews", v)} step={1000} />
-          <NumberField label="Engajamento médio (%)" value={values.storiesEngagement} onChange={(v) => onChange("storiesEngagement", v)} step={0.1} suffix="%" />
+          <NumberField label="Engajamento" value={values.storiesEngagement} onChange={(v) => onChange("storiesEngagement", v)} step={0.1} suffix="%" />
         </div>
       </FieldSection>
     </div>
