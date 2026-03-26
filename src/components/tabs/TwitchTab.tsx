@@ -131,15 +131,6 @@ export function TwitchTab() {
       ["Lucro / Prejuízo", results.profit],
       ["Fee máximo", results.feeMaxRoi],
     ];
-    if (sullyData && !sullyData.error) {
-      data.push(["", ""], ["--- SullyGnome (30d) ---", ""]);
-      data.push(["Avg viewers", sullyData.avgViewers]);
-      data.push(["Peak viewers", sullyData.peakViewers]);
-      data.push(["Horas streamed", sullyData.hoursStreamed]);
-      data.push(["Horas assistidas", sullyData.hoursWatched]);
-      data.push(["Followers ganhos", sullyData.followersGained]);
-      data.push(["Streams", sullyData.totalStreams]);
-    }
     const ws = XLSX.utils.aoa_to_sheet(data);
     ws["!cols"] = [{ wch: 30 }, { wch: 20 }];
     const wb = XLSX.utils.book_new();
