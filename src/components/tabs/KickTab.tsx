@@ -95,7 +95,7 @@ export function KickTab() {
       ["Valor por FTD", valueFtd],
       ["Fee", fee],
       [""],
-      ["Views estimadas (live)", results.liveViews],
+      ["Viewer-hours (live)", results.viewerHours],
       ["Cliques", Math.round(results.clicks)],
       ["FTD", Math.round(results.ftd)],
       ["Receita", results.revenue],
