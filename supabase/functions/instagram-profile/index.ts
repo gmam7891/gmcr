@@ -101,8 +101,8 @@ Deno.serve(async (req) => {
     const reelsAvgEngagement = videoCount > 0 ? (reelsLikes + reelsComments) / videoCount : 0;
     const reelsEngagementRate = followers > 0 ? (reelsAvgEngagement / followers) * 100 : 0;
 
-    // Stories engagement estimate (typically lower than reels, ~60-80% of total ER)
-    const storiesEngagementRate = engagementRate * 0.65;
+    // Stories engagement = storiesViews / followers * 100
+    const storiesEngagementRate = followers > 0 ? (storiesViewEstimate / followers) * 100 : 0;
 
     // Estimate CTR from engagement rate (typically 1-5% of engaged users click)
     const estimatedCtr = Math.min(engagementRate * 0.3, 5);
