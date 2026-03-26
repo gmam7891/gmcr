@@ -163,7 +163,11 @@ Deno.serve(async (req) => {
       const days = body.days || 30;
       const since = new Date(Date.now() - days * 86400000).toISOString();
 
-      let url = `${SUPABASE_URL}/rest/v1/stream_snapshots?captured_at=gte.${since}&is_live=eq.true&select=streamer_login,viewer_count,game_name,captured_at&order=captured_at.asc&limit=10000`;
+      // Paginate to avoid missing data — fetch up to 50k rows
+      let allSnapshots: any[] = [];
+      let offset = 0;
+      const PAGE_SIZE = 5000;
+      let baseUrl = `${SUPABASE_URL}/rest/v1/stream_snapshots?captured_at=gte.${since}&is_live=eq.true&select=streamer_login,viewer_count,game_name,captured_at&order=captured_at.asc`;
       if (login) {
         url += `&streamer_login=eq.${encodeURIComponent(login)}`;
       }
