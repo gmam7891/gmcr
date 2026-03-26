@@ -163,13 +163,24 @@ Deno.serve(async (req) => {
       const days = body.days || 30;
       const since = new Date(Date.now() - days * 86400000).toISOString();
 
-      let url = `${SUPABASE_URL}/rest/v1/stream_snapshots?captured_at=gte.${since}&is_live=eq.true&select=streamer_login,viewer_count,game_name,captured_at&order=captured_at.asc&limit=10000`;
+      // Paginate to avoid missing data — fetch up to 50k rows
+      let allSnapshots: any[] = [];
+      let offset = 0;
+      const PAGE_SIZE = 5000;
+      let baseUrl = `${SUPABASE_URL}/rest/v1/stream_snapshots?captured_at=gte.${since}&is_live=eq.true&select=streamer_login,viewer_count,game_name,captured_at&order=captured_at.asc`;
       if (login) {
-        url += `&streamer_login=eq.${encodeURIComponent(login)}`;
+        baseUrl += `&streamer_login=eq.${encodeURIComponent(login)}`;
       }
 
-      const snapRes = await fetch(url, { headers: supabaseHeaders });
-      const snapshots = await snapRes.json();
+      while (offset < 50000) {
+        const snapRes = await fetch(`${baseUrl}&limit=${PAGE_SIZE}&offset=${offset}`, { headers: supabaseHeaders });
+        const page = await snapRes.json();
+        if (!Array.isArray(page) || page.length === 0) break;
+        allSnapshots = allSnapshots.concat(page);
+        if (page.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+      }
+      const snapshots = allSnapshots;
 
       // Aggregate: per game, calc avg viewers, total minutes, peak
       const gameMap = new Map<string, { game: string; totalViewerMinutes: number; count: number; peak: number; sumViewers: number }>();

@@ -116,10 +116,6 @@ export async function getVodChapters(vodId: string): Promise<VodChapter[]> {
   return result?.chapters ?? [];
 }
 
-export async function scrapeSullyGnome(login: string): Promise<SullyGnomeStats> {
-  const result = await callTwitch({ action: 'scrape_sullygnome', login });
-  return result as SullyGnomeStats;
-}
 
 export async function getStoryboardUrls(vodId: string, durationSeconds: number): Promise<{ urls: string[]; interval: number; framesPerStrip: number }> {
   const result = await callTwitch({ action: 'get_storyboard_urls', vod_id: vodId, duration_seconds: durationSeconds });
@@ -183,4 +179,4 @@ export function generateSeekThumbnails(thumbnailUrl: string, durationSeconds: nu
   return thumbnails;
 }
 
-export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, SullyGnomeStats, SullyGnomeStream, AiGameDetection, AiVodAnalysis, GameTimeSegment };
+export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, AiGameDetection, AiVodAnalysis, GameTimeSegment };
