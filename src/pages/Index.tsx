@@ -80,6 +80,7 @@ const Index = () => {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           {userAccess?.expires_at && (
             <span className="text-[10px] text-muted-foreground font-mono">
               {t("app.access_until")} {new Date(userAccess.expires_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}

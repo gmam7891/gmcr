@@ -33,6 +33,7 @@ const App = () => (
             </Routes>
             </LoginGate>
           </AuthProvider>
+          </ThemeProvider>
         </LanguageProvider>
       </BrowserRouter>
     </TooltipProvider>
