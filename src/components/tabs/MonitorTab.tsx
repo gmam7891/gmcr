@@ -262,8 +262,8 @@ export function MonitorTab() {
           {timelineLogin && (
             <div className="space-y-2">
               <h3 className="text-xs text-muted-foreground uppercase tracking-wider">
-                Timeline: {timelineLogin} (últimas 48h)
-                {timelineLoading && " — carregando..."}
+                {t("mon.timeline")}: {timelineLogin} ({t("mon.last_48h")})
+                {timelineLoading && ` — ${t("mon.loading")}`}
               </h3>
               <ViewerTimeline timeline={timeline} />
             </div>
