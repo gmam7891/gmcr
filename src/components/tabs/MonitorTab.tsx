@@ -167,7 +167,6 @@ export function MonitorTab() {
               {loading ? "..." : t("mon.add")}
             </Button>
           </div>
-          </div>
 
           {streamers.length > 0 ? (
             <div className="space-y-2">
