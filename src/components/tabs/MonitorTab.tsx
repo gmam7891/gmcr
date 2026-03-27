@@ -17,6 +17,7 @@ import { ViewerTimeline } from "@/components/monitor/ViewerTimeline";
 import * as XLSX from "xlsx";
 
 export function MonitorTab() {
+  const { t } = useLanguage();
   const [streamers, setStreamers] = useState<MonitoredStreamer[]>([]);
   const [newLogin, setNewLogin] = useState("");
   const [loading, setLoading] = useState(false);
