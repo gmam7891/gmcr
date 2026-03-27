@@ -99,7 +99,7 @@ const Index = () => {
                 value={tab.id}
                 className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2 flex items-center gap-1.5"
               >
-                {tab.icon && (tab.icon.startsWith("/") || tab.icon.includes("assets") ? (
+                {tab.icon && (tab.icon.length > 5 ? (
                   <img src={tab.icon} alt="" className="h-4 w-4 object-contain" />
                 ) : (
                   <span>{tab.icon}</span>
