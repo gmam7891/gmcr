@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (roleData) {
       // Admin has full access
       setUserAccess({
-        allowed_tabs: ["simulator", "monitor", "instagram", "twitch", "youtube", "kick", "icp", "vod"],
+        allowed_tabs: ["simulator", "monitor", "authenticity", "instagram", "twitch", "youtube", "kick", "icp", "vod"],
         expires_at: null,
         is_active: true,
         package_name: "Admin",
