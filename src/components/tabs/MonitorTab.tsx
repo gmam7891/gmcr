@@ -203,7 +203,7 @@ export function MonitorTab() {
             </div>
           ) : (
             <div className="card-surface p-6 text-center text-sm text-muted-foreground">
-              Nenhum streamer monitorado. Adicione um acima.
+              {t("mon.no_streamers")}
             </div>
           )}
         </div>
