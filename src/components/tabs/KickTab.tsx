@@ -57,7 +57,7 @@ export function KickTab() {
 
   const analyzeWithAI = async () => {
     const thumbs = videos.map(v => v.thumbnailUrl).filter(Boolean) as string[];
-    if (thumbs.length === 0) { toast.error("Sem thumbnails para analisar"); return; }
+    if (thumbs.length === 0) { toast.error(t("kick.no_thumbs")); return; }
     setAiLoading(true);
     try {
       const games = await analyzeThumbnails(thumbs.slice(0, 15), channel?.displayName || '', 'Kick');
