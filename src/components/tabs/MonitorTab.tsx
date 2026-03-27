@@ -107,6 +107,31 @@ export function MonitorTab() {
   const totalReachImpressions = reach.reduce((s, r) => s + r.totalViewerMinutes, 0);
   const topGame = reach.length > 0 ? reach[0] : null;
 
+  const downloadExcel = () => {
+    const rows: any[][] = [
+      ["Monitor de Reach - Relatório"],
+      [""],
+      ["Streamers monitorados", streamers.length],
+      ["Período", `${reachDays} dias`],
+      ["Total Viewer-Minutes", totalReachImpressions],
+      ["Total Snapshots", totalSnapshots],
+      ["Top Jogo", topGame?.game || "-"],
+      [""],
+      ["--- Reach por Jogo ---"],
+      ["Jogo", "Avg Viewers", "Peak", "Airtime (min)", "Viewer-Minutes"],
+      ...reach.map(r => [r.game, r.avgViewers, r.peakViewers, r.totalMinutes, r.totalViewerMinutes]),
+      [""],
+      ["--- Streamers ---"],
+      ["Login", "Display Name"],
+      ...streamers.map(s => [s.login, s.display_name || s.login]),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"] = [{ wch: 30 }, { wch: 15 }, { wch: 12 }, { wch: 15 }, { wch: 18 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Monitor");
+    XLSX.writeFile(wb, "monitor-reach-report.xlsx");
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
