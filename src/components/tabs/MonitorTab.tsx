@@ -135,12 +135,18 @@ export function MonitorTab() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="card-surface p-4">
-        <p className="text-xs text-primary font-medium uppercase tracking-wider">Monitor de Reach em Tempo Real</p>
-        <p className="text-sm text-muted-foreground mt-1">
-          Adicione streamers para monitorar. O sistema coleta viewers + jogo/categoria a cada 2 minutos, calculando o <strong>reach real</strong> (viewer-minutes) por jogo e provedor.
-        </p>
-      </div>
+      <div className="card-surface p-4 flex items-start justify-between">
+        <div>
+          <p className="text-xs text-primary font-medium uppercase tracking-wider">Monitor de Reach em Tempo Real</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Adicione streamers para monitorar. O sistema coleta viewers + jogo/categoria a cada 2 minutos, calculando o <strong>reach real</strong> (viewer-minutes) por jogo e provedor.
+          </p>
+        </div>
+        {reach.length > 0 && (
+          <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0">
+            📥 Exportar Excel
+          </Button>
+        )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left: Manage streamers */}
