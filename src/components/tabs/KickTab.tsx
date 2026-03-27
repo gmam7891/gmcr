@@ -241,7 +241,7 @@ export function KickTab() {
 
         {!loading && !channel && (
           <div className="card-surface p-8 text-center text-muted-foreground text-sm">
-            Busque um canal da Kick para iniciar a análise.
+            {t("kick.empty")}
           </div>
         )}
       </div>

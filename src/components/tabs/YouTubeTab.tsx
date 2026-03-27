@@ -250,7 +250,7 @@ export function YouTubeTab() {
 
         {!loading && videos.length === 0 && !channel && (
           <div className="card-surface p-8 text-center text-muted-foreground text-sm">
-            Busque um canal do YouTube para iniciar a análise.
+            {t("yt.empty")}
           </div>
         )}
       </div>
