@@ -26,15 +26,15 @@ interface TabConfig {
 }
 
 const TAB_CONFIG: TabConfig[] = [
-  { id: "simulator", label: "Simulador", icon: "⚡" },
-  { id: "monitor", label: "Monitor", icon: "📡" },
-  { id: "authenticity", label: "Authenticity", icon: "🔍" },
+  { id: "icp", label: "ICP Calc", icon: "📊" },
   { id: "instagram", label: "Instagram", icon: instagramIcon },
   { id: "twitch", label: "Twitch", icon: twitchLogo },
   { id: "youtube", label: "YouTube", icon: youtubeLogo },
   { id: "kick", label: "Kick", icon: kickLogo },
-  { id: "icp", label: "ICP Calc", icon: "📊" },
   { id: "vod", label: "VOD Analyzer", icon: "📈" },
+  { id: "monitor", label: "Monitor", icon: "📡" },
+  { id: "simulator", label: "Simulador", icon: "⚡" },
+  { id: "authenticity", label: "Authenticity", icon: "🔍" },
 ].map((t) => ({
   ...t,
   component: { simulator: SimulatorTab, monitor: MonitorTab, authenticity: AuthenticityTab, instagram: InstagramTab, twitch: TwitchTab, youtube: YouTubeTab, kick: KickTab, icp: IcpTab, vod: VodTab }[t.id] as ComponentType,
