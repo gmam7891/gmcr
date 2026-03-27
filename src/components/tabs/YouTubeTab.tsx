@@ -194,9 +194,9 @@ export function YouTubeTab() {
             {/* AI Analysis */}
             <div className="flex items-center gap-3 pt-2">
               <Button variant="outline" size="sm" onClick={analyzeWithAI} disabled={aiLoading}>
-                {aiLoading ? "🤖 Analisando..." : "🤖 Detectar jogos com IA"}
+                {aiLoading ? t("yt.ai_analyzing") : t("yt.ai_detect")}
               </Button>
-              <span className="text-xs text-muted-foreground">Analisa thumbnails dos vídeos</span>
+              <span className="text-xs text-muted-foreground">{t("yt.ai_analyzes_thumbs")}</span>
             </div>
 
             {aiGames.length > 0 && (
