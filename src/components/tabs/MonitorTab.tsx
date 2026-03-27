@@ -146,7 +146,7 @@ export function MonitorTab() {
         </div>
         {reach.length > 0 && (
           <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0">
-            📥 Exportar Excel
+            {t("app.export_excel")}
           </Button>
         )}
       </div>
