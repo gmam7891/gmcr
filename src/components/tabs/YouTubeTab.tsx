@@ -180,9 +180,9 @@ export function YouTubeTab() {
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <MetricCard label="Views ICP" value={fmtInt(results.viewsIcp)} />
-              <MetricCard label="Cliques estimados" value={fmtInt(results.clicks)} />
-              <MetricCard label="FTD projetado" value={fmtInt(results.ftd)} />
+              <MetricCard label={t("yt.views_icp")} value={fmtInt(results.viewsIcp)} />
+              <MetricCard label={t("tw.estimated_clicks")} value={fmtInt(results.clicks)} />
+              <MetricCard label={t("tw.projected_ftd")} value={fmtInt(results.ftd)} />
             </div>
             <div className="grid grid-cols-3 gap-3">
               <MetricCard label="Receita projetada" value={fmtMoney(results.revenue)} status={results.revenue > 0 ? "go" : undefined} />
