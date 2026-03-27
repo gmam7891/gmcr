@@ -62,15 +62,39 @@ export default function Admin() {
   const [duration, setDuration] = useState<string>("30");
   const [settingAccess, setSettingAccess] = useState(false);
 
+  const getFunctionErrorMessage = async (error: any, fallback = "Falha ao executar operação") => {
+    let message = error?.message || fallback;
+
+    const response = error?.context;
+    if (response) {
+      try {
+        const contentType = response.headers?.get?.("content-type") || "";
+        if (contentType.includes("application/json") && response.clone) {
+          const parsed = await response.clone().json();
+          if (parsed?.error) message = parsed.error;
+        } else if (response.clone) {
+          const text = await response.clone().text();
+          if (text) message = text;
+        }
+      } catch {
+        // keep fallback message
+      }
+    }
+
+    return message;
+  };
+
   const invokeAdmin = async (action: string, payload: any = {}) => {
     const { data, error } = await supabase.functions.invoke("admin-users", {
       body: { action, ...payload },
     });
+
     if (error) {
-      // Try to extract the actual error message from the response
-      const msg = typeof data === 'object' && data?.error ? data.error : error.message;
+      const msgFromData = typeof data === "object" && data?.error ? data.error : null;
+      const msg = msgFromData || (await getFunctionErrorMessage(error));
       throw new Error(msg);
     }
+
     if (data?.error) throw new Error(data.error);
     return data;
   };
