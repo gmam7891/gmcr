@@ -225,10 +225,10 @@ export function YouTubeTab() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-3">Título</th>
-                    <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Duração</th>
-                    <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Views</th>
-                    <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Data</th>
+                     <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.title_col")}</th>
+                     <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.duration_col")}</th>
+                     <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.views_col")}</th>
+                     <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.date_col")}</th>
                   </tr>
                 </thead>
                 <tbody>
