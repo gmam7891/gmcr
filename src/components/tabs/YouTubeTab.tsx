@@ -185,9 +185,9 @@ export function YouTubeTab() {
               <MetricCard label={t("tw.projected_ftd")} value={fmtInt(results.ftd)} />
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <MetricCard label="Receita projetada" value={fmtMoney(results.revenue)} status={results.revenue > 0 ? "go" : undefined} />
+              <MetricCard label={t("tw.projected_revenue")} value={fmtMoney(results.revenue)} status={results.revenue > 0 ? "go" : undefined} />
               <MetricCard label="ROI" value={fee > 0 ? fmtPercent(results.roi, 0) : "-"} status={fee > 0 ? (results.roi >= 200 ? "go" : results.roi >= 0 ? "warning" : "nogo") : undefined} />
-              <MetricCard label="Lucro / Prejuízo" value={fee > 0 ? fmtMoney(results.profit) : "-"} status={fee > 0 ? (results.profit > 0 ? "go" : results.profit < 0 ? "nogo" : undefined) : undefined} />
+              <MetricCard label={t("tw.profit_loss")} value={fee > 0 ? fmtMoney(results.profit) : "-"} status={fee > 0 ? (results.profit > 0 ? "go" : results.profit < 0 ? "nogo" : undefined) : undefined} />
             </div>
             {fee > 0 && <StatusBadge status={results.profit > 0 ? "go" : results.profit === 0 ? "warning" : "nogo"} />}
 
