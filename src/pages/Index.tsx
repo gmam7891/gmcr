@@ -43,10 +43,12 @@ const TAB_CONFIG: TabConfig[] = [
 const Index = () => {
   const { isAdmin, userAccess, signOut, user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   const allowedTabs = userAccess?.allowed_tabs || [];
   const visibleTabs = TAB_CONFIG.filter((t) => allowedTabs.includes(t.id));
-  const defaultTab = visibleTabs[0]?.id || "simulator";
+  const tabFromUrl = searchParams.get("tab");
+  const defaultTab = (tabFromUrl && visibleTabs.some(t => t.id === tabFromUrl)) ? tabFromUrl : visibleTabs[0]?.id || "icp";
 
   const isExpired = userAccess?.expires_at && new Date(userAccess.expires_at) < new Date();
 
