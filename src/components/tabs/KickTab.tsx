@@ -157,13 +157,13 @@ export function KickTab() {
           )}
         </FieldSection>
 
-        <FieldSection title="Projeção financeira">
-          <NumberField label="Avg viewers estimado" value={avgViewers} onChange={setAvgViewers} step={100} />
-          <NumberField label="Horas contratadas (mês)" value={plannedHours} onChange={setPlannedHours} />
+        <FieldSection title={t("kick.financial_projection")}>
+          <NumberField label={t("kick.avg_viewers")} value={avgViewers} onChange={setAvgViewers} step={100} />
+          <NumberField label={t("kick.contracted_hours")} value={plannedHours} onChange={setPlannedHours} />
           <NumberField label="CTR" value={ctr} onChange={setCtr} step={0.1} suffix="%" />
-          <NumberField label="CVR para FTD" value={cvr} onChange={setCvr} step={0.1} suffix="%" />
-          <NumberField label="Valor por FTD" value={valueFtd} onChange={setValueFtd} step={50} suffix="R$" />
-          <NumberField label="Fee / investimento" value={fee} onChange={setFee} step={1000} suffix="R$" />
+          <NumberField label={t("tw.cvr_ftd")} value={cvr} onChange={setCvr} step={0.1} suffix="%" />
+          <NumberField label={t("tw.value_per_ftd")} value={valueFtd} onChange={setValueFtd} step={50} suffix="R$" />
+          <NumberField label={t("tw.fee")} value={fee} onChange={setFee} step={1000} suffix="R$" />
         </FieldSection>
       </div>
 
