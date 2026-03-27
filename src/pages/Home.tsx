@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Shield, LogOut, ArrowRight, BarChart3, Instagram, Tv, Youtube, Monitor, Zap, Search, Video, Target, Globe } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import type { TranslationKey } from "@/lib/translations";
 
 const modules: { id: string; icon: typeof Target; titleKey: TranslationKey; descKey: TranslationKey; color: string }[] = [
