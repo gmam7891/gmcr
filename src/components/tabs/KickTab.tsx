@@ -14,6 +14,7 @@ import {
 } from "@/lib/youtube-kick-api";
 
 export function KickTab() {
+  const { t, language } = useLanguage();
   const [username, setUsername] = useState("");
   const [loading, setLoading] = useState(false);
   const [channel, setChannel] = useState<KickChannel | null>(null);
