@@ -173,10 +173,10 @@ export function YouTubeTab() {
         {videos.length > 0 && (
           <>
             <div className="grid grid-cols-4 gap-3">
-              <MetricCard label="Vídeos analisados" value={fmtInt(videos.length)} />
-              <MetricCard label="Views totais" value={fmtInt(totalViews)} />
-              <MetricCard label="Avg views/vídeo" value={fmtInt(avgViews)} />
-              <MetricCard label="Total horas" value={`${totalHours.toFixed(1)}h`} />
+              <MetricCard label={t("yt.analyzed_videos")} value={fmtInt(videos.length)} />
+              <MetricCard label={t("yt.total_views")} value={fmtInt(totalViews)} />
+              <MetricCard label={t("yt.avg_views_video")} value={fmtInt(avgViews)} />
+              <MetricCard label={t("yt.total_hours")} value={`${totalHours.toFixed(1)}h`} />
             </div>
 
             <div className="grid grid-cols-3 gap-3">
