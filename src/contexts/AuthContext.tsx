@@ -87,12 +87,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    let mounted = true;
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
+        if (!mounted) return;
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          await fetchAccess(session.user.id);
+          try {
+            await fetchAccess(session.user.id);
+          } catch (e) {
+            console.error("fetchAccess error:", e);
+          }
         } else {
           setIsAdmin(false);
           setUserAccess(null);
@@ -101,16 +108,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchAccess(session.user.id);
+        try {
+          await fetchAccess(session.user.id);
+        } catch (e) {
+          console.error("fetchAccess error:", e);
+        }
       }
       setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
