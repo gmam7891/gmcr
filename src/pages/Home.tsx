@@ -1,76 +1,25 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
-import { Shield, LogOut, ArrowRight, BarChart3, Instagram, Tv, Youtube, Monitor, Zap, Search, Video, Target } from "lucide-react";
+import { Shield, LogOut, ArrowRight, BarChart3, Instagram, Tv, Youtube, Monitor, Zap, Search, Video, Target, Globe } from "lucide-react";
+import type { TranslationKey } from "@/lib/translations";
 
-const modules = [
-  {
-    id: "icp",
-    icon: Target,
-    title: "ICP Calc",
-    description: "Calcule o perfil de cliente ideal para suas campanhas. Defina métricas de audiência e encontre o influenciador perfeito para seu público-alvo.",
-    color: "from-blue-500/20 to-blue-600/10",
-  },
-  {
-    id: "instagram",
-    icon: Instagram,
-    title: "Instagram",
-    description: "Analise perfis de influenciadores no Instagram. Simule campanhas com diferentes formatos (Stories, Reels, Feed) e calcule ROI estimado.",
-    color: "from-pink-500/20 to-purple-600/10",
-  },
-  {
-    id: "twitch",
-    icon: Tv,
-    title: "Twitch",
-    description: "Consulte dados de streamers da Twitch: seguidores, média de viewers, tempo de stream e métricas de engajamento em tempo real.",
-    color: "from-violet-500/20 to-violet-600/10",
-  },
-  {
-    id: "youtube",
-    icon: Youtube,
-    title: "YouTube",
-    description: "Pesquise canais do YouTube e obtenha estatísticas detalhadas: inscritos, visualizações, taxa de engajamento e performance de vídeos.",
-    color: "from-red-500/20 to-red-600/10",
-  },
-  {
-    id: "kick",
-    icon: Tv,
-    title: "Kick",
-    description: "Analise streamers da plataforma Kick com métricas de audiência, seguidores e desempenho de lives.",
-    color: "from-green-500/20 to-green-600/10",
-  },
-  {
-    id: "vod",
-    icon: Video,
-    title: "VOD Analyzer",
-    description: "Analise VODs e vídeos gravados. Extraia métricas de visualização, retenção e engajamento para avaliar a performance do conteúdo.",
-    color: "from-amber-500/20 to-amber-600/10",
-  },
-  {
-    id: "monitor",
-    icon: Monitor,
-    title: "Monitor",
-    description: "Monitore streamers em tempo real. Acompanhe viewers, status de live, jogos sendo jogados e colete snapshots de audiência ao longo do tempo.",
-    color: "from-cyan-500/20 to-cyan-600/10",
-  },
-  {
-    id: "simulator",
-    icon: Zap,
-    title: "Simulador",
-    description: "Simule campanhas de mídia com influenciadores. Calcule CPM, CPV, alcance estimado e compare cenários para otimizar seu investimento.",
-    color: "from-yellow-500/20 to-yellow-600/10",
-  },
-  {
-    id: "authenticity",
-    icon: Search,
-    title: "Authenticity",
-    description: "Analise a autenticidade da audiência de streamers. Detecte padrões suspeitos de engajamento e obtenha um score de confiabilidade.",
-    color: "from-emerald-500/20 to-emerald-600/10",
-  },
+const modules: { id: string; icon: typeof Target; titleKey: TranslationKey; descKey: TranslationKey; color: string }[] = [
+  { id: "icp", icon: Target, titleKey: "mod.icp.title", descKey: "mod.icp.desc", color: "from-blue-500/20 to-blue-600/10" },
+  { id: "instagram", icon: Instagram, titleKey: "mod.instagram.title", descKey: "mod.instagram.desc", color: "from-pink-500/20 to-purple-600/10" },
+  { id: "twitch", icon: Tv, titleKey: "mod.twitch.title", descKey: "mod.twitch.desc", color: "from-violet-500/20 to-violet-600/10" },
+  { id: "youtube", icon: Youtube, titleKey: "mod.youtube.title", descKey: "mod.youtube.desc", color: "from-red-500/20 to-red-600/10" },
+  { id: "kick", icon: Tv, titleKey: "mod.kick.title", descKey: "mod.kick.desc", color: "from-green-500/20 to-green-600/10" },
+  { id: "vod", icon: Video, titleKey: "mod.vod.title", descKey: "mod.vod.desc", color: "from-amber-500/20 to-amber-600/10" },
+  { id: "monitor", icon: Monitor, titleKey: "mod.monitor.title", descKey: "mod.monitor.desc", color: "from-cyan-500/20 to-cyan-600/10" },
+  { id: "simulator", icon: Zap, titleKey: "mod.simulator.title", descKey: "mod.simulator.desc", color: "from-yellow-500/20 to-yellow-600/10" },
+  { id: "authenticity", icon: Search, titleKey: "mod.authenticity.title", descKey: "mod.authenticity.desc", color: "from-emerald-500/20 to-emerald-600/10" },
 ];
 
 const Home = () => {
   const { isAdmin, userAccess, signOut } = useAuth();
+  const { t, language, setLanguage } = useLanguage();
   const navigate = useNavigate();
   const allowedTabs = userAccess?.allowed_tabs || [];
 
@@ -78,15 +27,24 @@ const Home = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold tracking-tight text-foreground">Starklytic</h1>
+          <h1 className="text-base font-semibold tracking-tight text-foreground">{t("app.name")}</h1>
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
-            Media Buying Tool v2.3
+            {t("app.subtitle")}
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setLanguage(language === "pt" ? "en" : "pt")}
+            className="text-xs font-mono gap-1.5"
+          >
+            <Globe className="h-3.5 w-3.5" />
+            {t("lang.switch")}
+          </Button>
           {userAccess?.expires_at && (
             <span className="text-[10px] text-muted-foreground font-mono">
-              Acesso até {new Date(userAccess.expires_at).toLocaleDateString("pt-BR")}
+              {t("app.access_until")} {new Date(userAccess.expires_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}
             </span>
           )}
           {isAdmin && (
@@ -94,7 +52,7 @@ const Home = () => {
               <Shield className="h-4 w-4" />
             </Button>
           )}
-          <Button variant="ghost" size="icon" onClick={signOut} title="Sair">
+          <Button variant="ghost" size="icon" onClick={signOut} title={t("app.logout")}>
             <LogOut className="h-4 w-4" />
           </Button>
         </div>
@@ -103,11 +61,10 @@ const Home = () => {
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-10">
         <div className="space-y-2">
           <h2 className="text-2xl font-bold tracking-tight text-foreground">
-            Bem-vindo ao Starklytic
+            {t("home.welcome")}
           </h2>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Sua plataforma completa para análise de influenciadores e media buying. 
-            Explore os módulos abaixo para começar a analisar dados, simular campanhas e monitorar resultados.
+            {t("home.description")}
           </p>
         </div>
 
@@ -126,35 +83,35 @@ const Home = () => {
                   </div>
                   <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
-                <h3 className="text-sm font-semibold text-foreground mb-1">{mod.title}</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">{mod.description}</p>
+                <h3 className="text-sm font-semibold text-foreground mb-1">{t(mod.titleKey)}</h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">{t(mod.descKey)}</p>
               </button>
             ))}
         </div>
 
         <div className="border border-border rounded-xl p-6 bg-secondary/30 space-y-4">
           <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <BarChart3 className="h-4 w-4" /> Como utilizar
+            <BarChart3 className="h-4 w-4" /> {t("home.how_to_use")}
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-muted-foreground">
             <div className="space-y-1">
-              <p className="font-medium text-foreground">1. Escolha o módulo</p>
-              <p>Clique em um dos cards acima ou navegue pelas abas na página de ferramentas para acessar a funcionalidade desejada.</p>
+              <p className="font-medium text-foreground">{t("home.step1_title")}</p>
+              <p>{t("home.step1_desc")}</p>
             </div>
             <div className="space-y-1">
-              <p className="font-medium text-foreground">2. Insira os dados</p>
-              <p>Preencha os campos com as informações do influenciador ou campanha que deseja analisar. Cada módulo tem seus inputs específicos.</p>
+              <p className="font-medium text-foreground">{t("home.step2_title")}</p>
+              <p>{t("home.step2_desc")}</p>
             </div>
             <div className="space-y-1">
-              <p className="font-medium text-foreground">3. Analise e exporte</p>
-              <p>Visualize os resultados calculados e exporte relatórios em Excel para compartilhar com sua equipe e tomar decisões embasadas.</p>
+              <p className="font-medium text-foreground">{t("home.step3_title")}</p>
+              <p>{t("home.step3_desc")}</p>
             </div>
           </div>
         </div>
 
         <div className="flex justify-center">
           <Button onClick={() => navigate("/app")} className="gap-2">
-            Acessar Ferramentas <ArrowRight className="h-4 w-4" />
+            {t("app.access_tools")} <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
       </main>
