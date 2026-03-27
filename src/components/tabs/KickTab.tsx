@@ -229,7 +229,7 @@ export function KickTab() {
                       <td className="p-3 text-sm max-w-[300px] truncate" title={v.title}>{v.title}</td>
                       <td className="p-3 text-right font-mono text-sm">{fmtInt(v.viewCount)}</td>
                       <td className="p-3 text-right font-mono text-xs text-muted-foreground">
-                        {v.createdAt ? new Date(v.createdAt).toLocaleDateString("pt-BR") : "-"}
+                        {v.createdAt ? new Date(v.createdAt).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US") : "-"}
                       </td>
                     </tr>
                   ))}
