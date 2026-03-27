@@ -2,40 +2,49 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-
-const VALID_USER = "guilhermemontanari";
-const VALID_PASS = "Guim1987!";
+import { useAuth } from "@/contexts/AuthContext";
+import { Loader2 } from "lucide-react";
 
 interface LoginGateProps {
   children: React.ReactNode;
 }
 
 export function LoginGate({ children }: LoginGateProps) {
-  const [authenticated, setAuthenticated] = useState(
-    () => sessionStorage.getItem("auth") === "1"
-  );
-  const [user, setUser] = useState("");
+  const { user, loading, signIn } = useAuth();
+  const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleLogin = () => {
-    if (user === VALID_USER && pass === VALID_PASS) {
-      sessionStorage.setItem("auth", "1");
-      setAuthenticated(true);
-    } else {
+  const handleLogin = async () => {
+    if (!email || !pass) return;
+    setSubmitting(true);
+    const { error } = await signIn(email, pass);
+    if (error) {
       toast.error("Credenciais inválidas");
     }
+    setSubmitting(false);
   };
 
-  if (authenticated) return <>{children}</>;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (user) return <>{children}</>;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-4 p-6 rounded-xl border border-border bg-card shadow-lg">
-        <h1 className="text-lg font-semibold text-center text-foreground">Login</h1>
+        <h1 className="text-lg font-semibold text-center text-foreground">Starklytic</h1>
+        <p className="text-xs text-center text-muted-foreground font-mono uppercase tracking-wider">Login</p>
         <Input
-          placeholder="Usuário"
-          value={user}
-          onChange={(e) => setUser(e.target.value)}
+          placeholder="Email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleLogin()}
         />
         <Input
@@ -45,8 +54,8 @@ export function LoginGate({ children }: LoginGateProps) {
           onChange={(e) => setPass(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleLogin()}
         />
-        <Button onClick={handleLogin} className="w-full">
-          Entrar
+        <Button onClick={handleLogin} className="w-full" disabled={submitting}>
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Entrar"}
         </Button>
       </div>
     </div>
