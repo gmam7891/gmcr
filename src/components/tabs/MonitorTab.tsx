@@ -74,7 +74,7 @@ export function MonitorTab() {
     setPollLoading(true);
     try {
       const result = await pollNow();
-      toast.success(`Coletados ${result.snapshots} snapshots (${result.live} live)`);
+      toast.success(`${t("mon.collected")} ${result.snapshots} ${t("mon.snapshots_collected")} (${result.live} ${t("mon.live")})`);
     } catch (err: any) {
       toast.error("Erro no polling", { description: err.message });
     }
