@@ -38,8 +38,8 @@ export function KickTab() {
     try {
       const ch = await getKickChannel(username.trim());
       setChannel(ch);
-      toast.success(`Canal ${ch.displayName} carregado!`, {
-        description: `${fmtInt(ch.followers)} seguidores${ch.isLive ? ' · LIVE' : ''}`,
+      toast.success(`${ch.displayName} — ${t("kick.channel_loaded")}`, {
+        description: `${fmtInt(ch.followers)} ${t("kick.followers")}${ch.isLive ? ' · LIVE' : ''}`,
       });
 
       try {
