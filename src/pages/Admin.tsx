@@ -14,6 +14,7 @@ import { useNavigate } from "react-router-dom";
 const ALL_TABS = [
   { id: "simulator", label: "⚡ Simulador" },
   { id: "monitor", label: "📡 Monitor" },
+  { id: "authenticity", label: "🔍 Authenticity" },
   { id: "instagram", label: "Instagram" },
   { id: "twitch", label: "Twitch" },
   { id: "youtube", label: "YouTube" },
