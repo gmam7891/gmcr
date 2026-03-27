@@ -39,11 +39,11 @@ export function YouTubeTab() {
       setChannel(ch);
       const vids = await getYouTubeVideos(ch.id);
       setVideos(vids);
-      toast.success(`Canal ${ch.title} carregado!`, {
-        description: `${fmtInt(ch.subscriberCount)} inscritos · ${fmtInt(ch.videoCount)} vídeos`,
+      toast.success(`${ch.title} — ${t("yt.channel_loaded")}`, {
+        description: `${fmtInt(ch.subscriberCount)} ${t("yt.subscribers")} · ${fmtInt(ch.videoCount)} ${t("yt.videos")}`,
       });
     } catch (err: any) {
-      toast.error("Erro ao buscar canal", { description: err.message });
+      toast.error(t("yt.error_channel"), { description: err.message });
     }
     setLoading(false);
   };
