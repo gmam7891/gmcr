@@ -21,6 +21,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <LanguageProvider>
+          <ThemeProvider>
           <AuthProvider>
             <LoginGate>
             <Routes>
