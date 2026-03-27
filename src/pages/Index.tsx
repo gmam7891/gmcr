@@ -14,6 +14,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { Shield, LogOut } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import instagramIcon from "@/assets/instagram-icon.png";
 import twitchLogo from "@/assets/twitch-logo.png";
 import youtubeLogo from "@/assets/youtube-logo.png";
