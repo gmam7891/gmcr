@@ -14,6 +14,7 @@ import { useNavigate } from "react-router-dom";
 const ALL_TABS = [
   { id: "simulator", label: "⚡ Simulador" },
   { id: "monitor", label: "📡 Monitor" },
+  { id: "authenticity", label: "🔍 Authenticity" },
   { id: "instagram", label: "Instagram" },
   { id: "twitch", label: "Twitch" },
   { id: "youtube", label: "YouTube" },
@@ -314,6 +315,9 @@ export default function Admin() {
                 <Select value={duration} onValueChange={setDuration}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="1">1 dia (teste)</SelectItem>
+                    <SelectItem value="2">2 dias (teste)</SelectItem>
+                    <SelectItem value="3">3 dias (teste)</SelectItem>
                     <SelectItem value="7">7 dias</SelectItem>
                     <SelectItem value="15">15 dias</SelectItem>
                     <SelectItem value="30">30 dias</SelectItem>

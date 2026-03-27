@@ -7,6 +7,7 @@ import { IcpTab } from "@/components/tabs/IcpTab";
 import { VodTab } from "@/components/tabs/VodTab";
 import { SimulatorTab } from "@/components/tabs/SimulatorTab";
 import { MonitorTab } from "@/components/tabs/MonitorTab";
+import { AuthenticityTab } from "@/components/tabs/AuthenticityTab";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -27,6 +28,7 @@ interface TabConfig {
 const TAB_CONFIG: TabConfig[] = [
   { id: "simulator", label: "Simulador", icon: "⚡" },
   { id: "monitor", label: "Monitor", icon: "📡" },
+  { id: "authenticity", label: "Authenticity", icon: "🔍" },
   { id: "instagram", label: "Instagram", icon: instagramIcon },
   { id: "twitch", label: "Twitch", icon: twitchLogo },
   { id: "youtube", label: "YouTube", icon: youtubeLogo },
@@ -35,7 +37,7 @@ const TAB_CONFIG: TabConfig[] = [
   { id: "vod", label: "VOD Analyzer", icon: "📈" },
 ].map((t) => ({
   ...t,
-  component: { simulator: SimulatorTab, monitor: MonitorTab, instagram: InstagramTab, twitch: TwitchTab, youtube: YouTubeTab, kick: KickTab, icp: IcpTab, vod: VodTab }[t.id] as ComponentType,
+  component: { simulator: SimulatorTab, monitor: MonitorTab, authenticity: AuthenticityTab, instagram: InstagramTab, twitch: TwitchTab, youtube: YouTubeTab, kick: KickTab, icp: IcpTab, vod: VodTab }[t.id] as ComponentType,
 }));
 
 const Index = () => {
