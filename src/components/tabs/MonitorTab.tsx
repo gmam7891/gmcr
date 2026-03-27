@@ -228,14 +228,14 @@ export function MonitorTab() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="7">7 dias</SelectItem>
-                <SelectItem value="14">14 dias</SelectItem>
-                <SelectItem value="30">30 dias</SelectItem>
-                <SelectItem value="90">90 dias</SelectItem>
+                <SelectItem value="7">{t("mon.days_7")}</SelectItem>
+                <SelectItem value="14">{t("mon.days_14")}</SelectItem>
+                <SelectItem value="30">{t("mon.days_30")}</SelectItem>
+                <SelectItem value="90">{t("mon.days_90")}</SelectItem>
               </SelectContent>
             </Select>
             <Button size="sm" onClick={fetchReach} disabled={reachLoading}>
-              {reachLoading ? "Carregando..." : "Carregar Reach"}
+              {reachLoading ? t("mon.loading") : t("mon.load_reach")}
             </Button>
           </div>
 
