@@ -12,9 +12,9 @@ import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { Shield, LogOut } from "lucide-react";
 import instagramIcon from "@/assets/instagram-icon.png";
-import twitchLogo from "@/assets/twitch-logo.svg";
+import twitchLogo from "@/assets/twitch-logo.png";
 import youtubeLogo from "@/assets/youtube-logo.png";
-import kickLogo from "@/assets/kick-logo.svg";
+import kickLogo from "@/assets/kick-logo.png";
 import type { ComponentType } from "react";
 
 interface TabConfig {
