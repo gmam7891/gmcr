@@ -50,7 +50,7 @@ export function KickTab() {
         setVideos([]);
       }
     } catch (err: any) {
-      toast.error("Erro ao buscar canal", { description: err.message });
+      toast.error(t("kick.error_channel"), { description: err.message });
     }
     setLoading(false);
   };
