@@ -1,6 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSearchParams } from "react-router-dom";
 import { InstagramTab } from "@/components/tabs/InstagramTab";
+import { TwitchTab } from "@/components/tabs/TwitchTab";
 import { YouTubeTab } from "@/components/tabs/YouTubeTab";
 import { KickTab } from "@/components/tabs/KickTab";
 import { IcpTab } from "@/components/tabs/IcpTab";
