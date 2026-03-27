@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmtInt } from "@/lib/formatters";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   addStreamer, removeStreamer, listStreamers, pollNow, getReach, getTimeline,
   type MonitoredStreamer, type GameReach, type TimelinePoint,
