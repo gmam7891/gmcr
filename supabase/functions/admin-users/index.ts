@@ -83,9 +83,13 @@ Deno.serve(async (req) => {
         role: "user",
       });
 
-      // Update profile display_name
+      // Update profile display_name (upsert in case trigger hasn't fired yet)
       if (display_name) {
-        await adminClient.from("profiles").update({ display_name }).eq("id", newUser.user.id);
+        await adminClient.from("profiles").upsert({
+          id: newUser.user.id,
+          email,
+          display_name,
+        });
       }
 
       return new Response(JSON.stringify({ user: newUser.user }), {
