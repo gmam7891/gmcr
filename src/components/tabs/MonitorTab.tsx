@@ -63,7 +63,7 @@ export function MonitorTab() {
   const handleRemove = async (login: string) => {
     try {
       await removeStreamer(login);
-      toast.success(`${login} removido`);
+      toast.success(`${login} ${t("mon.removed")}`);
       await fetchStreamers();
     } catch (err: any) {
       toast.error("Erro", { description: err.message });
