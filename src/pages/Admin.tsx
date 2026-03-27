@@ -66,7 +66,11 @@ export default function Admin() {
     const { data, error } = await supabase.functions.invoke("admin-users", {
       body: { action, ...payload },
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      // Try to extract the actual error message from the response
+      const msg = typeof data === 'object' && data?.error ? data.error : error.message;
+      throw new Error(msg);
+    }
     if (data?.error) throw new Error(data.error);
     return data;
   };
