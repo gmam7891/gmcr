@@ -254,7 +254,7 @@ export function MonitorTab() {
 
           {reach.length === 0 && !reachLoading && (
             <div className="card-surface p-8 text-center text-sm text-muted-foreground">
-              Adicione streamers, colete dados com "📡 Coletar agora" e depois clique "Carregar Reach" para ver os resultados.
+              {t("mon.empty_reach")}
             </div>
           )}
 
