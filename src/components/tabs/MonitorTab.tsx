@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { ReachTable } from "@/components/monitor/ReachTable";
 import { ViewerTimeline } from "@/components/monitor/ViewerTimeline";
+import * as XLSX from "xlsx";
 
 export function MonitorTab() {
   const [streamers, setStreamers] = useState<MonitoredStreamer[]>([]);
