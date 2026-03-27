@@ -217,7 +217,7 @@ export function MonitorTab() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="all">{t("app.all")}</SelectItem>
                 {streamers.map(s => (
                   <SelectItem key={s.login} value={s.login}>{s.display_name || s.login}</SelectItem>
                 ))}
