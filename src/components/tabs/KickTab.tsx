@@ -197,7 +197,7 @@ export function KickTab() {
 
         {aiGames.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs text-accent font-medium uppercase tracking-wider">Jogos detectados</p>
+            <p className="text-xs text-accent font-medium uppercase tracking-wider">{t("yt.games_detected")}</p>
             <div className="flex flex-wrap gap-1.5">
               {aiGames.filter(g => g.category !== 'not_casino').map((g, i) => (
                 <div key={i} className="flex items-center gap-2 card-surface px-3 py-1.5 text-xs border border-accent/20">
