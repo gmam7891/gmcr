@@ -139,9 +139,9 @@ export function MonitorTab() {
       {/* Header */}
       <div className="card-surface p-4 flex items-start justify-between">
         <div>
-          <p className="text-xs text-primary font-medium uppercase tracking-wider">Monitor de Reach em Tempo Real</p>
+          <p className="text-xs text-primary font-medium uppercase tracking-wider">{t("mon.realtime_title")}</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Adicione streamers para monitorar. O sistema coleta viewers + jogo/categoria a cada 2 minutos, calculando o <strong>reach real</strong> (viewer-minutes) por jogo e provedor.
+            {t("mon.description")}
           </p>
         </div>
         {reach.length > 0 && (
