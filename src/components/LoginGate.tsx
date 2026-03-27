@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Loader2 } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface LoginGateProps {
   children: React.ReactNode;
@@ -40,6 +41,9 @@ export function LoginGate({ children }: LoginGateProps) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm space-y-4 p-6 rounded-xl border border-border bg-card shadow-lg">
+        <div className="flex justify-end">
+          <ThemeToggle />
+        </div>
         <h1 className="text-lg font-semibold text-center text-foreground">{t("login.title")}</h1>
         <p className="text-xs text-center text-muted-foreground font-mono uppercase tracking-wider">{t("login.subtitle")}</p>
         <Input

@@ -14,6 +14,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { Shield, LogOut } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import instagramIcon from "@/assets/instagram-icon.png";
 import twitchLogo from "@/assets/twitch-logo.png";
 import youtubeLogo from "@/assets/youtube-logo.png";
@@ -79,6 +80,7 @@ const Index = () => {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           {userAccess?.expires_at && (
             <span className="text-[10px] text-muted-foreground font-mono">
               {t("app.access_until")} {new Date(userAccess.expires_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}

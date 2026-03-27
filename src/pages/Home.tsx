@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Shield, LogOut, ArrowRight, BarChart3, Instagram, Tv, Youtube, Monitor, Zap, Search, Video, Target, Globe } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import type { TranslationKey } from "@/lib/translations";
 
 const modules: { id: string; icon: typeof Target; titleKey: TranslationKey; descKey: TranslationKey; color: string }[] = [
@@ -42,6 +43,7 @@ const Home = () => {
             <Globe className="h-3.5 w-3.5" />
             {t("lang.switch")}
           </Button>
+          <ThemeToggle />
           {userAccess?.expires_at && (
             <span className="text-[10px] text-muted-foreground font-mono">
               {t("app.access_until")} {new Date(userAccess.expires_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}

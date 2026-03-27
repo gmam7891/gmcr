@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LoginGate } from "@/components/LoginGate";
 import Home from "./pages/Home.tsx";
 import Index from "./pages/Index.tsx";
@@ -20,6 +21,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <LanguageProvider>
+          <ThemeProvider>
           <AuthProvider>
             <LoginGate>
             <Routes>
@@ -31,6 +33,7 @@ const App = () => (
             </Routes>
             </LoginGate>
           </AuthProvider>
+          </ThemeProvider>
         </LanguageProvider>
       </BrowserRouter>
     </TooltipProvider>
