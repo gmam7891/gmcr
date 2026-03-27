@@ -53,22 +53,22 @@
 
   :root[data-theme="light"] {
     --background: 210 20% 98%;
-    --foreground: 222 47% 11%;
+    --foreground: 0 0% 40%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 0 0% 40%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 0 0% 40%;
 
     --primary: 217 91% 50%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 210 20% 94%;
-    --secondary-foreground: 222 30% 30%;
+    --secondary-foreground: 0 0% 40%;
 
     --muted: 210 15% 92%;
-    --muted-foreground: 215 16% 47%;
+    --muted-foreground: 0 0% 40%;
 
     --accent: 160 84% 36%;
     --accent-foreground: 0 0% 100%;
@@ -86,11 +86,11 @@
     --warning-foreground: 0 0% 7%;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222 47% 11%;
+    --sidebar-foreground: 0 0% 40%;
     --sidebar-primary: 217 91% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 210 20% 94%;
-    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-accent-foreground: 0 0% 40%;
     --sidebar-border: 214 20% 88%;
     --sidebar-ring: 217 91% 50%;
   }
