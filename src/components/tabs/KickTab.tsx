@@ -143,7 +143,7 @@ export function KickTab() {
                   {channel.verified && <span className="text-primary text-xs">✓</span>}
                   {channel.isLive && <span className="text-xs text-accent animate-pulse-slow">● LIVE</span>}
                 </div>
-                <span className="text-xs text-muted-foreground">{fmtInt(channel.followers)} seguidores</span>
+                <span className="text-xs text-muted-foreground">{fmtInt(channel.followers)} {t("kick.followers")}</span>
               </div>
             </div>
           )}
