@@ -242,10 +242,10 @@ export function MonitorTab() {
           {reach.length > 0 && (
             <>
               <div className="grid grid-cols-4 gap-3">
-                <MetricCard label="Total Viewer-Min" value={fmtInt(totalReachImpressions)} />
-                <MetricCard label="Snapshots coletados" value={fmtInt(totalSnapshots)} />
-                <MetricCard label="Top Jogo" value={topGame?.game || "-"} />
-                <MetricCard label="Top Avg Viewers" value={topGame ? fmtInt(topGame.avgViewers) : "-"} />
+              <MetricCard label={t("mon.total_viewer_min")} value={fmtInt(totalReachImpressions)} />
+                <MetricCard label={t("mon.snapshots")} value={fmtInt(totalSnapshots)} />
+                <MetricCard label={t("mon.top_game")} value={topGame?.game || "-"} />
+                <MetricCard label={t("mon.top_avg")} value={topGame ? fmtInt(topGame.avgViewers) : "-"} />
               </div>
 
               <ReachTable reach={reach} />
