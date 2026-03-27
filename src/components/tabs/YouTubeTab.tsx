@@ -148,7 +148,7 @@ export function YouTubeTab() {
               <div className="flex-1 min-w-0">
                 <span className="font-medium text-sm truncate block">{channel.title}</span>
                 <span className="text-xs text-muted-foreground">
-                  {fmtInt(channel.subscriberCount)} inscritos · {fmtInt(channel.videoCount)} vídeos
+                  {fmtInt(channel.subscriberCount)} {t("yt.subscribers")} · {fmtInt(channel.videoCount)} {t("yt.videos")}
                 </span>
               </div>
             </div>
