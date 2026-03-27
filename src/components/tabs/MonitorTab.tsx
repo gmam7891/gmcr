@@ -55,7 +55,7 @@ export function MonitorTab() {
       setNewLogin("");
       await fetchStreamers();
     } catch (err: any) {
-      toast.error("Erro ao adicionar", { description: err.message });
+      toast.error(t("mon.error_add"), { description: err.message });
     }
     setLoading(false);
   };
