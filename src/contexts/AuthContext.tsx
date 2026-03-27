@@ -89,37 +89,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
+    // IMPORTANT: Do NOT await inside onAuthStateChange — it causes a deadlock.
+    // Use "fire and forget" for side effects.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
         if (!mounted) return;
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          try {
-            await fetchAccess(session.user.id);
-          } catch (e) {
-            console.error("fetchAccess error:", e);
-          }
+          fetchAccess(session.user.id)
+            .catch((e) => console.error("fetchAccess error:", e))
+            .finally(() => { if (mounted) setLoading(false); });
         } else {
           setIsAdmin(false);
           setUserAccess(null);
+          setLoading(false);
         }
-        setLoading(false);
       }
     );
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (!mounted) return;
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        try {
-          await fetchAccess(session.user.id);
-        } catch (e) {
-          console.error("fetchAccess error:", e);
-        }
+        fetchAccess(session.user.id)
+          .catch((e) => console.error("fetchAccess error:", e))
+          .finally(() => { if (mounted) setLoading(false); });
+      } else {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => {
