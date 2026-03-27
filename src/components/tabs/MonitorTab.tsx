@@ -162,16 +162,11 @@ export function MonitorTab() {
           </div>
 
           <div className="flex gap-2">
-            <Input
-              placeholder="username da Twitch"
-              value={newLogin}
-              onChange={(e) => setNewLogin(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              className="font-mono"
-            />
+            <Input placeholder={t("mon.twitch_username")} value={newLogin} onChange={(e) => setNewLogin(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} className="font-mono" />
             <Button onClick={handleAdd} disabled={loading} size="sm" className="shrink-0">
-              {loading ? "..." : "+ Adicionar"}
+              {loading ? "..." : t("mon.add")}
             </Button>
+          </div>
           </div>
 
           {streamers.length > 0 ? (
