@@ -8,6 +8,7 @@ import { calculateCampaign } from "@/lib/instagram/campaignCalculators";
 import { campaignConfigs } from "@/lib/instagram/campaignFieldConfig";
 import type { CampaignType } from "@/lib/instagram/campaignTypes";
 import { Button } from "@/components/ui/button";
+import { useLanguage } from "@/contexts/LanguageContext";
 import * as XLSX from "xlsx";
 
 const BASE_KEYS = [
@@ -17,6 +18,7 @@ const BASE_KEYS = [
 ];
 
 export function InstagramTab() {
+  const { t } = useLanguage();
   const [campaignType, setCampaignType] = useState<CampaignType>("igaming");
   const [username, setUsername] = useState("");
   const [values, setValues] = useState<Record<string, number>>(() => {
@@ -43,77 +45,53 @@ export function InstagramTab() {
 
   const downloadExcel = () => {
     const rows: (string | number)[][] = [
-      ["Tipo de campanha", config.label],
+      ["Campaign type", config.label],
       [""],
-      ["Campo", "Valor"],
-      ["Seguidores", values.followers ?? 0],
-      ["Alcance médio", values.avgReach ?? 0],
-      ["Fee (R$)", values.influencerFee ?? 0],
-      ["Reels · Qtd", values.reelsDeliveries ?? 0],
-      ["Reels · Views médias", values.reelsViews ?? 0],
-      ["Reels · Engajamento (%)", values.reelsEngagement ?? 0],
-      ["Stories · Qtd", values.storiesDeliveries ?? 0],
-      ["Stories · Views médias", values.storiesViews ?? 0],
-      ["Stories · Engajamento (%)", values.storiesEngagement ?? 0],
+      ["Field", "Value"],
+      ["Followers", values.followers ?? 0],
+      ["Avg reach", values.avgReach ?? 0],
+      ["Fee", values.influencerFee ?? 0],
+      ["Reels · Qty", values.reelsDeliveries ?? 0],
+      ["Reels · Avg views", values.reelsViews ?? 0],
+      ["Reels · Engagement (%)", values.reelsEngagement ?? 0],
+      ["Stories · Qty", values.storiesDeliveries ?? 0],
+      ["Stories · Avg views", values.storiesViews ?? 0],
+      ["Stories · Engagement (%)", values.storiesEngagement ?? 0],
       ...config.fields.map((f) => [f.label, values[f.key] ?? f.defaultValue ?? 0]),
       [""],
-      ["Resultado", "Valor"],
+      ["Result", "Value"],
       ...config.resultCards.map((c) => [c.label, results[c.key] ?? 0]),
     ];
     const ws = XLSX.utils.aoa_to_sheet(rows);
     ws["!cols"] = [{ wch: 35 }, { wch: 22 }];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Campanha Instagram");
+    XLSX.utils.book_append_sheet(wb, ws, "Instagram Campaign");
     XLSX.writeFile(wb, `campanha-instagram-${campaignType}.xlsx`);
   };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
-        <h2 className="text-lg font-semibold text-foreground tracking-tight">Instagram Campaign Calculator</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Simule campanhas por objetivo e avalie eficiência, custo e retorno esperado
-        </p>
+        <h2 className="text-lg font-semibold text-foreground tracking-tight">{t("ig.title")}</h2>
+        <p className="text-sm text-muted-foreground mt-1">{t("ig.subtitle")}</p>
       </div>
 
-      {/* Campaign Type Selector */}
       <CampaignTypeSelector value={campaignType} onChange={setCampaignType} />
 
-      {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Inputs Column */}
         <div className="lg:col-span-2 space-y-6">
-          <BaseInfluencerFields
-            values={values}
-            onChange={handleChange}
-            username={username}
-            setUsername={setUsername}
-          />
-          <DynamicCampaignFields
-            fields={config.fields}
-            values={values}
-            onChange={handleChange}
-            title={`Parâmetros · ${config.label}`}
-          />
+          <BaseInfluencerFields values={values} onChange={handleChange} username={username} setUsername={setUsername} />
+          <DynamicCampaignFields fields={config.fields} values={values} onChange={handleChange} title={`${t("ig.params")} · ${config.label}`} />
         </div>
 
-        {/* Results Column */}
         <div className="lg:col-span-3 space-y-5">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Resultados</h3>
-            <Button variant="outline" size="sm" onClick={downloadExcel}>
-              📥 Exportar Excel
-            </Button>
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("app.results")}</h3>
+            <Button variant="outline" size="sm" onClick={downloadExcel}>{t("app.export_excel")}</Button>
           </div>
-
           <ResultCardsGrid cards={config.resultCards} results={results} fee={values.influencerFee ?? 0} />
-
           <InsightCards rules={config.insightRules} results={results} inputs={allInputs} />
-
-          <p className="text-xs text-muted-foreground mt-4">
-            Os cálculos são baseados nas estimativas informadas. Audiência base utiliza alcance médio quando disponível, caso contrário views médias.
-          </p>
+          <p className="text-xs text-muted-foreground mt-4">{t("ig.calculations_note")}</p>
         </div>
       </div>
     </div>

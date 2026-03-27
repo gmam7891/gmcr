@@ -6,6 +6,7 @@ import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 import * as XLSX from "xlsx";
 import {
   getYouTubeChannel, getYouTubeVideos, analyzeThumbnails, formatYTDuration,
@@ -13,6 +14,7 @@ import {
 } from "@/lib/youtube-kick-api";
 
 export function YouTubeTab() {
+  const { t, language } = useLanguage();
   const [handle, setHandle] = useState("");
   const [loading, setLoading] = useState(false);
   const [channel, setChannel] = useState<YouTubeChannel | null>(null);
@@ -37,11 +39,11 @@ export function YouTubeTab() {
       setChannel(ch);
       const vids = await getYouTubeVideos(ch.id);
       setVideos(vids);
-      toast.success(`Canal ${ch.title} carregado!`, {
-        description: `${fmtInt(ch.subscriberCount)} inscritos · ${fmtInt(ch.videoCount)} vídeos`,
+      toast.success(`${ch.title} — ${t("yt.channel_loaded")}`, {
+        description: `${fmtInt(ch.subscriberCount)} ${t("yt.subscribers")} · ${fmtInt(ch.videoCount)} ${t("yt.videos")}`,
       });
     } catch (err: any) {
-      toast.error("Erro ao buscar canal", { description: err.message });
+      toast.error(t("yt.error_channel"), { description: err.message });
     }
     setLoading(false);
   };
@@ -55,7 +57,7 @@ export function YouTubeTab() {
       setAiGames(games);
       toast.success(`${games.filter(g => g.category !== 'not_casino').length} jogos detectados`);
     } catch (err: any) {
-      toast.error("Erro na análise IA", { description: err.message });
+      toast.error(t("yt.error_ai"), { description: err.message });
     }
     setAiLoading(false);
   };
@@ -125,17 +127,17 @@ export function YouTubeTab() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <div className="lg:col-span-2 space-y-6">
-        <FieldSection title="Buscar canal">
+        <FieldSection title={t("yt.search_channel")}>
           <div className="flex gap-2">
             <Input
-              placeholder="@handle ou nome do canal"
+              placeholder={t("yt.handle_placeholder")}
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && fetchChannel()}
               className="font-mono"
             />
             <Button onClick={fetchChannel} disabled={loading} size="sm" className="shrink-0">
-              {loading ? "Buscando…" : "Buscar"}
+              {loading ? t("app.searching") : t("app.search")}
             </Button>
           </div>
           {channel && (
@@ -146,60 +148,60 @@ export function YouTubeTab() {
               <div className="flex-1 min-w-0">
                 <span className="font-medium text-sm truncate block">{channel.title}</span>
                 <span className="text-xs text-muted-foreground">
-                  {fmtInt(channel.subscriberCount)} inscritos · {fmtInt(channel.videoCount)} vídeos
+                  {fmtInt(channel.subscriberCount)} {t("yt.subscribers")} · {fmtInt(channel.videoCount)} {t("yt.videos")}
                 </span>
               </div>
             </div>
           )}
         </FieldSection>
 
-        <FieldSection title="Projeção financeira">
-          <NumberField label="% ICP" value={percIcp} onChange={setPercIcp} step={1} max={100} suffix="%" />
+        <FieldSection title={t("yt.financial_projection")}>
+          <NumberField label={t("yt.icp_pct")} value={percIcp} onChange={setPercIcp} step={1} max={100} suffix="%" />
           <NumberField label="CTR" value={ctr} onChange={setCtr} step={0.1} suffix="%" />
-          <NumberField label="CVR para FTD" value={cvr} onChange={setCvr} step={0.1} suffix="%" />
-          <NumberField label="Valor por FTD" value={valueFtd} onChange={setValueFtd} step={50} suffix="R$" />
-          <NumberField label="Fee / investimento" value={fee} onChange={setFee} step={1000} suffix="R$" />
+          <NumberField label={t("tw.cvr_ftd")} value={cvr} onChange={setCvr} step={0.1} suffix="%" />
+          <NumberField label={t("tw.value_per_ftd")} value={valueFtd} onChange={setValueFtd} step={50} suffix="R$" />
+          <NumberField label={t("tw.fee")} value={fee} onChange={setFee} step={1000} suffix="R$" />
         </FieldSection>
       </div>
 
       <div className="lg:col-span-3 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Resultados</h2>
-          <Button variant="outline" size="sm" onClick={downloadExcel}>📥 Exportar Excel</Button>
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("app.results")}</h2>
+          <Button variant="outline" size="sm" onClick={downloadExcel}>{t("app.export_excel")}</Button>
         </div>
 
         {videos.length > 0 && (
           <>
             <div className="grid grid-cols-4 gap-3">
-              <MetricCard label="Vídeos analisados" value={fmtInt(videos.length)} />
-              <MetricCard label="Views totais" value={fmtInt(totalViews)} />
-              <MetricCard label="Avg views/vídeo" value={fmtInt(avgViews)} />
-              <MetricCard label="Total horas" value={`${totalHours.toFixed(1)}h`} />
+              <MetricCard label={t("yt.analyzed_videos")} value={fmtInt(videos.length)} />
+              <MetricCard label={t("yt.total_views")} value={fmtInt(totalViews)} />
+              <MetricCard label={t("yt.avg_views_video")} value={fmtInt(avgViews)} />
+              <MetricCard label={t("yt.total_hours")} value={`${totalHours.toFixed(1)}h`} />
             </div>
 
             <div className="grid grid-cols-3 gap-3">
-              <MetricCard label="Views ICP" value={fmtInt(results.viewsIcp)} />
-              <MetricCard label="Cliques estimados" value={fmtInt(results.clicks)} />
-              <MetricCard label="FTD projetado" value={fmtInt(results.ftd)} />
+              <MetricCard label={t("yt.views_icp")} value={fmtInt(results.viewsIcp)} />
+              <MetricCard label={t("tw.estimated_clicks")} value={fmtInt(results.clicks)} />
+              <MetricCard label={t("tw.projected_ftd")} value={fmtInt(results.ftd)} />
             </div>
             <div className="grid grid-cols-3 gap-3">
-              <MetricCard label="Receita projetada" value={fmtMoney(results.revenue)} status={results.revenue > 0 ? "go" : undefined} />
+              <MetricCard label={t("tw.projected_revenue")} value={fmtMoney(results.revenue)} status={results.revenue > 0 ? "go" : undefined} />
               <MetricCard label="ROI" value={fee > 0 ? fmtPercent(results.roi, 0) : "-"} status={fee > 0 ? (results.roi >= 200 ? "go" : results.roi >= 0 ? "warning" : "nogo") : undefined} />
-              <MetricCard label="Lucro / Prejuízo" value={fee > 0 ? fmtMoney(results.profit) : "-"} status={fee > 0 ? (results.profit > 0 ? "go" : results.profit < 0 ? "nogo" : undefined) : undefined} />
+              <MetricCard label={t("tw.profit_loss")} value={fee > 0 ? fmtMoney(results.profit) : "-"} status={fee > 0 ? (results.profit > 0 ? "go" : results.profit < 0 ? "nogo" : undefined) : undefined} />
             </div>
             {fee > 0 && <StatusBadge status={results.profit > 0 ? "go" : results.profit === 0 ? "warning" : "nogo"} />}
 
             {/* AI Analysis */}
             <div className="flex items-center gap-3 pt-2">
               <Button variant="outline" size="sm" onClick={analyzeWithAI} disabled={aiLoading}>
-                {aiLoading ? "🤖 Analisando..." : "🤖 Detectar jogos com IA"}
+                {aiLoading ? t("yt.ai_analyzing") : t("yt.ai_detect")}
               </Button>
-              <span className="text-xs text-muted-foreground">Analisa thumbnails dos vídeos</span>
+              <span className="text-xs text-muted-foreground">{t("yt.ai_analyzes_thumbs")}</span>
             </div>
 
             {aiGames.length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs text-accent font-medium uppercase tracking-wider">Jogos detectados</p>
+                <p className="text-xs text-accent font-medium uppercase tracking-wider">{t("yt.games_detected")}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {aiGames.filter(g => g.category !== 'not_casino').map((g, i) => (
                     <div key={i} className="flex items-center gap-2 card-surface px-3 py-1.5 text-xs border border-accent/20">
@@ -223,10 +225,10 @@ export function YouTubeTab() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-border">
-                    <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-3">Título</th>
-                    <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Duração</th>
-                    <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Views</th>
-                    <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Data</th>
+                     <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.title_col")}</th>
+                     <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.duration_col")}</th>
+                     <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.views_col")}</th>
+                     <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.date_col")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -236,7 +238,7 @@ export function YouTubeTab() {
                       <td className="p-3 text-right font-mono text-sm">{formatYTDuration(v.duration)}</td>
                       <td className="p-3 text-right font-mono text-sm">{fmtInt(v.viewCount)}</td>
                       <td className="p-3 text-right font-mono text-xs text-muted-foreground">
-                        {new Date(v.publishedAt).toLocaleDateString("pt-BR")}
+                        {new Date(v.publishedAt).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}
                       </td>
                     </tr>
                   ))}
@@ -248,7 +250,7 @@ export function YouTubeTab() {
 
         {!loading && videos.length === 0 && !channel && (
           <div className="card-surface p-8 text-center text-muted-foreground text-sm">
-            Busque um canal do YouTube para iniciar a análise.
+            {t("yt.empty")}
           </div>
         )}
       </div>

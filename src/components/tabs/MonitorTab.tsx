@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmtInt } from "@/lib/formatters";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   addStreamer, removeStreamer, listStreamers, pollNow, getReach, getTimeline,
   type MonitoredStreamer, type GameReach, type TimelinePoint,
@@ -16,6 +17,7 @@ import { ViewerTimeline } from "@/components/monitor/ViewerTimeline";
 import * as XLSX from "xlsx";
 
 export function MonitorTab() {
+  const { t } = useLanguage();
   const [streamers, setStreamers] = useState<MonitoredStreamer[]>([]);
   const [newLogin, setNewLogin] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,11 +51,11 @@ export function MonitorTab() {
     setLoading(true);
     try {
       await addStreamer(newLogin.trim());
-      toast.success(`${newLogin} adicionado ao monitoramento!`);
+      toast.success(`${newLogin} ${t("mon.added")}`);
       setNewLogin("");
       await fetchStreamers();
     } catch (err: any) {
-      toast.error("Erro ao adicionar", { description: err.message });
+      toast.error(t("mon.error_add"), { description: err.message });
     }
     setLoading(false);
   };
@@ -61,7 +63,7 @@ export function MonitorTab() {
   const handleRemove = async (login: string) => {
     try {
       await removeStreamer(login);
-      toast.success(`${login} removido`);
+      toast.success(`${login} ${t("mon.removed")}`);
       await fetchStreamers();
     } catch (err: any) {
       toast.error("Erro", { description: err.message });
@@ -72,7 +74,7 @@ export function MonitorTab() {
     setPollLoading(true);
     try {
       const result = await pollNow();
-      toast.success(`Coletados ${result.snapshots} snapshots (${result.live} live)`);
+      toast.success(`${t("mon.collected")} ${result.snapshots} ${t("mon.snapshots_collected")} (${result.live} ${t("mon.live")})`);
     } catch (err: any) {
       toast.error("Erro no polling", { description: err.message });
     }
@@ -137,14 +139,14 @@ export function MonitorTab() {
       {/* Header */}
       <div className="card-surface p-4 flex items-start justify-between">
         <div>
-          <p className="text-xs text-primary font-medium uppercase tracking-wider">Monitor de Reach em Tempo Real</p>
+          <p className="text-xs text-primary font-medium uppercase tracking-wider">{t("mon.realtime_title")}</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Adicione streamers para monitorar. O sistema coleta viewers + jogo/categoria a cada 2 minutos, calculando o <strong>reach real</strong> (viewer-minutes) por jogo e provedor.
+            {t("mon.description")}
           </p>
         </div>
         {reach.length > 0 && (
           <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0">
-            📥 Exportar Excel
+            {t("app.export_excel")}
           </Button>
         )}
       </div>
@@ -153,23 +155,18 @@ export function MonitorTab() {
         {/* Left: Manage streamers */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Streamers Monitorados</h2>
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("mon.monitored")}</h2>
             <Button variant="outline" size="sm" onClick={handlePoll} disabled={pollLoading}>
-              {pollLoading ? "Coletando..." : "📡 Coletar agora"}
+              {pollLoading ? t("mon.collecting") : t("mon.collect_now")}
             </Button>
           </div>
 
           <div className="flex gap-2">
-            <Input
-              placeholder="username da Twitch"
-              value={newLogin}
-              onChange={(e) => setNewLogin(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              className="font-mono"
-            />
+            <Input placeholder={t("mon.twitch_username")} value={newLogin} onChange={(e) => setNewLogin(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()} className="font-mono" />
             <Button onClick={handleAdd} disabled={loading} size="sm" className="shrink-0">
-              {loading ? "..." : "+ Adicionar"}
+              {loading ? "..." : t("mon.add")}
             </Button>
+          </div>
           </div>
 
           {streamers.length > 0 ? (
@@ -206,7 +203,7 @@ export function MonitorTab() {
             </div>
           ) : (
             <div className="card-surface p-6 text-center text-sm text-muted-foreground">
-              Nenhum streamer monitorado. Adicione um acima.
+              {t("mon.no_streamers")}
             </div>
           )}
         </div>
@@ -214,13 +211,13 @@ export function MonitorTab() {
         {/* Right: Reach analytics */}
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Reach por Jogo</h2>
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("mon.reach_by_game")}</h2>
             <Select value={selectedStreamer} onValueChange={setSelectedStreamer}>
               <SelectTrigger className="w-40 h-8 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="all">{t("app.all")}</SelectItem>
                 {streamers.map(s => (
                   <SelectItem key={s.login} value={s.login}>{s.display_name || s.login}</SelectItem>
                 ))}
@@ -231,24 +228,24 @@ export function MonitorTab() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="7">7 dias</SelectItem>
-                <SelectItem value="14">14 dias</SelectItem>
-                <SelectItem value="30">30 dias</SelectItem>
-                <SelectItem value="90">90 dias</SelectItem>
+                <SelectItem value="7">{t("mon.days_7")}</SelectItem>
+                <SelectItem value="14">{t("mon.days_14")}</SelectItem>
+                <SelectItem value="30">{t("mon.days_30")}</SelectItem>
+                <SelectItem value="90">{t("mon.days_90")}</SelectItem>
               </SelectContent>
             </Select>
             <Button size="sm" onClick={fetchReach} disabled={reachLoading}>
-              {reachLoading ? "Carregando..." : "Carregar Reach"}
+              {reachLoading ? t("mon.loading") : t("mon.load_reach")}
             </Button>
           </div>
 
           {reach.length > 0 && (
             <>
               <div className="grid grid-cols-4 gap-3">
-                <MetricCard label="Total Viewer-Min" value={fmtInt(totalReachImpressions)} />
-                <MetricCard label="Snapshots coletados" value={fmtInt(totalSnapshots)} />
-                <MetricCard label="Top Jogo" value={topGame?.game || "-"} />
-                <MetricCard label="Top Avg Viewers" value={topGame ? fmtInt(topGame.avgViewers) : "-"} />
+              <MetricCard label={t("mon.total_viewer_min")} value={fmtInt(totalReachImpressions)} />
+                <MetricCard label={t("mon.snapshots")} value={fmtInt(totalSnapshots)} />
+                <MetricCard label={t("mon.top_game")} value={topGame?.game || "-"} />
+                <MetricCard label={t("mon.top_avg")} value={topGame ? fmtInt(topGame.avgViewers) : "-"} />
               </div>
 
               <ReachTable reach={reach} />
@@ -257,7 +254,7 @@ export function MonitorTab() {
 
           {reach.length === 0 && !reachLoading && (
             <div className="card-surface p-8 text-center text-sm text-muted-foreground">
-              Adicione streamers, colete dados com "📡 Coletar agora" e depois clique "Carregar Reach" para ver os resultados.
+              {t("mon.empty_reach")}
             </div>
           )}
 
@@ -265,8 +262,8 @@ export function MonitorTab() {
           {timelineLogin && (
             <div className="space-y-2">
               <h3 className="text-xs text-muted-foreground uppercase tracking-wider">
-                Timeline: {timelineLogin} (últimas 48h)
-                {timelineLoading && " — carregando..."}
+                {t("mon.timeline")}: {timelineLogin} ({t("mon.last_48h")})
+                {timelineLoading && ` — ${t("mon.loading")}`}
               </h3>
               <ViewerTimeline timeline={timeline} />
             </div>
