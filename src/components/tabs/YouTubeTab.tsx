@@ -238,7 +238,7 @@ export function YouTubeTab() {
                       <td className="p-3 text-right font-mono text-sm">{formatYTDuration(v.duration)}</td>
                       <td className="p-3 text-right font-mono text-sm">{fmtInt(v.viewCount)}</td>
                       <td className="p-3 text-right font-mono text-xs text-muted-foreground">
-                        {new Date(v.publishedAt).toLocaleDateString("pt-BR")}
+                        {new Date(v.publishedAt).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}
                       </td>
                     </tr>
                   ))}
