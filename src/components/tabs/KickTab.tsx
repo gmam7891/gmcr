@@ -189,9 +189,9 @@ export function KickTab() {
         {videos.length > 0 && (
           <div className="flex items-center gap-3 pt-2">
             <Button variant="outline" size="sm" onClick={analyzeWithAI} disabled={aiLoading}>
-              {aiLoading ? "🤖 Analisando..." : "🤖 Detectar jogos com IA"}
+              {aiLoading ? t("yt.ai_analyzing") : t("yt.ai_detect")}
             </Button>
-            <span className="text-xs text-muted-foreground">Analisa thumbnails dos VODs</span>
+            <span className="text-xs text-muted-foreground">{t("kick.ai_analyzes_vods")}</span>
           </div>
         )}
 
