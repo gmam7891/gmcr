@@ -166,8 +166,8 @@ export function YouTubeTab() {
 
       <div className="lg:col-span-3 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Resultados</h2>
-          <Button variant="outline" size="sm" onClick={downloadExcel}>📥 Exportar Excel</Button>
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("app.results")}</h2>
+          <Button variant="outline" size="sm" onClick={downloadExcel}>{t("app.export_excel")}</Button>
         </div>
 
         {videos.length > 0 && (
