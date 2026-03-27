@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      access_packages: {
+        Row: {
+          allowed_tabs: string[]
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          allowed_tabs?: string[]
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          allowed_tabs?: string[]
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
       monitored_streamers: {
         Row: {
           avatar_url: string | null
@@ -41,6 +62,27 @@ export type Database = {
           is_active?: boolean
           login?: string
           twitch_id?: string | null
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
         }
         Relationships: []
       }
@@ -85,15 +127,80 @@ export type Database = {
           },
         ]
       }
+      user_access: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          custom_tabs: string[] | null
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          package_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          custom_tabs?: string[] | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          package_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          custom_tabs?: string[] | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          package_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_access_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "access_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "user"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -220,6 +327,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "user"],
+    },
   },
 } as const
