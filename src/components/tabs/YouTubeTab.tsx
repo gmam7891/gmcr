@@ -6,6 +6,7 @@ import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 import * as XLSX from "xlsx";
 import {
   getYouTubeChannel, getYouTubeVideos, analyzeThumbnails, formatYTDuration,
