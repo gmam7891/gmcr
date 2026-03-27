@@ -64,7 +64,7 @@ export function KickTab() {
       setAiGames(games);
       toast.success(`${games.filter(g => g.category !== 'not_casino').length} jogos detectados`);
     } catch (err: any) {
-      toast.error("Erro na análise IA", { description: err.message });
+      toast.error(t("yt.error_ai"), { description: err.message });
     }
     setAiLoading(false);
   };
