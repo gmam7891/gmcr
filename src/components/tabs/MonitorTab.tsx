@@ -51,7 +51,7 @@ export function MonitorTab() {
     setLoading(true);
     try {
       await addStreamer(newLogin.trim());
-      toast.success(`${newLogin} adicionado ao monitoramento!`);
+      toast.success(`${newLogin} ${t("mon.added")}`);
       setNewLogin("");
       await fetchStreamers();
     } catch (err: any) {
