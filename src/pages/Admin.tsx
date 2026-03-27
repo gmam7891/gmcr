@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,23 +40,21 @@ interface Package {
 
 export default function Admin() {
   const { isAdmin, session } = useAuth();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // New user form
   const [newEmail, setNewEmail] = useState("");
   const [newPass, setNewPass] = useState("");
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
 
-  // New package form
   const [pkgName, setPkgName] = useState("");
   const [pkgTabs, setPkgTabs] = useState<string[]>([]);
   const [creatingPkg, setCreatingPkg] = useState(false);
 
-  // Access assignment
   const [selectedUser, setSelectedUser] = useState<string>("");
   const [accessMode, setAccessMode] = useState<"package" | "custom">("package");
   const [selectedPkg, setSelectedPkg] = useState<string>("");
@@ -63,9 +62,8 @@ export default function Admin() {
   const [duration, setDuration] = useState<string>("30");
   const [settingAccess, setSettingAccess] = useState(false);
 
-  const getFunctionErrorMessage = async (error: any, fallback = "Falha ao executar operação") => {
-    let message = error?.message || fallback;
-
+  const getFunctionErrorMessage = async (error: any, fallback?: string) => {
+    let message = error?.message || fallback || t("admin.fail_fallback");
     const response = error?.context;
     if (response) {
       try {
@@ -77,11 +75,8 @@ export default function Admin() {
           const text = await response.clone().text();
           if (text) message = text;
         }
-      } catch {
-        // keep fallback message
-      }
+      } catch { /* keep fallback */ }
     }
-
     return message;
   };
 
@@ -89,13 +84,11 @@ export default function Admin() {
     const { data, error } = await supabase.functions.invoke("admin-users", {
       body: { action, ...payload },
     });
-
     if (error) {
       const msgFromData = typeof data === "object" && data?.error ? data.error : null;
       const msg = msgFromData || (await getFunctionErrorMessage(error));
       throw new Error(msg);
     }
-
     if (data?.error) throw new Error(data.error);
     return data;
   };
@@ -105,11 +98,7 @@ export default function Admin() {
     try {
       const data = await invokeAdmin("list_users");
       setUsers(data.users || []);
-
-      const { data: pkgs } = await supabase
-        .from("access_packages")
-        .select("*")
-        .order("created_at");
+      const { data: pkgs } = await supabase.from("access_packages").select("*").order("created_at");
       setPackages((pkgs || []) as Package[]);
     } catch (e: any) {
       toast.error(e.message);
@@ -124,7 +113,7 @@ export default function Admin() {
   if (!isAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <p className="text-destructive font-mono">Acesso restrito a administradores</p>
+        <p className="text-destructive font-mono">{t("admin.restricted")}</p>
       </div>
     );
   }
@@ -133,49 +122,33 @@ export default function Admin() {
     if (!newEmail || !newPass) return;
     setCreating(true);
     try {
-      await invokeAdmin("create_user", {
-        email: newEmail,
-        password: newPass,
-        display_name: newName || newEmail,
-      });
-      toast.success("Usuário criado!");
-      setNewEmail("");
-      setNewPass("");
-      setNewName("");
+      await invokeAdmin("create_user", { email: newEmail, password: newPass, display_name: newName || newEmail });
+      toast.success(t("admin.user_created"));
+      setNewEmail(""); setNewPass(""); setNewName("");
       fetchData();
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e: any) { toast.error(e.message); }
     setCreating(false);
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (!confirm("Tem certeza que deseja remover este usuário?")) return;
+    if (!confirm(t("admin.confirm_delete"))) return;
     try {
       await invokeAdmin("delete_user", { user_id: userId });
-      toast.success("Usuário removido");
+      toast.success(t("admin.user_removed"));
       fetchData();
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e: any) { toast.error(e.message); }
   };
 
   const handleCreatePackage = async () => {
     if (!pkgName || pkgTabs.length === 0) return;
     setCreatingPkg(true);
     try {
-      const { error } = await supabase.from("access_packages").insert({
-        name: pkgName,
-        allowed_tabs: pkgTabs,
-      });
+      const { error } = await supabase.from("access_packages").insert({ name: pkgName, allowed_tabs: pkgTabs });
       if (error) throw error;
-      toast.success("Pacote criado!");
-      setPkgName("");
-      setPkgTabs([]);
+      toast.success(t("admin.package_created"));
+      setPkgName(""); setPkgTabs([]);
       fetchData();
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e: any) { toast.error(e.message); }
     setCreatingPkg(false);
   };
 
@@ -183,44 +156,34 @@ export default function Admin() {
     if (!selectedUser) return;
     setSettingAccess(true);
     try {
-      const payload: any = {
-        user_id: selectedUser,
-        duration_days: duration === "unlimited" ? null : parseInt(duration),
-      };
-      if (accessMode === "package" && selectedPkg) {
-        payload.package_id = selectedPkg;
-      } else if (accessMode === "custom" && customTabs.length > 0) {
-        payload.custom_tabs = customTabs;
-      }
+      const payload: any = { user_id: selectedUser, duration_days: duration === "unlimited" ? null : parseInt(duration) };
+      if (accessMode === "package" && selectedPkg) payload.package_id = selectedPkg;
+      else if (accessMode === "custom" && customTabs.length > 0) payload.custom_tabs = customTabs;
       await invokeAdmin("set_access", payload);
-      toast.success("Acesso configurado!");
-      setSelectedUser("");
-      setSelectedPkg("");
-      setCustomTabs([]);
+      toast.success(t("admin.access_set"));
+      setSelectedUser(""); setSelectedPkg(""); setCustomTabs([]);
       fetchData();
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e: any) { toast.error(e.message); }
     setSettingAccess(false);
   };
 
   const toggleTab = (tabId: string, list: string[], setter: (v: string[]) => void) => {
-    setter(list.includes(tabId) ? list.filter((t) => t !== tabId) : [...list, tabId]);
+    setter(list.includes(tabId) ? list.filter((x) => x !== tabId) : [...list, tabId]);
   };
 
   const getUserAccessInfo = (user: ManagedUser) => {
     const activeAccess = user.access?.find((a: any) => a.is_active);
-    if (!activeAccess) return { tabs: [], expired: false, label: "Sem acesso" };
+    if (!activeAccess) return { tabs: [], expired: false, label: t("admin.no_access") };
     const isExpired = activeAccess.expires_at && new Date(activeAccess.expires_at) < new Date();
     const tabs = activeAccess.custom_tabs || activeAccess.access_packages?.allowed_tabs || [];
-    const pkgName = activeAccess.access_packages?.name;
+    const pkgNameVal = activeAccess.access_packages?.name;
     const expiresLabel = activeAccess.expires_at
-      ? `até ${new Date(activeAccess.expires_at).toLocaleDateString("pt-BR")}`
-      : "Indeterminado";
+      ? `${t("admin.until")} ${new Date(activeAccess.expires_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}`
+      : t("admin.unlimited");
     return {
       tabs,
       expired: isExpired,
-      label: isExpired ? "Expirado" : `${pkgName || "Personalizado"} • ${expiresLabel}`,
+      label: isExpired ? t("admin.expired") : `${pkgNameVal || t("admin.custom_label")} • ${expiresLabel}`,
     };
   };
 
@@ -232,10 +195,10 @@ export default function Admin() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Shield className="h-5 w-5 text-primary" />
-          <h1 className="text-base font-semibold text-foreground">Painel Admin</h1>
+          <h1 className="text-base font-semibold text-foreground">{t("admin.title")}</h1>
         </div>
         <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
-          Gerenciamento de Acessos
+          {t("admin.subtitle")}
         </span>
       </header>
 
@@ -246,25 +209,23 @@ export default function Admin() {
           </div>
         ) : (
           <>
-            {/* Create User */}
             <Card className="p-5 space-y-4">
               <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <UserPlus className="h-4 w-4" /> Criar Usuário
+                <UserPlus className="h-4 w-4" /> {t("admin.create_user")}
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <Input placeholder="Nome" value={newName} onChange={(e) => setNewName(e.target.value)} />
-                <Input placeholder="Email" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
-                <Input placeholder="Senha" type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)} />
+                <Input placeholder={t("admin.name")} value={newName} onChange={(e) => setNewName(e.target.value)} />
+                <Input placeholder={t("admin.email")} type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+                <Input placeholder={t("admin.password")} type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)} />
               </div>
               <Button onClick={handleCreateUser} disabled={creating} size="sm">
-                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Criar Usuário"}
+                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("admin.create_user_btn")}
               </Button>
             </Card>
 
-            {/* Packages */}
             <Card className="p-5 space-y-4">
               <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <Key className="h-4 w-4" /> Pacotes de Acesso
+                <Key className="h-4 w-4" /> {t("admin.packages")}
               </h2>
               {packages.length > 0 && (
                 <div className="space-y-2">
@@ -272,38 +233,34 @@ export default function Admin() {
                     <div key={pkg.id} className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/50 rounded-lg px-3 py-2">
                       <Badge variant="outline" className="text-xs">{pkg.name}</Badge>
                       <span>→</span>
-                      {pkg.allowed_tabs.map((t) => (
-                        <Badge key={t} variant="secondary" className="text-[10px]">{t}</Badge>
+                      {pkg.allowed_tabs.map((tab) => (
+                        <Badge key={tab} variant="secondary" className="text-[10px]">{tab}</Badge>
                       ))}
                     </div>
                   ))}
                 </div>
               )}
               <div className="space-y-3">
-                <Input placeholder="Nome do pacote (ex: Básico, Pro, Full)" value={pkgName} onChange={(e) => setPkgName(e.target.value)} />
+                <Input placeholder={t("admin.package_name")} value={pkgName} onChange={(e) => setPkgName(e.target.value)} />
                 <div className="flex flex-wrap gap-3">
                   {ALL_TABS.map((tab) => (
                     <label key={tab.id} className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
-                      <Checkbox
-                        checked={pkgTabs.includes(tab.id)}
-                        onCheckedChange={() => toggleTab(tab.id, pkgTabs, setPkgTabs)}
-                      />
+                      <Checkbox checked={pkgTabs.includes(tab.id)} onCheckedChange={() => toggleTab(tab.id, pkgTabs, setPkgTabs)} />
                       {tab.label}
                     </label>
                   ))}
                 </div>
                 <Button onClick={handleCreatePackage} disabled={creatingPkg} size="sm" variant="secondary">
-                  {creatingPkg ? <Loader2 className="h-4 w-4 animate-spin" /> : "Criar Pacote"}
+                  {creatingPkg ? <Loader2 className="h-4 w-4 animate-spin" /> : t("admin.create_package")}
                 </Button>
               </div>
             </Card>
 
-            {/* Set Access */}
             <Card className="p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-foreground">Atribuir Acesso</h2>
+              <h2 className="text-sm font-semibold text-foreground">{t("admin.assign_access")}</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Select value={selectedUser} onValueChange={setSelectedUser}>
-                  <SelectTrigger><SelectValue placeholder="Selecionar usuário" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t("admin.select_user")} /></SelectTrigger>
                   <SelectContent>
                     {users.filter((u) => !u.roles.includes("admin")).map((u) => (
                       <SelectItem key={u.id} value={u.id}>
@@ -315,27 +272,27 @@ export default function Admin() {
                 <Select value={duration} onValueChange={setDuration}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="1">1 dia (teste)</SelectItem>
-                    <SelectItem value="2">2 dias (teste)</SelectItem>
-                    <SelectItem value="3">3 dias (teste)</SelectItem>
-                    <SelectItem value="7">7 dias</SelectItem>
-                    <SelectItem value="15">15 dias</SelectItem>
-                    <SelectItem value="30">30 dias</SelectItem>
-                    <SelectItem value="unlimited">Indeterminado</SelectItem>
+                    <SelectItem value="1">{t("admin.1day")}</SelectItem>
+                    <SelectItem value="2">{t("admin.2days")}</SelectItem>
+                    <SelectItem value="3">{t("admin.3days")}</SelectItem>
+                    <SelectItem value="7">{t("admin.7days")}</SelectItem>
+                    <SelectItem value="15">{t("admin.15days")}</SelectItem>
+                    <SelectItem value="30">{t("admin.30days")}</SelectItem>
+                    <SelectItem value="unlimited">{t("admin.unlimited_option")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="flex gap-3">
                 <Button size="sm" variant={accessMode === "package" ? "default" : "outline"} onClick={() => setAccessMode("package")}>
-                  Pacote
+                  {t("admin.package_mode")}
                 </Button>
                 <Button size="sm" variant={accessMode === "custom" ? "default" : "outline"} onClick={() => setAccessMode("custom")}>
-                  Personalizado
+                  {t("admin.custom_mode")}
                 </Button>
               </div>
               {accessMode === "package" ? (
                 <Select value={selectedPkg} onValueChange={setSelectedPkg}>
-                  <SelectTrigger><SelectValue placeholder="Selecionar pacote" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={t("admin.select_package")} /></SelectTrigger>
                   <SelectContent>
                     {packages.map((pkg) => (
                       <SelectItem key={pkg.id} value={pkg.id}>{pkg.name}</SelectItem>
@@ -346,23 +303,19 @@ export default function Admin() {
                 <div className="flex flex-wrap gap-3">
                   {ALL_TABS.map((tab) => (
                     <label key={tab.id} className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
-                      <Checkbox
-                        checked={customTabs.includes(tab.id)}
-                        onCheckedChange={() => toggleTab(tab.id, customTabs, setCustomTabs)}
-                      />
+                      <Checkbox checked={customTabs.includes(tab.id)} onCheckedChange={() => toggleTab(tab.id, customTabs, setCustomTabs)} />
                       {tab.label}
                     </label>
                   ))}
                 </div>
               )}
               <Button onClick={handleSetAccess} disabled={settingAccess} size="sm">
-                {settingAccess ? <Loader2 className="h-4 w-4 animate-spin" /> : "Salvar Acesso"}
+                {settingAccess ? <Loader2 className="h-4 w-4 animate-spin" /> : t("admin.save_access")}
               </Button>
             </Card>
 
-            {/* Users List */}
             <Card className="p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-foreground">Usuários ({users.length})</h2>
+              <h2 className="text-sm font-semibold text-foreground">{t("admin.users_count")} ({users.length})</h2>
               <div className="space-y-3">
                 {users.map((u) => {
                   const accessInfo = getUserAccessInfo(u);
@@ -377,26 +330,16 @@ export default function Admin() {
                         </div>
                         <p className="text-xs text-muted-foreground">{u.email}</p>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Badge
-                            variant={accessInfo.expired ? "destructive" : "secondary"}
-                            className="text-[10px]"
-                          >
+                          <Badge variant={accessInfo.expired ? "destructive" : "secondary"} className="text-[10px]">
                             {accessInfo.label}
                           </Badge>
                           {!accessInfo.expired && accessInfo.tabs.length > 0 && (
-                            <span className="text-[10px] text-muted-foreground">
-                              {accessInfo.tabs.join(", ")}
-                            </span>
+                            <span className="text-[10px] text-muted-foreground">{accessInfo.tabs.join(", ")}</span>
                           )}
                         </div>
                       </div>
                       {!u.roles.includes("admin") && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteUser(u.id)}
-                        >
+                        <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => handleDeleteUser(u.id)}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       )}

@@ -10,6 +10,7 @@ import { SimulatorTab } from "@/components/tabs/SimulatorTab";
 import { MonitorTab } from "@/components/tabs/MonitorTab";
 import { AuthenticityTab } from "@/components/tabs/AuthenticityTab";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { Shield, LogOut } from "lucide-react";
@@ -42,7 +43,8 @@ const TAB_CONFIG: TabConfig[] = [
 }));
 
 const Index = () => {
-  const { isAdmin, userAccess, signOut, user } = useAuth();
+  const { isAdmin, userAccess, signOut } = useAuth();
+  const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -56,14 +58,12 @@ const Index = () => {
   if (!userAccess?.is_active || isExpired || visibleTabs.length === 0) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4 p-6">
-        <h1 className="text-lg font-semibold text-foreground">Starklytic</h1>
+        <h1 className="text-lg font-semibold text-foreground">{t("index.expired_title")}</h1>
         <p className="text-sm text-muted-foreground text-center max-w-md">
-          {isExpired
-            ? "Seu período de acesso expirou. Entre em contato com o administrador para renovar."
-            : "Você ainda não possui acesso a nenhum módulo. Entre em contato com o administrador."}
+          {isExpired ? t("index.expired_msg") : t("index.no_access_msg")}
         </p>
         <Button variant="ghost" size="sm" onClick={signOut} className="text-muted-foreground">
-          <LogOut className="h-4 w-4 mr-1" /> Sair
+          <LogOut className="h-4 w-4 mr-1" /> {t("app.logout")}
         </Button>
       </div>
     );
@@ -73,15 +73,15 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold tracking-tight text-foreground cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate("/")}>Starklytic</h1>
+          <h1 className="text-base font-semibold tracking-tight text-foreground cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate("/")}>{t("app.name")}</h1>
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
-            Media Buying Tool v2.3
+            {t("app.subtitle")}
           </span>
         </div>
         <div className="flex items-center gap-2">
           {userAccess?.expires_at && (
             <span className="text-[10px] text-muted-foreground font-mono">
-              Acesso até {new Date(userAccess.expires_at).toLocaleDateString("pt-BR")}
+              {t("app.access_until")} {new Date(userAccess.expires_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}
             </span>
           )}
           {isAdmin && (
@@ -89,7 +89,7 @@ const Index = () => {
               <Shield className="h-4 w-4" />
             </Button>
           )}
-          <Button variant="ghost" size="icon" onClick={signOut} title="Sair">
+          <Button variant="ghost" size="icon" onClick={signOut} title={t("app.logout")}>
             <LogOut className="h-4 w-4" />
           </Button>
         </div>
