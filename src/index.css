@@ -53,13 +53,13 @@
 
   :root[data-theme="light"] {
     --background: 210 20% 98%;
-    --foreground: 222 47% 11%;
+    --foreground: 0 0% 40%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 0 0% 40%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 0 0% 40%;
 
     --primary: 217 91% 50%;
     --primary-foreground: 0 0% 100%;
