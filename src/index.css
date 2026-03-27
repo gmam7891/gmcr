@@ -86,11 +86,11 @@
     --warning-foreground: 0 0% 7%;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 222 47% 11%;
+    --sidebar-foreground: 0 0% 40%;
     --sidebar-primary: 217 91% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 210 20% 94%;
-    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-accent-foreground: 0 0% 40%;
     --sidebar-border: 214 20% 88%;
     --sidebar-ring: 217 91% 50%;
   }
