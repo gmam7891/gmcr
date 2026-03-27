@@ -127,17 +127,17 @@ export function YouTubeTab() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <div className="lg:col-span-2 space-y-6">
-        <FieldSection title="Buscar canal">
+        <FieldSection title={t("yt.search_channel")}>
           <div className="flex gap-2">
             <Input
-              placeholder="@handle ou nome do canal"
+              placeholder={t("yt.handle_placeholder")}
               value={handle}
               onChange={(e) => setHandle(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && fetchChannel()}
               className="font-mono"
             />
             <Button onClick={fetchChannel} disabled={loading} size="sm" className="shrink-0">
-              {loading ? "Buscando…" : "Buscar"}
+              {loading ? t("app.searching") : t("app.search")}
             </Button>
           </div>
           {channel && (
