@@ -211,7 +211,7 @@ export function MonitorTab() {
         {/* Right: Reach analytics */}
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Reach por Jogo</h2>
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("mon.reach_by_game")}</h2>
             <Select value={selectedStreamer} onValueChange={setSelectedStreamer}>
               <SelectTrigger className="w-40 h-8 text-xs">
                 <SelectValue />
