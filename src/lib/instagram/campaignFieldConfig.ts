@@ -1,4 +1,4 @@
-import type { CampaignConfig, TranslationKey } from "./campaignTypes";
+import type { CampaignConfig } from "./campaignTypes";
 
 type TFunc = (key: string) => string;
 
