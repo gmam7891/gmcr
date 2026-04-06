@@ -225,13 +225,13 @@ export function VodTab() {
     <div className="max-w-5xl space-y-6">
       <div className="card-surface p-4 space-y-1 flex items-start justify-between">
         <div>
-          <p className="text-xs text-primary font-medium uppercase tracking-wider">Análise de VODs + Detecção de Jogos</p>
+          <p className="text-xs text-primary font-medium uppercase tracking-wider">{t("vod.title_header")}</p>
           <p className="text-sm text-muted-foreground">
-            Cole uma URL de VOD ou nome do canal. A IA analisa <strong>cada 2 minutos</strong> da VOD para detectar jogos específicos de cassino e calcular o tempo gasto em cada jogo.
+            {t("vod.description")}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0">
-          📥 Exportar Excel
+          {t("app.export_excel")}
         </Button>
       </div>
 
@@ -239,19 +239,19 @@ export function VodTab() {
         <Input
           value={vodUrl}
           onChange={(e) => setVodUrl(e.target.value)}
-          placeholder="https://twitch.tv/videos/123456 ou nome_do_canal"
+          placeholder={t("vod.placeholder")}
           className="font-mono bg-secondary border-border"
           onKeyDown={(e) => e.key === 'Enter' && analyze()}
         />
         <Button onClick={analyze} disabled={loading || !vodUrl.trim()}>
-          {loading ? "Analisando..." : "Analisar"}
+          {loading ? t("vod.analyzing") : t("vod.analyze")}
         </Button>
       </div>
 
       {loading && (
         <div className="card-surface p-6 text-center">
           <div className="inline-block w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-muted-foreground mt-2">Buscando dados da API Twitch...</p>
+          <p className="text-sm text-muted-foreground mt-2">{t("vod.fetching")}</p>
         </div>
       )}
 
@@ -262,7 +262,7 @@ export function VodTab() {
       {/* Single VOD with chapters */}
       {singleVod && mode === "single" && (
         <div className="space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">VOD Selecionada</h3>
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("vod.selected_vod")}</h3>
           <div className="grid grid-cols-4 gap-3">
             <MetricCard label="Título" value={singleVod.title.slice(0, 40) + (singleVod.title.length > 40 ? "..." : "")} />
             <MetricCard label="Duração" value={formatDuration(singleVod.duration)} />
@@ -275,7 +275,7 @@ export function VodTab() {
           )}
           {chaptersMap[singleVod.id] && chaptersMap[singleVod.id].length === 0 && (
             <div className="card-surface p-3 text-sm text-muted-foreground">
-              Nenhum capítulo/jogo detectado via Twitch.
+              {t("vod.no_chapters")}
             </div>
           )}
 
@@ -287,9 +287,9 @@ export function VodTab() {
               onClick={() => analyzeWithAI(singleVod)}
               disabled={!!aiLoading}
             >
-              {aiLoading === singleVod.id ? `🤖 ${aiProgress || 'Analisando...'}` : "🤖 Varredura profunda com IA"}
+              {aiLoading === singleVod.id ? `🤖 ${aiProgress || t("vod.analyzing")}` : t("vod.ai_deep_scan")}
             </Button>
-            <span className="text-xs text-muted-foreground">Analisa cada 2min da VOD para detectar jogos e provedoras</span>
+            <span className="text-xs text-muted-foreground">{t("vod.ai_deep_desc")}</span>
           </div>
           {aiResults[singleVod.id] && (
             <AiResultsDisplay analysis={aiResults[singleVod.id]} vodDurationSecs={parseDuration(singleVod.duration) * 60} />
@@ -301,7 +301,7 @@ export function VodTab() {
       {allGameSummary.length > 0 && Object.keys(chaptersMap).length > 1 && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-            Resumo de jogos (todas as VODs analisadas)
+            {t("vod.game_summary")}
           </h3>
           <GameSummaryTable games={allGameSummary} />
         </div>
@@ -312,31 +312,31 @@ export function VodTab() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-              {mode === "single" ? "Outras VODs do canal" : "VODs do canal"} ({vods.length})
+              {mode === "single" ? t("vod.other_vods") : t("vod.channel_vods")} ({vods.length})
             </h3>
             <Button variant="outline" size="sm" onClick={analyzeAllVods} disabled={!!loadingChapters}>
-              {loadingChapters ? "Analisando..." : "🔍 Analisar jogos de todas"}
+              {loadingChapters ? t("vod.analyzing") : t("vod.analyze_all")}
             </Button>
           </div>
 
           <div className="grid grid-cols-4 gap-3">
-            <MetricCard label="Total VODs" value={fmtInt(vods.length)} />
-            <MetricCard label="Total views" value={fmtInt(totalViews)} />
-            <MetricCard label="Total horas" value={`${totalHours.toFixed(1)}h`} />
-            <MetricCard label="Avg views/hora" value={fmtInt(avgViewsPerHour)} status={avgViewsPerHour > 100 ? "go" : undefined} />
+            <MetricCard label={t("vod.total_vods")} value={fmtInt(vods.length)} />
+            <MetricCard label={t("yt.total_views")} value={fmtInt(totalViews)} />
+            <MetricCard label={t("yt.total_hours")} value={`${totalHours.toFixed(1)}h`} />
+            <MetricCard label={t("vod.avg_views_hour")} value={fmtInt(avgViewsPerHour)} status={avgViewsPerHour > 100 ? "go" : undefined} />
           </div>
 
           <div className="card-surface overflow-hidden">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-3">Título</th>
-                  <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Duração</th>
-                  <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Views</th>
-                  <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Views/h</th>
-                  <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Data</th>
-                  <th className="text-center text-xs uppercase tracking-wider text-muted-foreground p-3">Jogos</th>
-                  <th className="text-center text-xs uppercase tracking-wider text-muted-foreground p-3">IA</th>
+                   <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.title_col")}</th>
+                   <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.duration_col")}</th>
+                   <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.views_col")}</th>
+                   <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Views/h</th>
+                   <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("yt.date_col")}</th>
+                   <th className="text-center text-xs uppercase tracking-wider text-muted-foreground p-3">{t("vod.games_col")}</th>
+                   <th className="text-center text-xs uppercase tracking-wider text-muted-foreground p-3">{t("vod.ia_col")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -359,7 +359,7 @@ export function VodTab() {
                           <div className="p-3 text-right font-mono text-sm w-20">{fmtInt(vod.view_count)}</div>
                           <div className="p-3 text-right font-mono text-sm w-20">{fmtInt(vph)}</div>
                           <div className="p-3 text-right font-mono text-xs text-muted-foreground w-24">
-                            {new Date(vod.created_at).toLocaleDateString("pt-BR")}
+                            {new Date(vod.created_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}
                           </div>
                           <div className="p-3 text-center w-16">
                             {loadingChapters === vod.id ? (
@@ -399,7 +399,7 @@ export function VodTab() {
                                 onClick={() => analyzeWithAI(vod)}
                                 disabled={!!aiLoading}
                               >
-                                {aiLoading === vod.id ? `🤖 ${aiProgress || 'Analisando...'}` : "🤖 Varredura profunda com IA"}
+                                {aiLoading === vod.id ? `🤖 ${aiProgress || t("vod.analyzing")}` : t("vod.ai_deep_scan")}
                               </Button>
                             )}
                           </div>
@@ -416,7 +416,7 @@ export function VodTab() {
 
       {!loading && !error && vods.length === 0 && !singleVod && (
         <div className="card-surface p-8 text-center text-muted-foreground text-sm">
-          Cole a URL de uma VOD ou nome do canal para iniciar a análise.
+          {t("vod.empty")}
         </div>
       )}
     </div>
