@@ -30,6 +30,7 @@ function aggregateChapters(chapters: VodChapter[]): GameSummary[] {
 }
 
 export function VodTab() {
+  const { t, language } = useLanguage();
   const [vodUrl, setVodUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [vods, setVods] = useState<TwitchVod[]>([]);
@@ -65,7 +66,7 @@ export function VodTab() {
       if (vodMatch || isVodId) {
         const vodId = vodMatch ? vodMatch[1] : input;
         const vod = await getVod(vodId);
-        if (!vod) throw new Error("VOD não encontrada");
+        if (!vod) throw new Error(t("vod.not_found"));
         setSingleVod(vod);
         setMode("single");
 
@@ -78,7 +79,7 @@ export function VodTab() {
       } else {
         const login = input.replace(/https?:\/\/(www\.|m\.)?twitch\.tv\//, "").replace(/\//g, "").toLowerCase();
         const user = await getUser(login);
-        if (!user) throw new Error("Canal não encontrado");
+        if (!user) throw new Error(t("vod.channel_not_found"));
         const channelVods = await getVods(user.id, 20);
         setVods(channelVods);
         setMode("channel");
@@ -108,7 +109,7 @@ export function VodTab() {
   // Deep AI Vision: sample every 2 min across the entire VOD
   const analyzeWithAI = async (vod: TwitchVod) => {
     setAiLoading(vod.id);
-    setAiProgress("Buscando storyboards...");
+    setAiProgress(t("vod.fetching_storyboards"));
     try {
       const durationMins = parseDuration(vod.duration);
       const durationSecs = durationMins * 60;
@@ -118,7 +119,7 @@ export function VodTab() {
 
       if (storyboards.urls.length === 0) {
         const fallbackUrl = vod.thumbnail_url.replace('%{width}', '640').replace('%{height}', '360');
-        setAiProgress("Analisando thumbnail...");
+        setAiProgress(t("vod.analyzing_thumb"));
         const result = await analyzeVodFrames([fallbackUrl], vod.title);
         setAiResults(prev => ({ ...prev, [vod.id]: result }));
         setAiLoading(null);
@@ -139,7 +140,7 @@ export function VodTab() {
         selectedTimestamps.push(i * secondsPerStrip);
       }
 
-      setAiProgress(`Analisando ${selectedUrls.length} storyboards da VOD...`);
+      setAiProgress(`${t("vod.analyzing_storyboards").replace("...", "")} (${selectedUrls.length})...`);
 
       const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps);
       setAiResults(prev => ({ ...prev, [vod.id]: result }));
