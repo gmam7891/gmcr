@@ -443,10 +443,10 @@ function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: Ai
 
   return (
     <div className="space-y-3">
-      {!compact && <p className="text-xs text-accent font-medium uppercase tracking-wider">🤖 Varredura profunda — Jogos detectados pela IA</p>}
+      {!compact && <p className="text-xs text-accent font-medium uppercase tracking-wider">{t("vod.ai_detected")}</p>}
 
       {casinoGames.length === 0 && otherGames.length === 0 && (
-        <p className="text-xs text-muted-foreground">Nenhum jogo detectado.</p>
+        <p className="text-xs text-muted-foreground">{t("vod.no_games")}</p>
       )}
 
       {/* Time-based summary (main view) */}
@@ -455,10 +455,10 @@ function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: Ai
           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
-                <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Jogo</th>
-                <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Provedora</th>
-                <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Tempo estimado</th>
-                <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">%</th>
+                 <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">{t("vod.game_col")}</th>
+                 <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">{t("vod.provider_col")}</th>
+                 <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">{t("vod.est_time")}</th>
+                 <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">%</th>
               </tr>
             </thead>
             <tbody>
@@ -549,7 +549,7 @@ function ChapterDisplay({ chapters, compact }: { chapters: VodChapter[]; compact
 
   return (
     <div className="space-y-2">
-      {!compact && <p className="text-xs text-muted-foreground uppercase tracking-wider">Jogos detectados (capítulos Twitch)</p>}
+      {!compact && <p className="text-xs text-muted-foreground uppercase tracking-wider">{t("vod.chapters_twitch")}</p>}
       <div className="flex flex-wrap gap-1.5">
         {games.map((g) => {
           const pct = totalSec > 0 ? ((g.totalSeconds / totalSec) * 100).toFixed(0) : "0";
@@ -576,9 +576,9 @@ function ChapterDisplay({ chapters, compact }: { chapters: VodChapter[]; compact
           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
-                <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Momento</th>
-                <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Jogo / Categoria</th>
-                <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">Duração</th>
+                 <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">{t("vod.moment_col")}</th>
+                 <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">{t("vod.game_category")}</th>
+                 <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">{t("yt.duration_col")}</th>
               </tr>
             </thead>
             <tbody>
@@ -613,10 +613,10 @@ function GameSummaryTable({ games }: { games: GameSummary[] }) {
       <table className="w-full">
         <thead>
           <tr className="border-b border-border">
-            <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-3">Jogo</th>
-            <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Tempo total</th>
-            <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">%</th>
-            <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">Segmentos</th>
+             <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-3">{t("vod.game_col")}</th>
+             <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("vod.total_time")}</th>
+             <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">%</th>
+             <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-3">{t("vod.segments_col")}</th>
           </tr>
         </thead>
         <tbody>
