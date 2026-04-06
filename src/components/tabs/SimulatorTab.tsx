@@ -19,17 +19,18 @@ import {
 } from "@/lib/ivs-engine";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 
-function BenchmarkBar({ label, value, benchmark, unit, higherIsBetter = true }: {
-  label: string; value: number; benchmark: number; unit: string; higherIsBetter?: boolean;
+function BenchmarkBar({ label, value, benchmark, unit, higherIsBetter = true, t }: {
+  label: string; value: number; benchmark: number; unit: string; higherIsBetter?: boolean; t: (k: string) => string;
 }) {
   const result = compareToBenchmark(value, benchmark, higherIsBetter);
   const pct = Math.min((value / (benchmark * 2)) * 100, 100);
   const benchmarkPct = 50;
   const labelMap: Record<BenchmarkResult, { text: string; className: string }> = {
-    above: { text: "Acima do mercado", className: "text-accent" },
-    average: { text: "Dentro da média", className: "text-warning" },
-    below: { text: "Abaixo do mercado", className: "text-destructive" },
+    above: { text: t("sim.above_market"), className: "text-accent" },
+    average: { text: t("sim.average_market"), className: "text-warning" },
+    below: { text: t("sim.below_market"), className: "text-destructive" },
   };
   const info = labelMap[result];
   return (
@@ -44,20 +45,20 @@ function BenchmarkBar({ label, value, benchmark, unit, higherIsBetter = true }: 
       </div>
       <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
         <span>{value.toFixed(1)}{unit}</span>
-        <span>Mercado: {benchmark}{unit}</span>
+        <span>{t("sim.market_label")}: {benchmark}{unit}</span>
       </div>
     </div>
   );
 }
 
-function ScoreGauge({ ivs }: { ivs: IvsResult }) {
+function ScoreGauge({ ivs, t }: { ivs: IvsResult; t: (k: string) => string }) {
   const color = ivs.total >= 80 ? "text-accent" : ivs.total >= 60 ? "text-primary" : ivs.total >= 40 ? "text-warning" : "text-destructive";
   const bgColor = ivs.total >= 80 ? "bg-accent" : ivs.total >= 60 ? "bg-primary" : ivs.total >= 40 ? "bg-warning" : "bg-destructive";
   return (
     <div className="card-surface p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Influencer Value Score</p>
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">{t("sim.ivs")}</p>
           <div className="flex items-baseline gap-2 mt-1">
             <span className={`text-4xl font-mono font-bold ${color}`}>{ivs.total}</span>
             <span className="text-sm text-muted-foreground">/100</span>
@@ -70,24 +71,23 @@ function ScoreGauge({ ivs }: { ivs: IvsResult }) {
             </Badge>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs text-xs space-y-1" side="left">
-            <p className="font-semibold">Composição do Score:</p>
-            <p>ROI: {ivs.pillars.roi}/25</p>
-            <p>ICP Match: {ivs.pillars.icpMatch}/20</p>
-            <p>Consistência: {ivs.pillars.consistency}/20</p>
-            <p>Conversão: {ivs.pillars.conversionEfficiency}/20</p>
-            <p>Risco: {ivs.pillars.riskLevel}/15</p>
+            <p className="font-semibold">{t("sim.score_label")}</p>
+            <p>{t("sim.roi_label")}: {ivs.pillars.roi}/25</p>
+            <p>{t("sim.icp_match")}: {ivs.pillars.icpMatch}/20</p>
+            <p>{t("sim.consistency")}: {ivs.pillars.consistency}/20</p>
+            <p>{t("sim.conversion")}: {ivs.pillars.conversionEfficiency}/20</p>
+            <p>{t("sim.risk_label")}: {ivs.pillars.riskLevel}/15</p>
           </TooltipContent>
         </Tooltip>
       </div>
       <Progress value={ivs.total} className={`h-2 [&>div]:${bgColor}`} />
-      {/* Pillar breakdown */}
       <div className="grid grid-cols-5 gap-2 pt-1">
         {([
-          ["ROI", ivs.pillars.roi, 25],
+          [t("sim.roi_label"), ivs.pillars.roi, 25],
           ["ICP", ivs.pillars.icpMatch, 20],
-          ["Consist.", ivs.pillars.consistency, 20],
-          ["Conversão", ivs.pillars.conversionEfficiency, 20],
-          ["Risco", ivs.pillars.riskLevel, 15],
+          [t("sim.consistency"), ivs.pillars.consistency, 20],
+          [t("sim.conversion"), ivs.pillars.conversionEfficiency, 20],
+          [t("sim.risk_label"), ivs.pillars.riskLevel, 15],
         ] as [string, number, number][]).map(([label, val, max]) => (
           <div key={label} className="text-center space-y-1">
             <p className="text-[10px] text-muted-foreground uppercase">{label}</p>
@@ -102,21 +102,22 @@ function ScoreGauge({ ivs }: { ivs: IvsResult }) {
   );
 }
 
-function RiskSection({ ivs }: { ivs: IvsResult }) {
+function RiskSection({ ivs, t }: { ivs: IvsResult; t: (k: string) => string }) {
   const [open, setOpen] = useState(false);
-  const riskColor = ivs.riskLabel === "Baixo" ? "bg-accent/10 text-accent border-accent/20"
-    : ivs.riskLabel === "Médio" ? "bg-warning/10 text-warning border-warning/20"
+  const riskColor = ivs.riskLabel === "Baixo" || ivs.riskLabel === "Low" ? "bg-accent/10 text-accent border-accent/20"
+    : ivs.riskLabel === "Médio" || ivs.riskLabel === "Medium" ? "bg-warning/10 text-warning border-warning/20"
     : "bg-destructive/10 text-destructive border-destructive/20";
+  const riskIcon = ivs.riskLabel === "Baixo" || ivs.riskLabel === "Low" ? "🛡️" : (ivs.riskLabel === "Médio" || ivs.riskLabel === "Medium") ? "⚠️" : "🔴";
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <div className="flex items-center gap-3">
         <div className={`inline-flex items-center px-3 py-1.5 rounded-lg border text-xs font-medium ${riskColor}`}>
-          {ivs.riskLabel === "Baixo" ? "🛡️" : ivs.riskLabel === "Médio" ? "⚠️" : "🔴"} Risco {ivs.riskLabel}
+          {riskIcon} {t("sim.risk_prefix")} {ivs.riskLabel}
         </div>
         {ivs.riskFactors.length > 0 && (
           <CollapsibleTrigger asChild>
             <Button variant="ghost" size="sm" className="text-xs text-muted-foreground h-7">
-              {open ? "Ocultar detalhes" : "Por que esse risco?"}
+              {open ? t("sim.hide_details") : t("sim.why_risk")}
             </Button>
           </CollapsibleTrigger>
         )}
@@ -135,6 +136,8 @@ function RiskSection({ ivs }: { ivs: IvsResult }) {
 }
 
 export function SimulatorTab() {
+  const { t } = useLanguage();
+
   // Base scenario
   const [baseFee, setBaseFee] = useState(0);
   const [baseCtr, setBaseCtr] = useState(0);
@@ -202,7 +205,7 @@ export function SimulatorTab() {
     setPdfLoading(true);
     try {
       const payload = {
-        influencer: "Simulação",
+        influencer: t("sim.simulation_label"),
         baseScenario: { fee: baseFee, ctr: baseCtr, cvr: baseCvr, valueFtd: baseValueFtd, percIcp: basePercIcp, avgViewers: baseAvgViewers, peakViewers: basePeakViewers, plannedHours: basePlannedHours },
         baseResults,
         simScenario: { fee: simFee, ctr: simCtr, cvr: simCvr, valueFtd: simValueFtd, percIcp: simPercIcp },
@@ -217,18 +220,17 @@ export function SimulatorTab() {
       });
       if (error) throw error;
 
-      // data is the PDF buffer
       const blob = new Blob([data], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'relatorio-simulacao.pdf';
+      a.download = t("sim.report_filename");
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("Relatório PDF gerado!");
+      toast.success(t("sim.pdf_generated"));
     } catch (err: any) {
       console.error('PDF error:', err);
-      toast.error("Erro ao gerar PDF", { description: err.message });
+      toast.error(t("sim.pdf_error"), { description: err.message });
     }
     setPdfLoading(false);
   };
@@ -244,36 +246,35 @@ export function SimulatorTab() {
     <div className="space-y-6">
       {/* Top: IVS Score + Risk + Fair Price */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <ScoreGauge ivs={baseIvs} />
+        <ScoreGauge ivs={baseIvs} t={t} />
 
         {/* Risk */}
         <div className="card-surface p-5 space-y-4">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Análise de Risco</p>
-          <RiskSection ivs={baseIvs} />
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">{t("sim.risk_analysis")}</p>
+          <RiskSection ivs={baseIvs} t={t} />
           <div className="pt-2 space-y-2">
             <BenchmarkBar
               label="ROI" value={baseResults.roi}
               benchmark={MARKET_BENCHMARKS.roi.value}
-              unit="%" higherIsBetter
+              unit="%" higherIsBetter t={t}
             />
             <BenchmarkBar
               label="CPA" value={baseResults.cpa ?? 0}
               benchmark={MARKET_BENCHMARKS.cpa.value}
-              unit="R$" higherIsBetter={false}
+              unit="R$" higherIsBetter={false} t={t}
             />
           </div>
         </div>
 
         {/* Fair price */}
         <div className="card-surface p-5 space-y-3">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground">Preço Justo (Fee)</p>
-          <NumberField label="ROI alvo" value={baseTargetRoi} onChange={setBaseTargetRoi} step={50} suffix="%" />
+          <p className="text-xs uppercase tracking-wider text-muted-foreground">{t("sim.fair_price")}</p>
+          <NumberField label={t("sim.roi_target")} value={baseTargetRoi} onChange={setBaseTargetRoi} step={50} suffix="%" />
           <div className="space-y-1 pt-2">
             <p className="text-sm font-medium text-foreground">
-              Faixa recomendada: <span className="text-accent font-mono">{fmtMoney(fairPrice.min)}</span> – <span className="text-accent font-mono">{fmtMoney(fairPrice.max)}</span>
+              {t("sim.recommended_range_label")}: <span className="text-accent font-mono">{fmtMoney(fairPrice.min)}</span> – <span className="text-accent font-mono">{fmtMoney(fairPrice.max)}</span>
             </p>
             <div className="relative h-3 bg-secondary rounded-full overflow-hidden mt-2">
-              {/* Green zone */}
               <div
                 className="absolute h-full bg-accent/30 rounded-full"
                 style={{
@@ -281,7 +282,6 @@ export function SimulatorTab() {
                   width: `${Math.min(((fairPrice.max - fairPrice.min) / (fairPrice.max * 1.5)) * 100, 100)}%`,
                 }}
               />
-              {/* Current fee indicator */}
               <div
                 className={`absolute h-full w-1 rounded-full ${feeStatus === "go" ? "bg-accent" : feeStatus === "warning" ? "bg-warning" : "bg-destructive"}`}
                 style={{ left: `${Math.min((baseFee / (fairPrice.max * 1.5)) * 100, 98)}%` }}
@@ -290,7 +290,7 @@ export function SimulatorTab() {
             <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
               <span>{fmtMoney(fairPrice.min)}</span>
               <span className={feeStatus === "go" ? "text-accent" : feeStatus === "nogo" ? "text-destructive" : "text-warning"}>
-                Fee atual: {fmtMoney(baseFee)} ({feeStatus === "go" ? "Justo" : feeStatus === "warning" ? "Abaixo" : "Acima"})
+                {t("sim.fee_current_label")}: {fmtMoney(baseFee)} ({feeStatus === "go" ? t("sim.fair") : feeStatus === "warning" ? t("sim.below") : t("sim.above")})
               </span>
               <span>{fmtMoney(fairPrice.max)}</span>
             </div>
@@ -303,75 +303,75 @@ export function SimulatorTab() {
         {/* Base scenario */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">📌 Cenário Base</h2>
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("sim.base_scenario")}</h2>
             <Button variant="outline" size="sm" onClick={applyBaseToSim} className="text-xs">
-              Copiar → Simulado
+              {t("sim.copy_to_sim")}
             </Button>
           </div>
           <div className="card-surface p-4 space-y-3">
-            <NumberField label="Fee / investimento" value={baseFee} onChange={setBaseFee} step={1000} suffix="R$" />
-            <NumberField label="Avg viewers" value={baseAvgViewers} onChange={setBaseAvgViewers} step={100} />
-            <NumberField label="Peak viewers" value={basePeakViewers} onChange={setBasePeakViewers} step={100} />
-            <NumberField label="Horas contratadas" value={basePlannedHours} onChange={setBasePlannedHours} />
-            <NumberField label="% ICP" value={basePercIcp} onChange={setBasePercIcp} step={1} max={100} suffix="%" />
-            <NumberField label="CTR" value={baseCtr} onChange={setBaseCtr} step={0.1} suffix="%" />
-            <NumberField label="CVR" value={baseCvr} onChange={setBaseCvr} step={0.1} suffix="%" />
-            <NumberField label="Valor por FTD" value={baseValueFtd} onChange={setBaseValueFtd} step={50} suffix="R$" />
+            <NumberField label={t("sim.fee_investment")} value={baseFee} onChange={setBaseFee} step={1000} suffix="R$" />
+            <NumberField label={t("sim.avg_viewers")} value={baseAvgViewers} onChange={setBaseAvgViewers} step={100} />
+            <NumberField label={t("sim.peak_viewers")} value={basePeakViewers} onChange={setBasePeakViewers} step={100} />
+            <NumberField label={t("sim.contracted_hours")} value={basePlannedHours} onChange={setBasePlannedHours} />
+            <NumberField label={t("sim.icp_pct")} value={basePercIcp} onChange={setBasePercIcp} step={1} max={100} suffix="%" />
+            <NumberField label={t("sim.ctr")} value={baseCtr} onChange={setBaseCtr} step={0.1} suffix="%" />
+            <NumberField label={t("sim.cvr")} value={baseCvr} onChange={setBaseCvr} step={0.1} suffix="%" />
+            <NumberField label={t("sim.value_ftd")} value={baseValueFtd} onChange={setBaseValueFtd} step={50} suffix="R$" />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <MetricCard label="Receita" value={fmtMoney(baseResults.revenue)} status={baseResults.revenue > 0 ? "go" : undefined} />
+            <MetricCard label={t("sim.revenue")} value={fmtMoney(baseResults.revenue)} status={baseResults.revenue > 0 ? "go" : undefined} />
             <MetricCard label="ROI" value={baseFee > 0 ? fmtPercent(baseResults.roi, 0) : "-"} status={baseFee > 0 ? (baseResults.roi >= 200 ? "go" : baseResults.roi >= 0 ? "warning" : "nogo") : undefined} />
-            <MetricCard label="CPA" value={fmtMoney(baseResults.cpa)} />
-            <MetricCard label="Lucro" value={fmtMoney(baseResults.profit)} status={baseResults.profit > 0 ? "go" : baseResults.profit < 0 ? "nogo" : undefined} />
+            <MetricCard label={t("sim.cpa")} value={fmtMoney(baseResults.cpa)} />
+            <MetricCard label={t("sim.profit")} value={fmtMoney(baseResults.profit)} status={baseResults.profit > 0 ? "go" : baseResults.profit < 0 ? "nogo" : undefined} />
           </div>
           <MetricCard label="IVS Score" value={`${baseIvs.total}/100 — ${baseIvs.classification}`} status={baseIvs.total >= 60 ? "go" : baseIvs.total >= 40 ? "warning" : "nogo"} />
         </div>
 
         {/* Simulated scenario */}
         <div className="space-y-4">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">🔮 Cenário Simulado</h2>
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("sim.simulated_scenario")}</h2>
           <div className="card-surface p-4 space-y-5">
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground uppercase tracking-wider">Fee</span>
+                <span className="text-muted-foreground uppercase tracking-wider">{t("sim.fee_slider")}</span>
                 <span className="font-mono text-foreground">{fmtMoney(simFee)}</span>
               </div>
               <Slider value={[simFee]} onValueChange={([v]) => setSimFee(v)} min={0} max={Math.max(baseFee * 3, 50000)} step={500} />
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground uppercase tracking-wider">% ICP</span>
+                <span className="text-muted-foreground uppercase tracking-wider">{t("sim.icp_pct")}</span>
                 <span className="font-mono text-foreground">{simPercIcp}%</span>
               </div>
               <Slider value={[simPercIcp]} onValueChange={([v]) => setSimPercIcp(v)} min={1} max={100} step={1} />
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground uppercase tracking-wider">CTR</span>
+                <span className="text-muted-foreground uppercase tracking-wider">{t("sim.ctr")}</span>
                 <span className="font-mono text-foreground">{simCtr}%</span>
               </div>
               <Slider value={[simCtr * 10]} onValueChange={([v]) => setSimCtr(v / 10)} min={1} max={100} step={1} />
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground uppercase tracking-wider">CVR</span>
+                <span className="text-muted-foreground uppercase tracking-wider">{t("sim.cvr")}</span>
                 <span className="font-mono text-foreground">{simCvr}%</span>
               </div>
               <Slider value={[simCvr * 10]} onValueChange={([v]) => setSimCvr(v / 10)} min={1} max={200} step={1} />
             </div>
             <div className="space-y-2">
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground uppercase tracking-wider">Valor FTD</span>
+                <span className="text-muted-foreground uppercase tracking-wider">{t("sim.value_ftd_slider")}</span>
                 <span className="font-mono text-foreground">{fmtMoney(simValueFtd)}</span>
               </div>
               <Slider value={[simValueFtd]} onValueChange={([v]) => setSimValueFtd(v)} min={50} max={2000} step={50} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <MetricCard label="Receita" value={fmtMoney(simResults.revenue)} delta={delta(baseResults.revenue, simResults.revenue)} status={simResults.revenue > 0 ? "go" : undefined} />
+            <MetricCard label={t("sim.revenue")} value={fmtMoney(simResults.revenue)} delta={delta(baseResults.revenue, simResults.revenue)} status={simResults.revenue > 0 ? "go" : undefined} />
             <MetricCard label="ROI" value={simFee > 0 ? fmtPercent(simResults.roi, 0) : "-"} delta={delta(baseResults.roi, simResults.roi)} status={simFee > 0 ? (simResults.roi >= 200 ? "go" : simResults.roi >= 0 ? "warning" : "nogo") : undefined} />
-            <MetricCard label="CPA" value={fmtMoney(simResults.cpa)} delta={delta(baseResults.cpa ?? 0, simResults.cpa ?? 0)} />
-            <MetricCard label="Lucro" value={fmtMoney(simResults.profit)} delta={delta(baseResults.profit, simResults.profit)} status={simResults.profit > 0 ? "go" : simResults.profit < 0 ? "nogo" : undefined} />
+            <MetricCard label={t("sim.cpa")} value={fmtMoney(simResults.cpa)} delta={delta(baseResults.cpa ?? 0, simResults.cpa ?? 0)} />
+            <MetricCard label={t("sim.profit")} value={fmtMoney(simResults.profit)} delta={delta(baseResults.profit, simResults.profit)} status={simResults.profit > 0 ? "go" : simResults.profit < 0 ? "nogo" : undefined} />
           </div>
           <MetricCard label="IVS Score" value={`${simIvs.total}/100 — ${simIvs.classification}`} delta={delta(baseIvs.total, simIvs.total)} status={simIvs.total >= 60 ? "go" : simIvs.total >= 40 ? "warning" : "nogo"} />
         </div>
@@ -380,10 +380,10 @@ export function SimulatorTab() {
       {/* Actions */}
       <div className="flex items-center gap-3 pt-2">
         <Button onClick={downloadPdf} disabled={pdfLoading} className="gap-2">
-          {pdfLoading ? "Gerando..." : "📄 Exportar Relatório PDF"}
+          {pdfLoading ? t("sim.generating") : t("app.export_pdf")}
         </Button>
         <p className="text-xs text-muted-foreground">
-          Inclui Score IVS, projeção financeira, risco e recomendação de fee.
+          {t("sim.pdf_includes")}
         </p>
       </div>
     </div>
