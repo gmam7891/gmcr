@@ -424,6 +424,7 @@ export function VodTab() {
 }
 
 function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: AiVodAnalysis; vodDurationSecs: number; compact?: boolean }) {
+  const { t } = useLanguage();
   const casinoGames = analysis.games.filter(r => r.category !== 'not_casino' && r.category !== 'error');
   const otherGames = analysis.games.filter(r => r.category === 'not_casino');
   const timeline = analysis.gameTimeline || [];
@@ -544,6 +545,7 @@ function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: Ai
 }
 
 function ChapterDisplay({ chapters, compact }: { chapters: VodChapter[]; compact?: boolean }) {
+  const { t } = useLanguage();
   const games = aggregateChapters(chapters);
   const totalSec = chapters.reduce((s, c) => s + c.durationSeconds, 0);
 
@@ -607,6 +609,7 @@ function ChapterDisplay({ chapters, compact }: { chapters: VodChapter[]; compact
 }
 
 function GameSummaryTable({ games }: { games: GameSummary[] }) {
+  const { t } = useLanguage();
   const totalSec = games.reduce((s, g) => s + g.totalSeconds, 0);
   return (
     <div className="card-surface overflow-hidden">
