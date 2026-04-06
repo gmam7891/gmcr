@@ -5,7 +5,7 @@ import { DynamicCampaignFields } from "@/components/instagram/DynamicCampaignFie
 import { ResultCardsGrid } from "@/components/instagram/ResultCardsGrid";
 import { InsightCards } from "@/components/instagram/InsightCards";
 import { calculateCampaign } from "@/lib/instagram/campaignCalculators";
-import { campaignConfigs } from "@/lib/instagram/campaignFieldConfig";
+import { getCampaignConfigs } from "@/lib/instagram/campaignFieldConfig";
 import type { CampaignType } from "@/lib/instagram/campaignTypes";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -31,6 +31,7 @@ export function InstagramTab() {
     setValues((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  const campaignConfigs = getCampaignConfigs(t);
   const config = campaignConfigs[campaignType];
 
   const allInputs = useMemo(() => {

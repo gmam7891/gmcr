@@ -15,9 +15,10 @@ import {
   type AuthenticityResult,
   type AuthenticityAlert,
 } from "@/lib/authenticity/authenticityEngine";
+import { useLanguage } from "@/contexts/LanguageContext";
 import * as XLSX from "xlsx";
 
-function ScoreGauge({ score, classification, color }: { score: number; classification: string; color: string }) {
+function ScoreGauge({ score, classification, color, t }: { score: number; classification: string; color: string; t: (k: string) => string }) {
   const colorMap: Record<string, string> = {
     accent: "text-accent",
     primary: "text-primary",
@@ -32,7 +33,7 @@ function ScoreGauge({ score, classification, color }: { score: number; classific
   };
   return (
     <div className="card-surface p-5 space-y-4">
-      <p className="text-xs uppercase tracking-wider text-muted-foreground">Audience Authenticity Score</p>
+      <p className="text-xs uppercase tracking-wider text-muted-foreground">{t("auth.score")}</p>
       <div className="flex items-baseline gap-2 mt-1">
         <span className={`text-5xl font-mono font-bold ${colorMap[color] || "text-foreground"}`}>{score}</span>
         <span className="text-sm text-muted-foreground">/100</span>
@@ -45,7 +46,7 @@ function ScoreGauge({ score, classification, color }: { score: number; classific
   );
 }
 
-function AlertCard({ alert }: { alert: AuthenticityAlert }) {
+function AlertCard({ alert, t }: { alert: AuthenticityAlert; t: (k: string) => string }) {
   const isCritical = alert.level === "critical";
   return (
     <div className={`rounded-lg border p-3 space-y-1 ${isCritical ? "border-destructive/30 bg-destructive/5" : "border-warning/30 bg-warning/5"}`}>
@@ -53,7 +54,7 @@ function AlertCard({ alert }: { alert: AuthenticityAlert }) {
         <span>{isCritical ? "🔴" : "⚠️"}</span>
         <span className={`text-sm font-medium ${isCritical ? "text-destructive" : "text-warning"}`}>{alert.title}</span>
         <Badge variant={isCritical ? "destructive" : "secondary"} className="text-[10px] ml-auto">
-          {isCritical ? "Crítico" : "Atenção"}
+          {isCritical ? t("auth.critical") : t("auth.attention")}
         </Badge>
       </div>
       <p className="text-xs text-muted-foreground">{alert.description}</p>
@@ -61,12 +62,12 @@ function AlertCard({ alert }: { alert: AuthenticityAlert }) {
   );
 }
 
-function MetricsBreakdown({ result }: { result: AuthenticityResult }) {
+function MetricsBreakdown({ result, t }: { result: AuthenticityResult; t: (k: string) => string }) {
   const metrics = [
-    { label: "Viewer-to-Chat Ratio", value: `${result.viewerToChatRatio.toFixed(1)}:1`, desc: "Viewers por chatter", good: result.viewerToChatRatio < 50 },
-    { label: "Engagement Rate", value: fmtPercent(result.engagementRate * 100, 2), desc: "Chatters / Viewers", good: result.engagementRate > 0.02 },
-    { label: "Chat Quality", value: `${result.chatQualityScore.toFixed(0)}/100`, desc: "Consistência + qualidade", good: result.chatQualityScore > 60 },
-    { label: "Spike Score", value: `${result.spikeScoreNormalized.toFixed(0)}/100`, desc: "Intensidade de picos", good: result.spikeScoreNormalized < 40 },
+    { label: t("auth.viewer_chat_ratio"), value: `${result.viewerToChatRatio.toFixed(1)}:1`, desc: t("auth.viewers_per_chatter"), good: result.viewerToChatRatio < 50 },
+    { label: t("auth.engagement_rate"), value: fmtPercent(result.engagementRate * 100, 2), desc: t("auth.chatters_viewers"), good: result.engagementRate > 0.02 },
+    { label: t("auth.chat_quality"), value: `${result.chatQualityScore.toFixed(0)}/100`, desc: t("auth.consistency_quality"), good: result.chatQualityScore > 60 },
+    { label: t("auth.spike_score"), value: `${result.spikeScoreNormalized.toFixed(0)}/100`, desc: t("auth.spike_intensity"), good: result.spikeScoreNormalized < 40 },
   ];
 
   return (
@@ -83,6 +84,7 @@ function MetricsBreakdown({ result }: { result: AuthenticityResult }) {
 }
 
 export function AuthenticityTab() {
+  const { t } = useLanguage();
   const [streamerName, setStreamerName] = useState("");
   const [platform, setPlatform] = useState("Twitch");
   const [avgViewers, setAvgViewers] = useState(0);
@@ -121,36 +123,36 @@ export function AuthenticityTab() {
 
   const downloadExcel = () => {
     const rows: any[][] = [
-      ["Audience Authenticity Report"],
+      [t("auth.title")],
       [""],
-      ["Streamer", streamerName || "-"],
-      ["Plataforma", platform],
+      [t("auth.streamer"), streamerName || "-"],
+      [t("auth.platform"), platform],
       [""],
-      ["--- Dados da Live ---"],
+      [`--- ${t("auth.live_data")} ---`],
       ["Avg Viewers", avgViewers],
       ["Peak Viewers", peakViewers],
-      ["Duração (min)", streamDuration],
+      [t("auth.duration_min"), streamDuration],
       [""],
-      ["--- Dados do Chat ---"],
-      ["Total Mensagens", totalMessages],
-      ["Chatters Únicos", uniqueChatters],
-      ["Msg/Minuto", messagesPerMinute],
-      ["% Mensagens Duplicadas", duplicateMessageRate],
-      ["Comprimento Médio Msg", avgMessageLength],
-      ["Burstiness", chatBurstiness],
-      ["Consistência Chat", chatConsistencyScore],
-      ["Similaridade Usernames", usernameSimilarityScore],
-      ["% Contas Novas", newAccountActivityRate],
+      [`--- ${t("auth.chat_data")} ---`],
+      [t("auth.total_messages"), totalMessages],
+      [t("auth.unique_chatters"), uniqueChatters],
+      [t("auth.msgs_per_min"), messagesPerMinute],
+      [t("auth.dup_messages"), duplicateMessageRate],
+      [t("auth.avg_msg_length"), avgMessageLength],
+      [t("auth.burstiness"), chatBurstiness],
+      [t("auth.chat_consistency"), chatConsistencyScore],
+      [t("auth.username_similarity"), usernameSimilarityScore],
+      [t("auth.new_accounts"), newAccountActivityRate],
       [""],
-      ["--- Resultados ---"],
-      ["Authenticity Score", result.authenticityScore],
-      ["Classificação", result.classification],
-      ["Viewer-to-Chat Ratio", result.viewerToChatRatio.toFixed(1)],
-      ["Engagement Rate", `${(result.engagementRate * 100).toFixed(2)}%`],
-      ["Chat Quality Score", result.chatQualityScore.toFixed(0)],
-      ["Spike Score", result.spikeScoreNormalized.toFixed(0)],
+      ["--- Results ---"],
+      [t("auth.score"), result.authenticityScore],
+      ["Classification", result.classification],
+      [t("auth.viewer_chat_ratio"), result.viewerToChatRatio.toFixed(1)],
+      [t("auth.engagement_rate"), `${(result.engagementRate * 100).toFixed(2)}%`],
+      [t("auth.chat_quality"), result.chatQualityScore.toFixed(0)],
+      [t("auth.spike_score"), result.spikeScoreNormalized.toFixed(0)],
       [""],
-      ["--- Alertas ---"],
+      ["--- Alerts ---"],
       ...result.alerts.map(a => [a.level.toUpperCase(), a.title, a.description]),
       [""],
       ["--- Insights ---"],
@@ -168,14 +170,14 @@ export function AuthenticityTab() {
       {/* Header */}
       <div className="card-surface p-4 flex items-start justify-between">
         <div>
-          <p className="text-xs text-primary font-medium uppercase tracking-wider">Audience Authenticity Analyzer</p>
+          <p className="text-xs text-primary font-medium uppercase tracking-wider">{t("auth.title")}</p>
           <p className="text-sm text-muted-foreground mt-1">
-            Analise padrões de audiência e identifique sinais de engajamento artificial. Baseado em métricas de chat, viewers e comportamento.
+            {t("auth.description")}
           </p>
         </div>
         {hasData && (
           <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0">
-            📥 Exportar Excel
+            {t("app.export_excel")}
           </Button>
         )}
       </div>
@@ -183,18 +185,18 @@ export function AuthenticityTab() {
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Left: Inputs */}
         <div className="lg:col-span-2 space-y-5">
-          <FieldSection title="Identificação">
+          <FieldSection title={t("auth.identification")}>
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">Streamer</label>
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">{t("auth.streamer")}</label>
               <Input
-                placeholder="Nome do streamer"
+                placeholder={t("auth.streamer_name")}
                 value={streamerName}
                 onChange={(e) => setStreamerName(e.target.value)}
                 className="font-mono"
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground uppercase tracking-wider">Plataforma</label>
+              <label className="text-xs text-muted-foreground uppercase tracking-wider">{t("auth.platform")}</label>
               <Select value={platform} onValueChange={setPlatform}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -206,25 +208,25 @@ export function AuthenticityTab() {
             </div>
           </FieldSection>
 
-          <FieldSection title="Dados da Live">
+          <FieldSection title={t("auth.live_data")}>
             <NumberField label="Avg Viewers" value={avgViewers} onChange={setAvgViewers} step={100} />
             <NumberField label="Peak Viewers" value={peakViewers} onChange={setPeakViewers} step={100} />
-            <NumberField label="Duração (min)" value={streamDuration} onChange={setStreamDuration} step={30} />
+            <NumberField label={t("auth.duration_min")} value={streamDuration} onChange={setStreamDuration} step={30} />
           </FieldSection>
 
-          <FieldSection title="Dados do Chat">
-            <NumberField label="Total de mensagens" value={totalMessages} onChange={setTotalMessages} step={100} />
-            <NumberField label="Chatters únicos" value={uniqueChatters} onChange={setUniqueChatters} step={10} />
-            <NumberField label="Mensagens por minuto" value={messagesPerMinute} onChange={setMessagesPerMinute} step={1} />
-            <NumberField label="% Mensagens duplicadas" value={duplicateMessageRate} onChange={setDuplicateMessageRate} step={1} max={100} suffix="%" />
-            <NumberField label="Comprimento médio (chars)" value={avgMessageLength} onChange={setAvgMessageLength} step={1} />
-            <NumberField label="Burstiness (0-100)" value={chatBurstiness} onChange={setChatBurstiness} step={5} max={100} />
+          <FieldSection title={t("auth.chat_data")}>
+            <NumberField label={t("auth.total_messages")} value={totalMessages} onChange={setTotalMessages} step={100} />
+            <NumberField label={t("auth.unique_chatters")} value={uniqueChatters} onChange={setUniqueChatters} step={10} />
+            <NumberField label={t("auth.msgs_per_min")} value={messagesPerMinute} onChange={setMessagesPerMinute} step={1} />
+            <NumberField label={t("auth.dup_messages")} value={duplicateMessageRate} onChange={setDuplicateMessageRate} step={1} max={100} suffix="%" />
+            <NumberField label={t("auth.avg_msg_length")} value={avgMessageLength} onChange={setAvgMessageLength} step={1} />
+            <NumberField label={t("auth.burstiness")} value={chatBurstiness} onChange={setChatBurstiness} step={5} max={100} />
           </FieldSection>
 
-          <FieldSection title="Análise Comportamental">
-            <NumberField label="Consistência do chat (0-100)" value={chatConsistencyScore} onChange={setChatConsistencyScore} step={5} max={100} />
-            <NumberField label="Similaridade de usernames (0-100)" value={usernameSimilarityScore} onChange={setUsernameSimilarityScore} step={5} max={100} />
-            <NumberField label="% Contas novas ativas" value={newAccountActivityRate} onChange={setNewAccountActivityRate} step={5} max={100} suffix="%" />
+          <FieldSection title={t("auth.behavioral")}>
+            <NumberField label={t("auth.chat_consistency")} value={chatConsistencyScore} onChange={setChatConsistencyScore} step={5} max={100} />
+            <NumberField label={t("auth.username_similarity")} value={usernameSimilarityScore} onChange={setUsernameSimilarityScore} step={5} max={100} />
+            <NumberField label={t("auth.new_accounts")} value={newAccountActivityRate} onChange={setNewAccountActivityRate} step={5} max={100} suffix="%" />
           </FieldSection>
         </div>
 
@@ -232,42 +234,39 @@ export function AuthenticityTab() {
         <div className="lg:col-span-3 space-y-5">
           {hasData ? (
             <>
-              {/* Score + Name */}
               <div className="flex items-start gap-4">
                 <div className="flex-1">
                   <ScoreGauge
                     score={result.authenticityScore}
                     classification={result.classification}
                     color={result.classificationColor}
+                    t={t}
                   />
                 </div>
               </div>
 
-              {/* Metrics Breakdown */}
-              <MetricsBreakdown result={result} />
+              <MetricsBreakdown result={result} t={t} />
 
-              {/* Alerts */}
               {result.alerts.length > 0 && (
                 <div className="space-y-2">
                   <h3 className="text-xs uppercase tracking-wider text-muted-foreground">
-                    Alertas de Risco ({result.alerts.length})
+                    {t("auth.risk_alerts")} ({result.alerts.length})
                   </h3>
                   {result.alerts.map((alert, i) => (
-                    <AlertCard key={i} alert={alert} />
+                    <AlertCard key={i} alert={alert} t={t} />
                   ))}
                 </div>
               )}
 
               {result.alerts.length === 0 && (
                 <div className="card-surface p-4 text-center">
-                  <span className="text-accent text-sm">✅ Nenhum alerta de risco detectado</span>
+                  <span className="text-accent text-sm">{t("auth.no_alerts")}</span>
                 </div>
               )}
 
-              {/* Insights */}
               {result.insights.length > 0 && (
                 <div className="space-y-2">
-                  <h3 className="text-xs uppercase tracking-wider text-muted-foreground">Insights</h3>
+                  <h3 className="text-xs uppercase tracking-wider text-muted-foreground">{t("auth.insights")}</h3>
                   <div className="space-y-2">
                     {result.insights.map((insight, i) => (
                       <div key={i} className="card-surface p-3 flex items-start gap-2">
@@ -279,16 +278,15 @@ export function AuthenticityTab() {
                 </div>
               )}
 
-              {/* Visual: Viewers vs Chatters bar */}
               <div className="card-surface p-4 space-y-3">
-                <h3 className="text-xs uppercase tracking-wider text-muted-foreground">Viewers vs Chatters</h3>
+                <h3 className="text-xs uppercase tracking-wider text-muted-foreground">{t("auth.viewers_vs_chatters")}</h3>
                 {(() => {
                   const maxVal = Math.max(avgViewers, uniqueChatters, 1);
                   return (
                     <div className="space-y-2">
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">Viewers</span>
+                          <span className="text-muted-foreground">{t("auth.viewers")}</span>
                           <span className="font-mono text-foreground">{fmtInt(avgViewers)}</span>
                         </div>
                         <div className="h-3 rounded-full bg-secondary overflow-hidden">
@@ -297,7 +295,7 @@ export function AuthenticityTab() {
                       </div>
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">Chatters únicos</span>
+                          <span className="text-muted-foreground">{t("auth.unique_chatters_label")}</span>
                           <span className="font-mono text-foreground">{fmtInt(uniqueChatters)}</span>
                         </div>
                         <div className="h-3 rounded-full bg-secondary overflow-hidden">
@@ -309,15 +307,14 @@ export function AuthenticityTab() {
                 })()}
               </div>
 
-              {/* Composition breakdown */}
               <div className="card-surface p-4 space-y-3">
-                <h3 className="text-xs uppercase tracking-wider text-muted-foreground">Composição do Score</h3>
+                <h3 className="text-xs uppercase tracking-wider text-muted-foreground">{t("auth.score_composition")}</h3>
                 {[
-                  { label: "Engajamento", value: Math.min(result.engagementRate * 100, 100) * 0.30, max: 30, pct: Math.min(result.engagementRate * 100, 100) },
-                  { label: "Qualidade Chat", value: result.chatQualityScore * 0.25, max: 25, pct: result.chatQualityScore },
-                  { label: "Originalidade Msgs", value: (100 - duplicateMessageRate) * 0.20, max: 20, pct: 100 - duplicateMessageRate },
-                  { label: "Estabilidade Audiência", value: (100 - result.spikeScoreNormalized) * 0.15, max: 15, pct: 100 - result.spikeScoreNormalized },
-                  { label: "Diversidade Usernames", value: (100 - usernameSimilarityScore) * 0.10, max: 10, pct: 100 - usernameSimilarityScore },
+                  { label: t("auth.engagement_label"), value: Math.min(result.engagementRate * 100, 100) * 0.30, max: 30, pct: Math.min(result.engagementRate * 100, 100) },
+                  { label: t("auth.chat_quality_label"), value: result.chatQualityScore * 0.25, max: 25, pct: result.chatQualityScore },
+                  { label: t("auth.originality_label"), value: (100 - duplicateMessageRate) * 0.20, max: 20, pct: 100 - duplicateMessageRate },
+                  { label: t("auth.stability_label"), value: (100 - result.spikeScoreNormalized) * 0.15, max: 15, pct: 100 - result.spikeScoreNormalized },
+                  { label: t("auth.diversity_label"), value: (100 - usernameSimilarityScore) * 0.10, max: 10, pct: 100 - usernameSimilarityScore },
                 ].map((item) => (
                   <div key={item.label} className="space-y-1">
                     <div className="flex justify-between text-xs">
@@ -333,7 +330,7 @@ export function AuthenticityTab() {
             </>
           ) : (
             <div className="card-surface p-8 text-center text-muted-foreground text-sm">
-              Preencha os dados de audiência e chat para ver a análise de autenticidade.
+              {t("auth.empty")}
             </div>
           )}
         </div>
