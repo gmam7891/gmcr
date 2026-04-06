@@ -104,15 +104,17 @@ function ScoreGauge({ ivs, t }: { ivs: IvsResult; t: (k: string) => string }) {
 
 function RiskSection({ ivs, t }: { ivs: IvsResult; t: (k: string) => string }) {
   const [open, setOpen] = useState(false);
-  const riskColor = ivs.riskLabel === "Baixo" || ivs.riskLabel === "Low" ? "bg-accent/10 text-accent border-accent/20"
-    : ivs.riskLabel === "Médio" || ivs.riskLabel === "Medium" ? "bg-warning/10 text-warning border-warning/20"
-    : "bg-destructive/10 text-destructive border-destructive/20";
-  const riskIcon = ivs.riskLabel === "Baixo" || ivs.riskLabel === "Low" ? "🛡️" : (ivs.riskLabel === "Médio" || ivs.riskLabel === "Medium") ? "⚠️" : "🔴";
+  const riskMap: Record<string, { color: string; icon: string; label: string }> = {
+    "Baixo": { color: "bg-accent/10 text-accent border-accent/20", icon: "🛡️", label: t("sim.risk_low") },
+    "Médio": { color: "bg-warning/10 text-warning border-warning/20", icon: "⚠️", label: t("sim.risk_medium") },
+    "Alto": { color: "bg-destructive/10 text-destructive border-destructive/20", icon: "🔴", label: t("sim.risk_high") },
+  };
+  const risk = riskMap[ivs.riskLabel] || riskMap["Alto"];
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <div className="flex items-center gap-3">
-        <div className={`inline-flex items-center px-3 py-1.5 rounded-lg border text-xs font-medium ${riskColor}`}>
-          {riskIcon} {t("sim.risk_prefix")} {ivs.riskLabel}
+        <div className={`inline-flex items-center px-3 py-1.5 rounded-lg border text-xs font-medium ${risk.color}`}>
+          {risk.icon} {t("sim.risk_prefix")} {risk.label}
         </div>
         {ivs.riskFactors.length > 0 && (
           <CollapsibleTrigger asChild>
