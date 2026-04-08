@@ -2,11 +2,21 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
-import { Shield, LogOut, ArrowRight, BarChart3, Instagram, Tv, Youtube, Monitor, Zap, Search, Video, Target, Globe } from "lucide-react";
+import { Shield, LogOut, ArrowRight, BarChart3, Instagram, Tv, Youtube, Monitor, Zap, Search, Video, Target, Globe, ScanLine } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import type { TranslationKey } from "@/lib/translations";
 
-const modules: { id: string; icon: typeof Target; titleKey: TranslationKey; descKey: TranslationKey; color: string }[] = [
+interface ModuleConfig {
+  id: string;
+  icon: typeof Target;
+  titleKey: TranslationKey;
+  descKey: TranslationKey;
+  color: string;
+  route?: string; // if different from /app?tab=id
+}
+
+const modules: ModuleConfig[] = [
+  { id: "scanner", icon: ScanLine, titleKey: "mod.scanner.title", descKey: "mod.scanner.desc", color: "from-orange-500/20 to-red-600/10", route: "/scanner" },
   { id: "icp", icon: Target, titleKey: "mod.icp.title", descKey: "mod.icp.desc", color: "from-blue-500/20 to-blue-600/10" },
   { id: "instagram", icon: Instagram, titleKey: "mod.instagram.title", descKey: "mod.instagram.desc", color: "from-pink-500/20 to-purple-600/10" },
   { id: "twitch", icon: Tv, titleKey: "mod.twitch.title", descKey: "mod.twitch.desc", color: "from-violet-500/20 to-violet-600/10" },
