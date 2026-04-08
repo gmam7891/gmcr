@@ -1,0 +1,154 @@
+import { useState, useEffect } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks } from "lucide-react";
+import { StatusHeader } from "@/components/scanner/StatusHeader";
+import { GlobalFilters, defaultFilters } from "@/components/scanner/GlobalFilters";
+import type { ScannerFilters } from "@/components/scanner/GlobalFilters";
+import { DashboardTab } from "@/components/scanner/DashboardTab";
+import { RankingsTab } from "@/components/scanner/RankingsTab";
+import { VodQualityTab } from "@/components/scanner/VodQualityTab";
+import { QueueTab } from "@/components/scanner/QueueTab";
+import { ChatSentimentTab } from "@/components/scanner/ChatSentimentTab";
+import { FeatureGate } from "@/components/scanner/FeatureGate";
+import { getDashboardData, getProviders, getGames } from "@/lib/scanner-api";
+
+const Scanner = () => {
+  const { isAdmin, userAccess, signOut } = useAuth();
+  const { t, language } = useLanguage();
+  const navigate = useNavigate();
+  const [filters, setFilters] = useState<ScannerFilters>(defaultFilters);
+  const [dashData, setDashData] = useState<any>(null);
+  const [providers, setProviders] = useState<any[]>([]);
+  const [games, setGames] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("dashboard");
+
+  const allowedTabs = userAccess?.allowed_tabs || [];
+  const tier = userAccess?.package_name?.toLowerCase() || "starter";
+
+  // Feature gating
+  const canAccessProviders = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_providers");
+  const canAccessGames = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_games");
+  const canAccessVodQuality = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_vod_quality");
+  const canAccessQueue = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_queue");
+  const canAccessChat = tier === "admin" || tier === "enterprise" || allowedTabs.includes("scanner_chat");
+
+  useEffect(() => {
+    getProviders().then(setProviders);
+    getGames().then(setGames);
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    getDashboardData(filters)
+      .then(setDashData)
+      .catch(() => setDashData(null))
+      .finally(() => setLoading(false));
+  }, [filters]);
+
+  const tabs = [
+    { id: "dashboard", label: t("scan.dashboard"), icon: LayoutDashboard },
+    { id: "streamers", label: t("scan.streamers"), icon: Users },
+    { id: "games", label: t("scan.games_tab"), icon: Gamepad2 },
+    { id: "providers", label: t("scan.providers_tab"), icon: Building2 },
+    { id: "chat", label: t("scan.chat_tab"), icon: MessageSquare },
+    { id: "vod_quality", label: t("scan.vod_quality"), icon: FileCheck },
+    { id: "queue", label: t("scan.queue_tab"), icon: ListChecks },
+  ];
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="border-b border-border px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <h1 className="text-base font-semibold tracking-tight text-foreground">{t("scan.scanner_title")}</h1>
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
+            {t("scan.scanner_desc")}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          {isAdmin && (
+            <Button variant="ghost" size="icon" onClick={() => navigate("/admin")} title="Admin">
+              <Shield className="h-4 w-4" />
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" onClick={signOut} title={t("app.logout")}>
+            <LogOut className="h-4 w-4" />
+          </Button>
+        </div>
+      </header>
+
+      <main className="p-6 space-y-4">
+        <StatusHeader />
+        <GlobalFilters filters={filters} onChange={setFilters} />
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="bg-secondary/50 border border-border p-1 h-auto gap-1 flex-wrap">
+            {tabs.map(tab => (
+              <TabsTrigger
+                key={tab.id}
+                value={tab.id}
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-3 py-1.5 flex items-center gap-1.5"
+              >
+                <tab.icon className="h-3.5 w-3.5" />
+                {tab.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+
+          <TabsContent value="dashboard">
+            {loading ? (
+              <p className="text-sm text-muted-foreground text-center py-12">{t("app.loading")}</p>
+            ) : (
+              <DashboardTab data={dashData} providers={providers} games={games} />
+            )}
+          </TabsContent>
+
+          <TabsContent value="streamers">
+            <RankingsTab filters={filters} rankBy="streamer" />
+          </TabsContent>
+
+          <TabsContent value="games">
+            <FeatureGate requiredPlan="Pro" isLocked={!canAccessGames}>
+              <RankingsTab filters={filters} rankBy="game" />
+            </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="providers">
+            <FeatureGate requiredPlan="Pro" isLocked={!canAccessProviders}>
+              <RankingsTab filters={filters} rankBy="provider" />
+            </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="chat">
+            <FeatureGate requiredPlan="Enterprise" isLocked={!canAccessChat}>
+              <ChatSentimentTab filters={filters} />
+            </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="vod_quality">
+            <FeatureGate requiredPlan="Pro" isLocked={!canAccessVodQuality}>
+              <VodQualityTab filters={filters} />
+            </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="queue">
+            <FeatureGate requiredPlan="Pro" isLocked={!canAccessQueue}>
+              <QueueTab />
+            </FeatureGate>
+          </TabsContent>
+        </Tabs>
+      </main>
+    </div>
+  );
+};
+
+export default Scanner;
