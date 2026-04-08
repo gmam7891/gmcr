@@ -58,6 +58,8 @@ const pt = {
   "mod.simulator.desc": "Simule campanhas de mídia com influenciadores. Calcule CPM, CPV, alcance estimado e compare cenários para otimizar seu investimento.",
   "mod.authenticity.title": "Authenticity",
   "mod.authenticity.desc": "Analise a autenticidade da audiência de streamers. Detecte padrões suspeitos de engajamento e obtenha um score de confiabilidade.",
+  "mod.scanner.title": "Casino Scanner",
+  "mod.scanner.desc": "Plataforma completa de monitoramento e analytics para iGaming. Detecção de jogos, provedoras, análise de VODs, sentimento de chat e relatórios.",
 
   // Index / expired
   "index.expired_title": "Starklytic",
