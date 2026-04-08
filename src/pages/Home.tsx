@@ -86,7 +86,7 @@ const Home = () => {
             .map((mod) => (
               <button
                 key={mod.id}
-                onClick={() => navigate(`/app?tab=${mod.id}`)}
+                onClick={() => navigate(mod.route || `/app?tab=${mod.id}`)}
                 className={`group relative text-left rounded-xl border border-border p-5 bg-gradient-to-br ${mod.color} hover:border-primary/40 transition-all duration-200 hover:shadow-md`}
               >
                 <div className="flex items-start justify-between mb-3">
