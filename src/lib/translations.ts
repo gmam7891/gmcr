@@ -662,6 +662,8 @@ const en: Record<keyof typeof pt, string> = {
   "mod.simulator.desc": "Simulate media campaigns with influencers. Calculate CPM, CPV, estimated reach, and compare scenarios to optimize your investment.",
   "mod.authenticity.title": "Authenticity",
   "mod.authenticity.desc": "Analyze streamer audience authenticity. Detect suspicious engagement patterns and get a reliability score.",
+  "mod.scanner.title": "Casino Scanner",
+  "mod.scanner.desc": "Complete monitoring and analytics platform for iGaming. Game detection, providers, VOD analysis, chat sentiment, and reports.",
 
   // Index / expired
   "index.expired_title": "Starklytic",
