@@ -18,22 +18,287 @@ export type Database = {
         Row: {
           allowed_tabs: string[]
           created_at: string
+          description: string | null
+          features: Json | null
           id: string
+          max_streamers: number | null
+          max_vods_month: number | null
           name: string
+          tier: string | null
         }
         Insert: {
           allowed_tabs?: string[]
           created_at?: string
+          description?: string | null
+          features?: Json | null
           id?: string
+          max_streamers?: number | null
+          max_vods_month?: number | null
           name: string
+          tier?: string | null
         }
         Update: {
           allowed_tabs?: string[]
           created_at?: string
+          description?: string | null
+          features?: Json | null
           id?: string
+          max_streamers?: number | null
+          max_vods_month?: number | null
           name?: string
+          tier?: string | null
         }
         Relationships: []
+      }
+      chat_messages: {
+        Row: {
+          created_at: string
+          id: string
+          intent_label: string | null
+          is_bot: boolean | null
+          is_spam: boolean | null
+          message: string
+          message_at: string
+          platform: string
+          sentiment_label: string | null
+          source_id: string | null
+          source_type: string
+          streamer_login: string
+          username: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          intent_label?: string | null
+          is_bot?: boolean | null
+          is_spam?: boolean | null
+          message: string
+          message_at?: string
+          platform?: string
+          sentiment_label?: string | null
+          source_id?: string | null
+          source_type?: string
+          streamer_login: string
+          username: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          intent_label?: string | null
+          is_bot?: boolean | null
+          is_spam?: boolean | null
+          message?: string
+          message_at?: string
+          platform?: string
+          sentiment_label?: string | null
+          source_id?: string | null
+          source_type?: string
+          streamer_login?: string
+          username?: string
+        }
+        Relationships: []
+      }
+      detections: {
+        Row: {
+          confidence: number | null
+          created_at: string
+          detected_at: string
+          exposure_seconds: number | null
+          game_id: string | null
+          game_name: string | null
+          id: string
+          offset_seconds: number | null
+          platform: string
+          provider_id: string | null
+          provider_name: string | null
+          source_id: string | null
+          source_type: string
+          streamer_login: string
+          viewer_count: number | null
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string
+          detected_at?: string
+          exposure_seconds?: number | null
+          game_id?: string | null
+          game_name?: string | null
+          id?: string
+          offset_seconds?: number | null
+          platform?: string
+          provider_id?: string | null
+          provider_name?: string | null
+          source_id?: string | null
+          source_type: string
+          streamer_login: string
+          viewer_count?: number | null
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string
+          detected_at?: string
+          exposure_seconds?: number | null
+          game_id?: string | null
+          game_name?: string | null
+          id?: string
+          offset_seconds?: number | null
+          platform?: string
+          provider_id?: string | null
+          provider_name?: string | null
+          source_id?: string | null
+          source_type?: string
+          streamer_login?: string
+          viewer_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "detections_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "detections_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exposure_blocks: {
+        Row: {
+          avg_viewers: number | null
+          confidence_avg: number | null
+          created_at: string
+          duration_seconds: number
+          end_at: string
+          game_id: string | null
+          id: string
+          is_reconciled: boolean | null
+          peak_viewers: number | null
+          platform: string
+          provider_id: string | null
+          source_id: string | null
+          source_type: string
+          start_at: string
+          streamer_login: string
+          viewer_minutes: number | null
+        }
+        Insert: {
+          avg_viewers?: number | null
+          confidence_avg?: number | null
+          created_at?: string
+          duration_seconds: number
+          end_at: string
+          game_id?: string | null
+          id?: string
+          is_reconciled?: boolean | null
+          peak_viewers?: number | null
+          platform?: string
+          provider_id?: string | null
+          source_id?: string | null
+          source_type: string
+          start_at: string
+          streamer_login: string
+          viewer_minutes?: number | null
+        }
+        Update: {
+          avg_viewers?: number | null
+          confidence_avg?: number | null
+          created_at?: string
+          duration_seconds?: number
+          end_at?: string
+          game_id?: string | null
+          id?: string
+          is_reconciled?: boolean | null
+          peak_viewers?: number | null
+          platform?: string
+          provider_id?: string | null
+          source_id?: string | null
+          source_type?: string
+          start_at?: string
+          streamer_login?: string
+          viewer_minutes?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exposure_blocks_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exposure_blocks_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      game_aliases: {
+        Row: {
+          alias: string
+          game_id: string
+          id: string
+        }
+        Insert: {
+          alias: string
+          game_id: string
+          id?: string
+        }
+        Update: {
+          alias?: string
+          game_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "game_aliases_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      games: {
+        Row: {
+          category: string | null
+          created_at: string
+          id: string
+          name: string
+          provider_id: string | null
+          slug: string
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          provider_id?: string | null
+          slug: string
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          provider_id?: string | null
+          slug?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "games_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       monitored_streamers: {
         Row: {
@@ -65,6 +330,60 @@ export type Database = {
         }
         Relationships: []
       }
+      processing_queue: {
+        Row: {
+          attempts: number | null
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          job_type: Database["public"]["Enums"]["job_type"]
+          max_attempts: number | null
+          metadata: Json | null
+          platform: string
+          priority: Database["public"]["Enums"]["job_priority"]
+          source_id: string | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["job_status"]
+          streamer_login: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number | null
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          job_type: Database["public"]["Enums"]["job_type"]
+          max_attempts?: number | null
+          metadata?: Json | null
+          platform?: string
+          priority?: Database["public"]["Enums"]["job_priority"]
+          source_id?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["job_status"]
+          streamer_login: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number | null
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          job_type?: Database["public"]["Enums"]["job_type"]
+          max_attempts?: number | null
+          metadata?: Json | null
+          platform?: string
+          priority?: Database["public"]["Enums"]["job_priority"]
+          source_id?: string | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["job_status"]
+          streamer_login?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -83,6 +402,53 @@ export type Database = {
           display_name?: string | null
           email?: string | null
           id?: string
+        }
+        Relationships: []
+      }
+      provider_aliases: {
+        Row: {
+          alias: string
+          id: string
+          provider_id: string
+        }
+        Insert: {
+          alias: string
+          id?: string
+          provider_id: string
+        }
+        Update: {
+          alias?: string
+          id?: string
+          provider_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "provider_aliases_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      providers: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          slug?: string
         }
         Relationships: []
       }
@@ -135,8 +501,11 @@ export type Database = {
           expires_at: string | null
           id: string
           is_active: boolean
+          last_reset_at: string | null
           package_id: string | null
+          streamers_used: number | null
           user_id: string
+          vods_used_month: number | null
         }
         Insert: {
           created_at?: string
@@ -145,8 +514,11 @@ export type Database = {
           expires_at?: string | null
           id?: string
           is_active?: boolean
+          last_reset_at?: string | null
           package_id?: string | null
+          streamers_used?: number | null
           user_id: string
+          vods_used_month?: number | null
         }
         Update: {
           created_at?: string
@@ -155,8 +527,11 @@ export type Database = {
           expires_at?: string | null
           id?: string
           is_active?: boolean
+          last_reset_at?: string | null
           package_id?: string | null
+          streamers_used?: number | null
           user_id?: string
+          vods_used_month?: number | null
         }
         Relationships: [
           {
@@ -186,6 +561,69 @@ export type Database = {
         }
         Relationships: []
       }
+      vod_audits: {
+        Row: {
+          completed_at: string | null
+          confidence_score: number | null
+          coverage_percent: number | null
+          created_at: string
+          error_message: string | null
+          expected_frames: number | null
+          failed_frames: number | null
+          gap_seconds: number | null
+          id: string
+          platform: string
+          processed_duration_seconds: number | null
+          processed_frames: number | null
+          started_at: string | null
+          status: Database["public"]["Enums"]["vod_status"]
+          streamer_login: string
+          updated_at: string
+          vod_duration_seconds: number | null
+          vod_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          confidence_score?: number | null
+          coverage_percent?: number | null
+          created_at?: string
+          error_message?: string | null
+          expected_frames?: number | null
+          failed_frames?: number | null
+          gap_seconds?: number | null
+          id?: string
+          platform?: string
+          processed_duration_seconds?: number | null
+          processed_frames?: number | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["vod_status"]
+          streamer_login: string
+          updated_at?: string
+          vod_duration_seconds?: number | null
+          vod_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          confidence_score?: number | null
+          coverage_percent?: number | null
+          created_at?: string
+          error_message?: string | null
+          expected_frames?: number | null
+          failed_frames?: number | null
+          gap_seconds?: number | null
+          id?: string
+          platform?: string
+          processed_duration_seconds?: number | null
+          processed_frames?: number | null
+          started_at?: string | null
+          status?: Database["public"]["Enums"]["vod_status"]
+          streamer_login?: string
+          updated_at?: string
+          vod_duration_seconds?: number | null
+          vod_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -201,6 +639,22 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      job_priority: "critical" | "high" | "normal" | "low"
+      job_status: "pending" | "running" | "completed" | "failed" | "cancelled"
+      job_type:
+        | "live_capture"
+        | "vod_process"
+        | "chat_ingest"
+        | "reconciliation"
+        | "reprocess"
+      vod_status:
+        | "queued"
+        | "processing"
+        | "partial"
+        | "completed"
+        | "failed"
+        | "needs_review"
+        | "reprocessed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -329,6 +783,24 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      job_priority: ["critical", "high", "normal", "low"],
+      job_status: ["pending", "running", "completed", "failed", "cancelled"],
+      job_type: [
+        "live_capture",
+        "vod_process",
+        "chat_ingest",
+        "reconciliation",
+        "reprocess",
+      ],
+      vod_status: [
+        "queued",
+        "processing",
+        "partial",
+        "completed",
+        "failed",
+        "needs_review",
+        "reprocessed",
+      ],
     },
   },
 } as const
