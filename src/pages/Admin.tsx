@@ -22,6 +22,14 @@ const ALL_TABS = [
   { id: "kick", label: "Kick" },
   { id: "icp", label: "ICP Calc" },
   { id: "vod", label: "VOD Analyzer" },
+  { id: "scanner", label: "🎰 Casino Scanner" },
+  { id: "scanner_dashboard", label: "Scanner Dashboard" },
+  { id: "scanner_streamers", label: "Scanner Streamers" },
+  { id: "scanner_games", label: "Scanner Games" },
+  { id: "scanner_providers", label: "Scanner Providers" },
+  { id: "scanner_chat", label: "Scanner Chat" },
+  { id: "scanner_vod_quality", label: "Scanner VOD Quality" },
+  { id: "scanner_queue", label: "Scanner Queue" },
 ];
 
 interface ManagedUser {
