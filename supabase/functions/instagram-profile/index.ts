@@ -53,46 +53,64 @@ Deno.serve(async (req) => {
     const cleanUsername = username.replace(/^@/, "").trim();
     console.log(`Fetching Instagram profile for: ${cleanUsername}`);
 
-    // Use Apify's Instagram Profile Scraper actor
-    const actorId = "apify~instagram-profile-scraper";
-    const runUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${apiKey}`;
+    // --- PASSO 1: Buscar os posts usando o Instagram Post Scraper ---
+    const postActorId = "apify/instagram-post-scraper"; // ATENÇÃO: MUDANÇA AQUI!
+    const postRunUrl = `https://api.apify.com/v2/acts/${postActorId}/run-sync-get-dataset-items?token=${apiKey}`;
 
-    const response = await fetch(runUrl, {
+    const postResponse = await fetch(postRunUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         usernames: [cleanUsername],
-        resultsLimit: 40, // Increased sample size for better accuracy
+        resultsLimit: 40, // Agora este limite será respeitado pelo Post Scraper
       }),
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error(`Apify error [${response.status}]:`, errText);
-      return new Response(JSON.stringify({ error: `Apify request failed: ${response.status}` }), {
+    if (!postResponse.ok) {
+      const errText = await postResponse.text();
+      console.error(`Apify Post Scraper error [${postResponse.status}]:`, errText);
+      return new Response(JSON.stringify({ error: `Apify Post Scraper request failed: ${postResponse.status}` }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const results = await response.json();
-    console.log(`Got ${results.length} result(s) from Apify`);
+    const results = await postResponse.json();
+    console.log(`Got ${results.length} post(s) from Apify Post Scraper`);
 
     if (!results || results.length === 0) {
-      return new Response(JSON.stringify({ error: "Profile not found" }), {
+      return new Response(JSON.stringify({ error: "No posts found for this profile" }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const profile = results[0];
+    // --- PASSO 2: Buscar os dados do perfil usando o Instagram Profile Scraper ---
+    // É necessário fazer uma segunda chamada para obter dados como followersCount, biography, etc.
+    const profileActorId = "apify/instagram-profile-scraper";
+    const profileRunUrl = `https://api.apify.com/v2/acts/${profileActorId}/run-sync-get-dataset-items?token=${apiKey}`;
+    const profileResponse = await fetch(profileRunUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        usernames: [cleanUsername],
+      }),
+    });
 
-    // Extract metrics from the profile data
-    const followers = profile.followersCount || profile.subscribersCount || 0;
-    const posts = profile.postsCount || 0;
+    let profileData: any = {};
+    if (profileResponse.ok) {
+      const profileResults = await profileResponse.json();
+      if (profileResults && profileResults.length > 0) {
+        profileData = profileResults[0];
+      }
+    } else {
+      console.warn(`Could not fetch full profile data for ${cleanUsername}. Using partial data.`);
+    }
 
-    // Calculate engagement from recent posts using median and outlier filtering
-    const latestPosts = profile.latestPosts || [];
+    const followers = profileData.followersCount || profileData.subscribersCount || 0;
+    const postsCount = profileData.postsCount || results.length; // Usar o count do perfil ou o número de posts que pegamos
+
+    const latestPosts = results; // Agora 'results' são os posts diretamente
 
     const postEngagements: number[] = [];
     const reelsEngagements: number[] = [];
@@ -113,7 +131,7 @@ Deno.serve(async (req) => {
       postComments.push(comments);
       postViews.push(views);
 
-      if (views > 0) {
+      if (post.mediaType === "Video" || post.mediaType === "Reel") {
         videoCount++;
         reelsEngagements.push(likes + comments);
       }
@@ -154,16 +172,16 @@ Deno.serve(async (req) => {
     const estimatedCtr = Math.min(engagementRate * 0.3, 5);
 
     const result = {
-      username: profile.username || cleanUsername,
-      fullName: profile.fullName || "",
-      biography: profile.biography || "",
-      profilePicUrl: profile.profilePicUrl || profile.profilePicUrlHD || "",
+      username: profileData.username || cleanUsername,
+      fullName: profileData.fullName || "",
+      biography: profileData.biography || "",
+      profilePicUrl: profileData.profilePicUrl || profileData.profilePicUrlHD || "",
       followers,
-      following: profile.followsCount || 0,
-      postsCount: posts,
-      isVerified: profile.verified || false,
-      medianPostViews: medianPostViews, // New metric
-      medianReelsViews: medianPostViews, // Assuming medianPostViews can represent reels views if no specific reel views are available
+      following: profileData.followsCount || 0,
+      postsCount: postsCount,
+      isVerified: profileData.verified || false,
+      medianPostViews: medianPostViews,
+      medianReelsViews: medianPostViews, // Pode ser ajustado se houver dados específicos de views de reels no Post Scraper
       videoCount,
       estimatedCtr: Math.round(estimatedCtr * 10) / 10,
       storiesViewEstimate,
@@ -171,7 +189,7 @@ Deno.serve(async (req) => {
       reelsEngagementRate: Math.round(reelsEngagementRate * 100) / 100,
       storiesEngagementRate: Math.round(storiesEngagementRate * 100) / 100,
       latestPostsSample: latestPosts.slice(0, 6).map((p: any) => ({
-        type: p.type,
+        type: p.mediaType,
         likes: p.likesCount || 0,
         comments: p.commentsCount || 0,
         views: p.videoViewCount || p.videoPlayCount || 0,
