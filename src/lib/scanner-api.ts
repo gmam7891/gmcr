@@ -137,7 +137,7 @@ export async function getGames(providerId?: string) {
 export async function getVodAudits(filters?: { streamer?: string; status?: string }) {
   let query = supabase.from("vod_audits").select("*");
   if (filters?.streamer) query = query.eq("streamer_login", filters.streamer);
-  if (filters?.status) query = query.eq("status", filters.status);
+  if (filters?.status) query = query.eq("status", filters.status as any);
   const { data } = await query.order("created_at", { ascending: false }).limit(100);
   return data || [];
 }

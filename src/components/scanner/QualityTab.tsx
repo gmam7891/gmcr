@@ -57,10 +57,10 @@ export function QualityTab() {
       {/* Quality KPIs */}
       {quality && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MetricCard label={t("scan.false_positive_rate")} value={`${(quality.false_positive_rate || 0).toFixed(1)}%`} status={quality.false_positive_rate > 20 ? "nogo" : quality.false_positive_rate > 10 ? "test" : "go"} />
-          <MetricCard label={t("scan.suspect_rate")} value={`${(quality.suspect_rate || 0).toFixed(1)}%`} status={quality.suspect_rate > 30 ? "nogo" : quality.suspect_rate > 15 ? "test" : "go"} />
-          <MetricCard label={t("scan.avg_coverage_quality")} value={`${Math.round(quality.avg_coverage || 0)}%`} status={(quality.avg_coverage || 0) < 70 ? "nogo" : (quality.avg_coverage || 0) < 90 ? "test" : "go"} />
-          <MetricCard label={t("scan.failed_vods")} value={quality.failed_vods || 0} status={(quality.failed_vods || 0) > 5 ? "nogo" : (quality.failed_vods || 0) > 0 ? "test" : "go"} />
+          <MetricCard label={t("scan.false_positive_rate")} value={`${(quality.false_positive_rate || 0).toFixed(1)}%`} status={quality.false_positive_rate > 20 ? "nogo" : quality.false_positive_rate > 10 ? "warning" : "go"} />
+          <MetricCard label={t("scan.suspect_rate")} value={`${(quality.suspect_rate || 0).toFixed(1)}%`} status={quality.suspect_rate > 30 ? "nogo" : quality.suspect_rate > 15 ? "warning" : "go"} />
+          <MetricCard label={t("scan.avg_coverage_quality")} value={`${Math.round(quality.avg_coverage || 0)}%`} status={(quality.avg_coverage || 0) < 70 ? "nogo" : (quality.avg_coverage || 0) < 90 ? "warning" : "go"} />
+          <MetricCard label={t("scan.failed_vods")} value={quality.failed_vods || 0} status={(quality.failed_vods || 0) > 5 ? "nogo" : (quality.failed_vods || 0) > 0 ? "warning" : "go"} />
         </div>
       )}
 
