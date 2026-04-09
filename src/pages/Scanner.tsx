@@ -5,7 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks } from "lucide-react";
+import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck, Search, Activity } from "lucide-react";
 import { StatusHeader } from "@/components/scanner/StatusHeader";
 import { GlobalFilters, defaultFilters } from "@/components/scanner/GlobalFilters";
 import type { ScannerFilters } from "@/components/scanner/GlobalFilters";
@@ -15,7 +15,11 @@ import { VodQualityTab } from "@/components/scanner/VodQualityTab";
 import { QueueTab } from "@/components/scanner/QueueTab";
 import { ChatSentimentTab } from "@/components/scanner/ChatSentimentTab";
 import { FeatureGate } from "@/components/scanner/FeatureGate";
+import { ReviewTab } from "@/components/scanner/ReviewTab";
+import { AuditTab } from "@/components/scanner/AuditTab";
+import { QualityTab } from "@/components/scanner/QualityTab";
 import { getDashboardData, getProviders, getGames } from "@/lib/scanner-api";
+import { Badge } from "@/components/ui/badge";
 
 const Scanner = () => {
   const { isAdmin, userAccess, signOut } = useAuth();
@@ -27,6 +31,7 @@ const Scanner = () => {
   const [games, setGames] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [dataFilter, setDataFilter] = useState<"confirmed" | "all" | "suspect">("confirmed");
 
   const allowedTabs = userAccess?.allowed_tabs || [];
   const tier = userAccess?.package_name?.toLowerCase() || "starter";
@@ -37,6 +42,9 @@ const Scanner = () => {
   const canAccessVodQuality = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_vod_quality");
   const canAccessQueue = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_queue");
   const canAccessChat = tier === "admin" || tier === "enterprise" || allowedTabs.includes("scanner_chat");
+  const canAccessReview = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_review");
+  const canAccessAudit = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_audit");
+  const canAccessQuality = tier === "admin" || tier === "enterprise" || allowedTabs.includes("scanner_quality");
 
   useEffect(() => {
     getProviders().then(setProviders);
@@ -45,11 +53,11 @@ const Scanner = () => {
 
   useEffect(() => {
     setLoading(true);
-    getDashboardData(filters)
+    getDashboardData({ ...filters, block_status_filter: dataFilter })
       .then(setDashData)
       .catch(() => setDashData(null))
       .finally(() => setLoading(false));
-  }, [filters]);
+  }, [filters, dataFilter]);
 
   const tabs = [
     { id: "dashboard", label: t("scan.dashboard"), icon: LayoutDashboard },
@@ -57,6 +65,9 @@ const Scanner = () => {
     { id: "games", label: t("scan.games_tab"), icon: Gamepad2 },
     { id: "providers", label: t("scan.providers_tab"), icon: Building2 },
     { id: "chat", label: t("scan.chat_tab"), icon: MessageSquare },
+    { id: "audit", label: t("scan.audit_tab"), icon: Search },
+    { id: "review", label: t("scan.review_tab"), icon: ClipboardCheck },
+    { id: "quality", label: t("scan.quality_tab"), icon: Activity },
     { id: "vod_quality", label: t("scan.vod_quality"), icon: FileCheck },
     { id: "queue", label: t("scan.queue_tab"), icon: ListChecks },
   ];
@@ -74,6 +85,22 @@ const Scanner = () => {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Data filter toggle */}
+          <div className="flex items-center gap-1 bg-secondary/50 rounded-md border border-border p-0.5">
+            {(["confirmed", "suspect", "all"] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setDataFilter(f)}
+                className={`text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded transition-colors ${
+                  dataFilter === f
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t(f === "confirmed" ? "scan.confirmed_only" : f === "all" ? "scan.all_data" : "scan.suspect_data")}
+              </button>
+            ))}
+          </div>
           <ThemeToggle />
           {isAdmin && (
             <Button variant="ghost" size="icon" onClick={() => navigate("/admin")} title="Admin">
@@ -108,7 +135,15 @@ const Scanner = () => {
             {loading ? (
               <p className="text-sm text-muted-foreground text-center py-12">{t("app.loading")}</p>
             ) : (
-              <DashboardTab data={dashData} providers={providers} games={games} />
+              <>
+                {dashData?._meta && !dashData._meta.consistency_check && (
+                  <div className="bg-destructive/10 border border-destructive/30 rounded-md p-3 text-xs text-destructive flex items-center gap-2 mb-4">
+                    <span>⚠️</span>
+                    <span>Consistency warning: provider/game totals don't match exposure total. This may indicate data issues.</span>
+                  </div>
+                )}
+                <DashboardTab data={dashData} providers={providers} games={games} />
+              </>
             )}
           </TabsContent>
 
@@ -131,6 +166,24 @@ const Scanner = () => {
           <TabsContent value="chat">
             <FeatureGate requiredPlan="Enterprise" isLocked={!canAccessChat}>
               <ChatSentimentTab filters={filters} />
+            </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="audit">
+            <FeatureGate requiredPlan="Pro" isLocked={!canAccessAudit}>
+              <AuditTab filters={filters} />
+            </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="review">
+            <FeatureGate requiredPlan="Pro" isLocked={!canAccessReview}>
+              <ReviewTab />
+            </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="quality">
+            <FeatureGate requiredPlan="Enterprise" isLocked={!canAccessQuality}>
+              <QualityTab />
             </FeatureGate>
           </TabsContent>
 
