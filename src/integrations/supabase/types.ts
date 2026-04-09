@@ -170,6 +170,7 @@ export type Database = {
       exposure_blocks: {
         Row: {
           avg_viewers: number | null
+          block_status: string | null
           confidence_avg: number | null
           created_at: string
           duration_seconds: number
@@ -188,6 +189,7 @@ export type Database = {
         }
         Insert: {
           avg_viewers?: number | null
+          block_status?: string | null
           confidence_avg?: number | null
           created_at?: string
           duration_seconds: number
@@ -206,6 +208,7 @@ export type Database = {
         }
         Update: {
           avg_viewers?: number | null
+          block_status?: string | null
           confidence_avg?: number | null
           created_at?: string
           duration_seconds?: number
@@ -264,6 +267,96 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      gameplay_blocks: {
+        Row: {
+          confidence_avg: number
+          confidence_max: number | null
+          confidence_min: number | null
+          created_at: string
+          discard_reason: string | null
+          duration_seconds: number
+          end_seconds: number
+          evidence_count: number
+          game_id: string | null
+          game_name: string | null
+          id: string
+          model_version: string | null
+          platform: string
+          processing_version: string | null
+          provider_id: string | null
+          provider_name: string | null
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          rules_version: string | null
+          source_id: string | null
+          source_type: string
+          start_seconds: number
+          status: string
+          streamer_login: string
+          updated_at: string
+          vod_id: string
+        }
+        Insert: {
+          confidence_avg?: number
+          confidence_max?: number | null
+          confidence_min?: number | null
+          created_at?: string
+          discard_reason?: string | null
+          duration_seconds: number
+          end_seconds: number
+          evidence_count?: number
+          game_id?: string | null
+          game_name?: string | null
+          id?: string
+          model_version?: string | null
+          platform?: string
+          processing_version?: string | null
+          provider_id?: string | null
+          provider_name?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          rules_version?: string | null
+          source_id?: string | null
+          source_type?: string
+          start_seconds: number
+          status?: string
+          streamer_login: string
+          updated_at?: string
+          vod_id: string
+        }
+        Update: {
+          confidence_avg?: number
+          confidence_max?: number | null
+          confidence_min?: number | null
+          created_at?: string
+          discard_reason?: string | null
+          duration_seconds?: number
+          end_seconds?: number
+          evidence_count?: number
+          game_id?: string | null
+          game_name?: string | null
+          id?: string
+          model_version?: string | null
+          platform?: string
+          processing_version?: string | null
+          provider_id?: string | null
+          provider_name?: string | null
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          rules_version?: string | null
+          source_id?: string | null
+          source_type?: string
+          start_seconds?: number
+          status?: string
+          streamer_login?: string
+          updated_at?: string
+          vod_id?: string
+        }
+        Relationships: []
       }
       games: {
         Row: {
@@ -327,6 +420,66 @@ export type Database = {
           is_active?: boolean
           login?: string
           twitch_id?: string | null
+        }
+        Relationships: []
+      }
+      pipeline_audit_logs: {
+        Row: {
+          action: string
+          created_at: string
+          details: Json | null
+          entity_id: string | null
+          entity_type: string
+          id: string
+          performed_by: string | null
+          vod_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: Json | null
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+          performed_by?: string | null
+          vod_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: Json | null
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+          performed_by?: string | null
+          vod_id?: string | null
+        }
+        Relationships: []
+      }
+      pipeline_configs: {
+        Row: {
+          config_key: string
+          config_value: number
+          description: string | null
+          id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          config_key: string
+          config_value: number
+          description?: string | null
+          id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          config_key?: string
+          config_value?: number
+          description?: string | null
+          id?: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: []
       }
@@ -452,6 +605,72 @@ export type Database = {
         }
         Relationships: []
       }
+      raw_evidences: {
+        Row: {
+          confidence_score: number
+          created_at: string
+          discard_reason: string | null
+          frame_index: number | null
+          game_detected: string | null
+          game_id: string | null
+          id: string
+          image_hash: string | null
+          is_valid: boolean | null
+          platform: string
+          processing_batch_id: string | null
+          provider_detected: string | null
+          provider_id: string | null
+          source_id: string | null
+          source_type: string
+          streamer_login: string
+          timestamp_seconds: number
+          validation_status: string | null
+          vod_id: string
+        }
+        Insert: {
+          confidence_score?: number
+          created_at?: string
+          discard_reason?: string | null
+          frame_index?: number | null
+          game_detected?: string | null
+          game_id?: string | null
+          id?: string
+          image_hash?: string | null
+          is_valid?: boolean | null
+          platform?: string
+          processing_batch_id?: string | null
+          provider_detected?: string | null
+          provider_id?: string | null
+          source_id?: string | null
+          source_type?: string
+          streamer_login: string
+          timestamp_seconds?: number
+          validation_status?: string | null
+          vod_id: string
+        }
+        Update: {
+          confidence_score?: number
+          created_at?: string
+          discard_reason?: string | null
+          frame_index?: number | null
+          game_detected?: string | null
+          game_id?: string | null
+          id?: string
+          image_hash?: string | null
+          is_valid?: boolean | null
+          platform?: string
+          processing_batch_id?: string | null
+          provider_detected?: string | null
+          provider_id?: string | null
+          source_id?: string | null
+          source_type?: string
+          streamer_login?: string
+          timestamp_seconds?: number
+          validation_status?: string | null
+          vod_id?: string
+        }
+        Relationships: []
+      }
       stream_snapshots: {
         Row: {
           captured_at: string
@@ -565,60 +784,90 @@ export type Database = {
         Row: {
           completed_at: string | null
           confidence_score: number | null
+          confirmed_blocks: number | null
           coverage_percent: number | null
           created_at: string
+          data_quality_status: string | null
+          discarded_blocks: number | null
+          discarded_evidences: number | null
           error_message: string | null
           expected_frames: number | null
           failed_frames: number | null
           gap_seconds: number | null
           id: string
+          model_version: string | null
           platform: string
           processed_duration_seconds: number | null
           processed_frames: number | null
+          processing_version: string | null
+          rules_version: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["vod_status"]
           streamer_login: string
+          suspect_blocks: number | null
+          total_evidences: number | null
           updated_at: string
+          valid_evidences: number | null
           vod_duration_seconds: number | null
           vod_id: string
         }
         Insert: {
           completed_at?: string | null
           confidence_score?: number | null
+          confirmed_blocks?: number | null
           coverage_percent?: number | null
           created_at?: string
+          data_quality_status?: string | null
+          discarded_blocks?: number | null
+          discarded_evidences?: number | null
           error_message?: string | null
           expected_frames?: number | null
           failed_frames?: number | null
           gap_seconds?: number | null
           id?: string
+          model_version?: string | null
           platform?: string
           processed_duration_seconds?: number | null
           processed_frames?: number | null
+          processing_version?: string | null
+          rules_version?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["vod_status"]
           streamer_login: string
+          suspect_blocks?: number | null
+          total_evidences?: number | null
           updated_at?: string
+          valid_evidences?: number | null
           vod_duration_seconds?: number | null
           vod_id: string
         }
         Update: {
           completed_at?: string | null
           confidence_score?: number | null
+          confirmed_blocks?: number | null
           coverage_percent?: number | null
           created_at?: string
+          data_quality_status?: string | null
+          discarded_blocks?: number | null
+          discarded_evidences?: number | null
           error_message?: string | null
           expected_frames?: number | null
           failed_frames?: number | null
           gap_seconds?: number | null
           id?: string
+          model_version?: string | null
           platform?: string
           processed_duration_seconds?: number | null
           processed_frames?: number | null
+          processing_version?: string | null
+          rules_version?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["vod_status"]
           streamer_login?: string
+          suspect_blocks?: number | null
+          total_evidences?: number | null
           updated_at?: string
+          valid_evidences?: number | null
           vod_duration_seconds?: number | null
           vod_id?: string
         }
