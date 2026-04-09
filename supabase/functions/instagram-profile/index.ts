@@ -4,21 +4,20 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Helper function to calculate the median of an array of numbers
+const APIFY_API_KEY = "apify_api_mIgb254Z3CxKOYBZPc2ObSaAIItb3V4iR2D9";
+
+/**
+ * Funções Auxiliares para Métricas Profissionais (Estilo Modash)
+ */
 function calculateMedian(arr: number[]): number {
   if (arr.length === 0) return 0;
   const sorted = [...arr].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  if (sorted.length % 2 === 0) {
-    return (sorted[mid - 1] + sorted[mid]) / 2;
-  } else {
-    return sorted[mid];
-  }
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-// Helper function to filter out extreme outliers (e.g., sponsored posts with inflated engagement)
 function filterOutliers(data: number[]): number[] {
-  if (data.length < 4) return data; // Need at least 4 data points for IQR
+  if (data.length < 4) return data;
   const sorted = [...data].sort((a, b) => a - b);
   const q1 = calculateMedian(sorted.slice(0, Math.floor(sorted.length / 2)));
   const q3 = calculateMedian(sorted.slice(Math.ceil(sorted.length / 2)));
@@ -29,147 +28,74 @@ function filterOutliers(data: number[]): number[] {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const { username } = await req.json();
-    if (!username) {
+    if (!username)
       return new Response(JSON.stringify({ error: "username is required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-    }
-
-    const apiKey = Deno.env.get("APIFY_API_KEY");
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: "APIFY_API_KEY not configured" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     const cleanUsername = username.replace(/^@/, "").trim();
-    console.log(`Fetching Instagram profile for: ${cleanUsername}`);
+    console.log(`[Instagram API] Iniciando análise profunda para: ${cleanUsername}`);
 
-    // --- PASSO 1: Buscar os posts usando o Instagram Post Scraper ---
-    const postActorId = "apify/instagram-post-scraper"; // ATENÇÃO: MUDANÇA AQUI!
-    const postRunUrl = `https://api.apify.com/v2/acts/${postActorId}/run-sync-get-dataset-items?token=${apiKey}`;
+    // --- PASSO 1: Buscar 40 posts reais (Instagram Post Scraper) ---
+    const postActorId = "apify/instagram-post-scraper";
+    const postRunUrl = `https://api.apify.com/v2/acts/${postActorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}`;
 
     const postResponse = await fetch(postRunUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        usernames: [cleanUsername],
-        resultsLimit: 40, // Agora este limite será respeitado pelo Post Scraper
-      }),
+      body: JSON.stringify({ usernames: [cleanUsername], resultsLimit: 40 }),
     });
 
-    if (!postResponse.ok) {
-      const errText = await postResponse.text();
-      console.error(`Apify Post Scraper error [${postResponse.status}]:`, errText);
-      return new Response(JSON.stringify({ error: `Apify Post Scraper request failed: ${postResponse.status}` }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (!postResponse.ok) throw new Error(`Falha no Apify Post Scraper: ${postResponse.status}`);
+    const posts = await postResponse.json();
 
-    const results = await postResponse.json();
-    console.log(`Got ${results.length} post(s) from Apify Post Scraper`);
-
-    if (!results || results.length === 0) {
-      return new Response(JSON.stringify({ error: "No posts found for this profile" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // --- PASSO 2: Buscar os dados do perfil usando o Instagram Profile Scraper ---
-    // É necessário fazer uma segunda chamada para obter dados como followersCount, biography, etc.
+    // --- PASSO 2: Buscar dados do perfil (Instagram Profile Scraper) ---
     const profileActorId = "apify/instagram-profile-scraper";
-    const profileRunUrl = `https://api.apify.com/v2/acts/${profileActorId}/run-sync-get-dataset-items?token=${apiKey}`;
+    const profileRunUrl = `https://api.apify.com/v2/acts/${profileActorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}`;
+
     const profileResponse = await fetch(profileRunUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        usernames: [cleanUsername],
-      }),
+      body: JSON.stringify({ usernames: [cleanUsername] }),
     });
 
-    let profileData: any = {};
-    if (profileResponse.ok) {
-      const profileResults = await profileResponse.json();
-      if (profileResults && profileResults.length > 0) {
-        profileData = profileResults[0];
-      }
-    } else {
-      console.warn(`Could not fetch full profile data for ${cleanUsername}. Using partial data.`);
-    }
+    const profileData = profileResponse.ok ? (await profileResponse.json())[0] : {};
 
-    const followers = profileData.followersCount || profileData.subscribersCount || 0;
-    const postsCount = profileData.postsCount || results.length; // Usar o count do perfil ou o número de posts que pegamos
-
-    const latestPosts = results; // Agora 'results' são os posts diretamente
-
-    const postEngagements: number[] = [];
-    const reelsEngagements: number[] = [];
-    const postLikes: number[] = [];
-    const postComments: number[] = [];
-    const postViews: number[] = [];
-
+    // --- PROCESSAMENTO DE MÉTRICAS ---
+    const followers = profileData.followersCount || 0;
+    const engagements: number[] = [];
+    const views: number[] = [];
     let videoCount = 0;
 
-    for (const post of latestPosts) {
-      const likes = post.likesCount || 0;
-      const comments = post.commentsCount || 0;
-      const views = post.videoViewCount || post.videoPlayCount || 0;
+    for (const p of posts) {
+      const likes = p.likesCount || 0;
+      const comments = p.commentsCount || 0;
+      const v = p.videoViewCount || p.videoPlayCount || 0;
 
-      const engagement = likes + comments;
-      postEngagements.push(engagement);
-      postLikes.push(likes);
-      postComments.push(comments);
-      postViews.push(views);
-
-      if (post.mediaType === "Video" || post.mediaType === "Reel") {
+      engagements.push(likes + comments);
+      if (v > 0) {
+        views.push(v);
         videoCount++;
-        reelsEngagements.push(likes + comments);
       }
     }
 
-    // Filter outliers for more robust median calculation
-    const filteredPostEngagements = filterOutliers(postEngagements);
-    const filteredReelsEngagements = filterOutliers(reelsEngagements);
+    const filteredEngagements = filterOutliers(engagements);
+    const medianEngagement = calculateMedian(filteredEngagements);
+    const medianViews = calculateMedian(filterOutliers(views));
 
-    const medianPostEngagement = calculateMedian(filteredPostEngagements);
-    const medianReelsEngagement = calculateMedian(filteredReelsEngagements);
-    const medianPostLikes = calculateMedian(filterOutliers(postLikes));
-    const medianPostComments = calculateMedian(filterOutliers(postComments));
-    const medianPostViews = calculateMedian(filterOutliers(postViews));
+    // Taxa de Engajamento Real (Baseada na Mediana dos últimos 40 posts)
+    const engagementRate = followers > 0 ? (medianEngagement / followers) * 100 : 0;
 
-    // Total engagement rate (all content) using median
-    const engagementRate = followers > 0 ? (medianPostEngagement / followers) * 100 : 0;
-
-    // Reels-specific engagement rate using median
-    const reelsEngagementRate = followers > 0 ? (medianReelsEngagement / followers) * 100 : 0;
-
-    // Refined estimate stories views based on follower tiers
-    let storiesViewEstimate = 0;
-    if (followers < 5000) {
-      storiesViewEstimate = Math.round(followers * 0.2); // 20% for very small accounts
-    } else if (followers < 50000) {
-      storiesViewEstimate = Math.round(followers * 0.12); // 12% for small to medium
-    } else if (followers < 500000) {
-      storiesViewEstimate = Math.round(followers * 0.08); // 8% for medium to large
-    } else {
-      storiesViewEstimate = Math.round(followers * 0.04); // 4% for very large accounts
-    }
-
-    // Stories engagement = storiesViews / followers * 100
-    const storiesEngagementRate = followers > 0 ? (storiesViewEstimate / followers) * 100 : 0;
-
-    // Estimate CTR from total engagement rate (typically 1-5% of engaged users click)
-    const estimatedCtr = Math.min(engagementRate * 0.3, 5);
+    // Estimativa de Stories (Curva de mercado por faixa de seguidores)
+    let storiesEstimate = 0;
+    if (followers < 10000) storiesEstimate = Math.round(followers * 0.15);
+    else if (followers < 100000) storiesEstimate = Math.round(followers * 0.1);
+    else storiesEstimate = Math.round(followers * 0.05);
 
     const result = {
       username: profileData.username || cleanUsername,
@@ -177,33 +103,25 @@ Deno.serve(async (req) => {
       biography: profileData.biography || "",
       profilePicUrl: profileData.profilePicUrl || profileData.profilePicUrlHD || "",
       followers,
-      following: profileData.followsCount || 0,
-      postsCount: postsCount,
+      postsCount: profileData.postsCount || posts.length,
       isVerified: profileData.verified || false,
-      medianPostViews: medianPostViews,
-      medianReelsViews: medianPostViews, // Pode ser ajustado se houver dados específicos de views de reels no Post Scraper
-      videoCount,
-      estimatedCtr: Math.round(estimatedCtr * 10) / 10,
-      storiesViewEstimate,
+      medianViews: Math.round(medianViews),
       engagementRate: Math.round(engagementRate * 100) / 100,
-      reelsEngagementRate: Math.round(reelsEngagementRate * 100) / 100,
-      storiesEngagementRate: Math.round(storiesEngagementRate * 100) / 100,
-      latestPostsSample: latestPosts.slice(0, 6).map((p: any) => ({
-        type: p.mediaType,
-        likes: p.likesCount || 0,
-        comments: p.commentsCount || 0,
+      storiesViewEstimate: storiesEstimate,
+      estimatedCtr: Math.round(Math.min(engagementRate * 0.3, 5) * 10) / 10,
+      sampleSize: posts.length,
+      latestPosts: posts.slice(0, 6).map((p: any) => ({
+        likes: p.likesCount,
+        comments: p.commentsCount,
         views: p.videoViewCount || p.videoPlayCount || 0,
+        type: p.mediaType,
       })),
     };
 
-    console.log("Profile result:", JSON.stringify(result, null, 2));
-
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    console.error("Error:", error);
-    return new Response(JSON.stringify({ error: error.message || "Unknown error" }), {
+    return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } catch (error: any) {
+    console.error("Erro na API:", error);
+    return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
