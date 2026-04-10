@@ -6,6 +6,7 @@ import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
 import { getUser, getStream, getVods, parseDuration, type TwitchUser, type TwitchStream, type TwitchVod } from "@/lib/twitch-api";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { PlatformCampaignSection } from "@/components/platform/PlatformCampaignSection";
 import * as XLSX from "xlsx";
 
 export function TwitchTab() {
@@ -83,7 +84,9 @@ export function TwitchTab() {
 
   const isLive = !!streamData;
   const isCasino = streamData?.game_id === "29452";
-  const locale = language === "pt" ? "pt-BR" : "en-US";
+
+  /** Platform reach for campaign calculator = unique live viewers + VOD views */
+  const platformReach = results.totalReach;
 
   const downloadExcel = () => {
     const data = [
@@ -220,6 +223,11 @@ export function TwitchTab() {
           <MetricCard label={t("tw.max_fee")} value={fmtMoney(results.feeMaxRoi)} />
         </div>
         {fee > 0 && getStatus() && <StatusBadge status={getStatus()!} />}
+
+        {/* Campaign Calculator Section */}
+        <div className="border-t border-border pt-6 mt-6">
+          <PlatformCampaignSection platformReach={platformReach} fee={fee} />
+        </div>
       </div>
     </div>
   );
