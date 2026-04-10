@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { PlatformCampaignSection } from "@/components/platform/PlatformCampaignSection";
 import * as XLSX from "xlsx";
 import {
   getKickChannel, getKickVideos, analyzeThumbnails,
@@ -46,7 +47,6 @@ export function KickTab() {
         const vids = await getKickVideos(username.trim());
         setVideos(vids);
       } catch {
-        // Kick videos API might fail
         setVideos([]);
       }
     } catch (err: any) {
@@ -81,6 +81,9 @@ export function KickTab() {
     const profit = revenue - fee;
     return { viewerHours, clicks, ftd, revenue, roi, cpa, profit };
   }, [avgViewers, plannedHours, ctr, cvr, valueFtd, fee]);
+
+  /** Platform reach for campaign calculator */
+  const platformReach = results.viewerHours;
 
   const downloadExcel = () => {
     const data: any[][] = [
@@ -238,6 +241,11 @@ export function KickTab() {
             </div>
           </div>
         )}
+
+        {/* Campaign Calculator Section */}
+        <div className="border-t border-border pt-6 mt-6">
+          <PlatformCampaignSection platformReach={platformReach} fee={fee} />
+        </div>
 
         {!loading && !channel && (
           <div className="card-surface p-8 text-center text-muted-foreground text-sm">

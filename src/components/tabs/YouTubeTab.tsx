@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { PlatformCampaignSection } from "@/components/platform/PlatformCampaignSection";
 import * as XLSX from "xlsx";
 import {
   getYouTubeChannel, getYouTubeVideos, analyzeThumbnails, formatYTDuration,
@@ -66,7 +67,6 @@ export function YouTubeTab() {
   const totalMinutes = videos.reduce((s, v) => s + v.durationMinutes, 0);
   const totalHours = totalMinutes / 60;
   const avgViews = videos.length > 0 ? totalViews / videos.length : 0;
-  const avgViewsPerHour = totalHours > 0 ? totalViews / totalHours : 0;
 
   const results = useMemo(() => {
     const icpFactor = percIcp / 100;
@@ -79,6 +79,9 @@ export function YouTubeTab() {
     const profit = revenue - fee;
     return { viewsIcp, clicks, ftd, revenue, roi, cpa, profit };
   }, [totalViews, percIcp, ctr, cvr, valueFtd, fee]);
+
+  /** Platform reach for campaign calculator */
+  const platformReach = totalViews;
 
   const downloadExcel = () => {
     const data: any[][] = [
@@ -247,6 +250,11 @@ export function YouTubeTab() {
             </div>
           </>
         )}
+
+        {/* Campaign Calculator Section */}
+        <div className="border-t border-border pt-6 mt-6">
+          <PlatformCampaignSection platformReach={platformReach} fee={fee} />
+        </div>
 
         {!loading && videos.length === 0 && !channel && (
           <div className="card-surface p-8 text-center text-muted-foreground text-sm">
