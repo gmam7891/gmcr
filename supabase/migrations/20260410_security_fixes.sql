@@ -1,23 +1,27 @@
--- Habilitar RLS para a tabela realtime.messages
+-- 1. SEGURANÇA DAS TABELAS CORE
+ALTER TABLE public.monitored_streamers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.stream_snapshots ENABLE ROW LEVEL SECURITY;
+
+-- Políticas para monitored_streamers
+DROP POLICY IF EXISTS "Authenticated users can view their own monitored streamers" ON public.monitored_streamers;
+CREATE POLICY "Authenticated users can view their own monitored streamers" ON public.monitored_streamers FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Authenticated users can insert their own monitored streamers" ON public.monitored_streamers;
+CREATE POLICY "Authenticated users can insert their own monitored streamers" ON public.monitored_streamers FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- Políticas para stream_snapshots (A IA corrige, o usuário apenas vê)
+DROP POLICY IF EXISTS "Authenticated users can view snapshots" ON public.stream_snapshots;
+CREATE POLICY "Authenticated users can view snapshots" ON public.stream_snapshots FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Service role can manage snapshots" ON public.stream_snapshots;
+CREATE POLICY "Service role can manage snapshots" ON public.stream_snapshots FOR ALL USING (auth.role() = 'service_role');
+
+-- 2. NOVAS COLUNAS PARA A INTELIGÊNCIA ARTIFICIAL
+ALTER TABLE public.stream_snapshots 
+ADD COLUMN IF NOT EXISTS is_ai_verified BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS ai_confidence NUMERIC;
+
+-- 3. SEGURANÇA DO REALTIME (CANAL DE MENSAGENS)
 ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
-
--- Remover políticas existentes para evitar conflitos
-DROP POLICY IF EXISTS "Realtime: Allow authenticated users to subscribe to their own topics" ON realtime.messages;
-
--- Política para permitir que usuários autenticados se inscrevam apenas em tópicos relevantes para eles
--- Exemplo: Tópicos que incluem o ID do usuário ou que são públicos por design.
--- Para tópicos internos como 'detections' e 'processing_queue', a subscrição deve ser restrita.
--- Esta política permite a leitura de mensagens onde o tópico não é um tópico interno sensível.
-CREATE POLICY "Realtime: Restrict subscription to sensitive topics" ON realtime.messages
-  FOR SELECT USING (
-    -- Permite acesso a tópicos que não são internos/sensíveis
-    NOT (topic LIKE 'pg:realtime:detections' OR topic LIKE 'pg:realtime:processing_queue')
-    -- OU, se for um tópico sensível, o usuário deve ser um administrador ou ter permissão específica
-    -- (Esta parte precisaria de uma lógica mais complexa baseada em roles ou claims JWT, se aplicável)
-    -- Por simplicidade, inicialmente, bloqueamos o acesso a esses tópicos para usuários comuns.
-  );
-
--- Nota: Para gerenciar o acesso a tópicos como 'detections' e 'processing_queue',
--- você precisaria de uma lógica mais granular, possivelmente verificando claims JWT
--- (ex: auth.jwt() ->> 'user_role' = 'admin') ou se o tópico inclui o auth.uid().
--- A política acima bloqueia o acesso geral a esses tópicos sensíveis para usuários comuns.
+DROP POLICY IF EXISTS "Restrict sensitive topics" ON realtime.messages;
+CREATE POLICY "Restrict sensitive topics" ON realtime.messages FOR SELECT USING (NOT (topic LIKE 'pg:realtime:detections' OR topic LIKE 'pg:realtime:processing_queue'));
