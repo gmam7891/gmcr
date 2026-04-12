@@ -160,7 +160,7 @@ export function formatSeconds(totalSec: number): string {
   return `${m}m`;
 }
 
-export function getVodThumbnailAtOffset(thumbnailUrl: string, offsetSeconds: number, width = 640, height = 360): string {
+export function getVodThumbnailAtOffset(thumbnailUrl: string, offsetSeconds: number, width = 1280, height = 720): string {
   const base = thumbnailUrl
     .replace('%{width}', String(width))
     .replace('%{height}', String(height));
@@ -168,7 +168,7 @@ export function getVodThumbnailAtOffset(thumbnailUrl: string, offsetSeconds: num
   return base.replace(/thumb\d*-\d+x\d+/, `thumb${offsetSeconds}-${width}x${height}`);
 }
 
-export function generateSeekThumbnails(thumbnailUrl: string, durationSeconds: number, intervalSeconds = 120): { url: string; offset: number }[] {
+export function generateSeekThumbnails(thumbnailUrl: string, durationSeconds: number, intervalSeconds = 60): { url: string; offset: number }[] {
   const thumbnails: { url: string; offset: number }[] = [];
   for (let offset = 60; offset < durationSeconds - 30; offset += intervalSeconds) {
     thumbnails.push({
