@@ -673,30 +673,36 @@ export type Database = {
       }
       stream_snapshots: {
         Row: {
+          ai_confidence: number | null
           captured_at: string
           game_id: string | null
           game_name: string | null
           id: string
+          is_ai_verified: boolean | null
           is_live: boolean
           stream_title: string | null
           streamer_login: string
           viewer_count: number
         }
         Insert: {
+          ai_confidence?: number | null
           captured_at?: string
           game_id?: string | null
           game_name?: string | null
           id?: string
+          is_ai_verified?: boolean | null
           is_live?: boolean
           stream_title?: string | null
           streamer_login: string
           viewer_count?: number
         }
         Update: {
+          ai_confidence?: number | null
           captured_at?: string
           game_id?: string | null
           game_name?: string | null
           id?: string
+          is_ai_verified?: boolean | null
           is_live?: boolean
           stream_title?: string | null
           streamer_login?: string
