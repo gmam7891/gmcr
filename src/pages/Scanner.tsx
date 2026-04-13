@@ -47,17 +47,22 @@ const Scanner = () => {
   const canAccessAudit = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_audit");
   const canAccessQuality = tier === "admin" || tier === "enterprise" || allowedTabs.includes("scanner_quality");
 
+  const refreshData = () => {
+    setLoading(true);
+    getDashboardData({ ...filters, block_status_filter: dataFilter })
+      .then(setDashData)
+      .catch(() => setDashData(null))
+      .finally(() => setLoading(false));
+  };
+
   useEffect(() => {
     getProviders().then(setProviders);
     getGames().then(setGames);
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    getDashboardData({ ...filters, block_status_filter: dataFilter })
-      .then(setDashData)
-      .catch(() => setDashData(null))
-      .finally(() => setLoading(false));
+    refreshData();
+  }, [filters, dataFilter]);
   }, [filters, dataFilter]);
 
   const tabs = [
