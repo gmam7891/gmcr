@@ -63,7 +63,6 @@ const Scanner = () => {
   useEffect(() => {
     refreshData();
   }, [filters, dataFilter]);
-  }, [filters, dataFilter]);
 
   const tabs = [
     { id: "dashboard", label: t("scan.dashboard"), icon: LayoutDashboard },
