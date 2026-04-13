@@ -100,6 +100,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ chapters });
     }
 
+
     // --- Get VOD storyboard URLs via GQL ---
     if (action === 'get_storyboard_urls') {
       if (!vod_id) throw new Error('vod_id is required');
@@ -119,18 +120,25 @@ Deno.serve(async (req) => {
         return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard URL available' });
       }
 
+      // seekPreviewsURL is an info.json file, fetch it to get actual strip image URLs
       const infoRes = await fetch(seekPreviewsURL);
       if (!infoRes.ok) {
         return jsonResponse({ storyboardUrls: [], interval: 0, error: `Failed to fetch storyboard info: ${infoRes.status}` });
       }
 
       const infoData = await infoRes.json();
+      // infoData is an array like:
+      // [{ quality: "low", images: [...], interval: 19, cols: 5, rows: 40, width: 160, height: 90, count: 200 },
+      //  { quality: "high", images: [...], interval: 19, cols: 5, rows: 10, width: 220, height: 124, count: 200 }]
+
+      // Prefer "high" quality
       const highQuality = infoData.find((q: any) => q.quality === 'high') || infoData[0];
       if (!highQuality) {
         return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard quality data' });
       }
 
-      const baseUrl = seekPreviewsURL.replace(/[^/]+$/, '');
+      // Build full URLs for the strip images
+      const baseUrl = seekPreviewsURL.replace(/[^/]+$/, ''); // remove info.json filename
       const storyboardUrls = highQuality.images.map((img: string) => baseUrl + img);
 
       return jsonResponse({
@@ -145,7 +153,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // --- Deep VOD analysis with AI Vision (Anti-Hallucination Prompt) ---
+    // --- Deep VOD analysis with AI Vision using storyboards ---
     if (action === 'analyze_vod_frames') {
       const { thumbnail_urls, vod_title, timestamps } = body;
       if (!thumbnail_urls || !Array.isArray(thumbnail_urls) || thumbnail_urls.length === 0) {
@@ -154,6 +162,7 @@ Deno.serve(async (req) => {
 
       const hasTimestamps = timestamps && Array.isArray(timestamps) && timestamps.length === thumbnail_urls.length;
 
+      // Process in batches of 6 images per AI call (storyboard sprites are larger)
       const BATCH_SIZE = 6;
       const allDetections: { game: string; provider: string | null; category: string; confidence: string; timestampSeconds: number }[] = [];
 
@@ -163,7 +172,7 @@ Deno.serve(async (req) => {
 
         const imageContent = batchUrls.map((url: string) => ({
           type: "image_url",
-          image_url: { url, detail: "high" }
+          image_url: { url, detail: "low" }
         }));
 
         const timestampInfo = hasTimestamps
@@ -181,58 +190,35 @@ Deno.serve(async (req) => {
             messages: [
               {
                 role: 'system',
-                content: `You are a precision visual auditor for casino/slot game detection in livestream footage.
+                content: `Você é um especialista em identificar jogos em transmissões ao vivo. Sua tarefa é identificar o jogo principal visível na tela, focando em elementos de interface do usuário (HUD), nomes de jogos, e gameplay. Se a imagem mostrar um player de vídeo, navegador, ou apenas o streamer conversando, classifique como 'Watching Content' ou 'Just Chatting'. Ignore o título do VOD se ele não corresponder claramente ao que é visível na imagem.
 
-=== CORE PRINCIPLE: VISUAL EVIDENCE ONLY ===
-Your classification MUST be based SOLELY on what you SEE in the image. The VOD title is metadata context only — if the title says "Playing Sweet Bonanza" but the image shows a browser or Just Chatting screen, classify as "not_casino".
+IMPORTANTE: Cada imagem pode ser uma folha de sprite de storyboard contendo múltiplas miniaturas pequenas organizadas em uma grade. Analise TODAS as miniaturas visíveis em cada folha de sprite.
 
-=== CLASSIFICATION RULES ===
+PRIORITY PROVIDERS (identify games from these):
+- Pragmatic Play (Gates of Olympus, Sweet Bonanza, Big Bass Bonanza, Sugar Rush, Starlight Princess, Dog House, Wolf Gold, Fruit Party, etc.)
+- Tada Gaming
+- Games Global / Microgaming and ALL their studios — detect ANY of these as provider "Games Global":
+  Studios: Stormcraft Studios, Triple Edge Studios, Gameburger Studios, All41 Studios, SpinPlay Games, Neon Valley Studios, Gold Coin Studios, Snowborn Games, Alchemy Gaming, Buck Stakes Entertainment, Crazy Tooth Studio, Electric Elephant, Fantasma Games, Fortune Factory Studios, Foxium, Just For The Win (JFTW), Neko Games, Northern Lights Gaming, Old Skool Studios, Pulse 8 Studios, Rabcat, Real Dealer Studios, Slingshot Studios, Switch Studios, Area Link
+  Known games: Immortal Romance, Mega Moolah, Thunderstruck, Book of Oz, Lara Croft, Break Da Bank, Avalon, 9 Masks of Fire, Hyper Gold, Amazing Link, Area Link, Book of Atem, African Legends, Agent Jane Blonde, Dragonz, Jungle Jim, Lost Vegas, Tarzan, Jurassic World, Game of Thrones, Tomb Raider, Absolootly Mad, Mega Vault Millionaire, etc.
+- BGaming (Elvis Frog, Aloha King Elvis, Space XY, etc.)
+- Amusnet / EGT (40 Burning Hot, Rise of Ra, etc.)
+- PG Soft (Fortune Tiger, Fortune Ox, Fortune Mouse, Mahjong Ways, etc.)
+- Hacksaw Gaming (Wanted Dead or a Wild, Chaos Crew, etc.)
+- Playtech (Age of the Gods, Buffalo Blitz, etc.)
+- Endorphina (Lucky Streak, Satoshi's Secret, etc.)
+- FA Chai (Golden Empire, Boxing King, etc.)
 
-1. POSITIVE DETECTION (category = "slots", "live_casino", or "table_game"):
-   - You MUST see actual game HUD/UI elements: spin button, bet display, balance counter, game grid/reels, dealer table, cards, roulette wheel.
-   - The game interface must occupy the MAJORITY of the screen (not a small window).
-   - Identify the specific game name and provider based on visual elements (symbols, UI style, logo).
+For each image/sprite sheet, identify ALL distinct casino games visible. Return one entry per distinct game detected:
+[{"game": "name", "provider": "provider", "category": "slots|live_casino|table_game|not_game", "confidence": "high|medium|low", "image_index": 0}]
 
-2. WATCHING CONTENT (category = "not_casino", game = "Watching Content"):
-   - Image shows a VIDEO PLAYER (YouTube, Twitch clip, or any embedded player) even if the video content is about casino games.
-   - Browser is open showing websites, social media, or video content.
-   - A smaller window showing game content while the main screen is something else.
-
-3. JUST CHATTING (category = "not_casino", game = "Just Chatting"):
-   - Webcam-dominant view with no game visible.
-   - Chat overlay without game in background.
-   - Starting/ending screen, BRB screen, intermission.
-
-4. LOADING/LOBBY (category = "not_casino", game = "Loading/Lobby"):
-   - Casino lobby showing game thumbnails but no active game.
-   - Loading screens, deposit screens, cashier pages.
-   - Game selection menus.
-
-5. UNKNOWN (category = "not_casino", game = "Unknown", confidence = "low"):
-   - Image is too blurry, dark, or obstructed to identify.
-   - Cannot determine what is being shown.
-   - DO NOT GUESS — if you are not sure, mark as Unknown.
-
-=== ANTI-HALLUCINATION RULES ===
-- NEVER classify based on VOD title alone.
-- NEVER assume a game is being played just because the streamer typically plays casino.
-- If you see a casino lobby (game thumbnails/selection), that is NOT active gameplay — classify as "Loading/Lobby".
-- If confidence is below "medium", classify as "Unknown" rather than guessing a game name.
-- Each sprite sheet thumbnail is independent — do NOT carry classification from one thumbnail to adjacent ones.
-
-=== PRIORITY PROVIDERS ===
-Pragmatic Play, Tada Gaming, Games Global (all studios: Stormcraft, Triple Edge, Gameburger, All41, SpinPlay, Neon Valley, Gold Coin, Snowborn, Alchemy, Crazy Tooth, Fantasma, Foxium, JFTW, Rabcat, Area Link), BGaming, Amusnet/EGT, PG Soft, Hacksaw Gaming, Playtech, Endorphina, FA Chai.
-
-=== OUTPUT FORMAT ===
-Return ONLY a JSON array. One entry per distinct detection per image:
-[{"game": "name", "provider": "provider_name", "category": "slots|live_casino|table_game|not_casino", "confidence": "high|medium|low", "image_index": 0}]
-
-Do NOT add any text outside the JSON array.`
+Se uma folha de sprite mostrar vários jogos diferentes, retorne várias entradas com o mesmo image_index. Priorize o jogo principal em foco.
+Se não for um jogo (ex: Just Chatting, tela de carregamento, navegador, player de vídeo), retorne uma entrada com categoria "not_game" e o nome "Just Chatting" ou "Watching Content" conforme apropriado.
+Only return the JSON array, no other text.`
               },
               {
                 role: 'user',
                 content: [
-                  { type: "text", text: `Analyze these ${batchUrls.length} images from a VOD. Title context (DO NOT use as sole evidence): "${vod_title || 'unknown'}". Identify what is VISUALLY shown in each image.${timestampInfo}` },
+                  { type: "text", text: `Analyze these ${batchUrls.length} images from the VOD "${vod_title || 'unknown'}". Some may be storyboard sprite sheets with multiple thumbnails. Identify every casino game visible.${timestampInfo}` },
                   ...imageContent
                 ]
               }
@@ -250,14 +236,9 @@ Do NOT add any text outside the JSON array.`
         const aiData = await aiRes.json();
         const content = aiData?.choices?.[0]?.message?.content ?? '[]';
 
-        // DEBUG: Log raw AI response before any filtering
-        console.log(`[VOD AI] Batch ${batchStart / BATCH_SIZE + 1} raw AI response:`, content);
-
         try {
           const jsonMatch = content.match(/\[[\s\S]*\]/);
           const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-          // DEBUG: Log parsed detections before persistence filter
-          console.log(`[VOD AI] Batch ${batchStart / BATCH_SIZE + 1} parsed ${batchGames.length} detections:`, JSON.stringify(batchGames));
           for (const g of batchGames) {
             const imgIdx = g.image_index ?? 0;
             const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
@@ -267,94 +248,46 @@ Do NOT add any text outside the JSON array.`
           console.error('Failed to parse AI response:', content);
         }
 
+        // Delay between batches
         if (batchStart + BATCH_SIZE < thumbnail_urls.length) {
           await new Promise(r => setTimeout(r, 1500));
         }
       }
 
-      // DEBUG: Log all detections before persistence filter
-      console.log(`[VOD AI] Total raw detections before filter: ${allDetections.length}`, JSON.stringify(allDetections.map(d => ({ game: d.game, cat: d.category, conf: d.confidence, ts: d.timestampSeconds }))));
-
-      // ── 2-Minute Persistence Filter (Noise Reduction) ──
-      // Sort by timestamp, then only keep games that appear in 2+ consecutive frames
-      allDetections.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
-
-      const confirmedDetections: typeof allDetections = [];
-      let i = 0;
-      while (i < allDetections.length) {
-        const current = allDetections[i];
-        // Skip non-casino detections — they pass through as-is
-        if (current.category === 'not_casino') {
-          confirmedDetections.push(current);
-          i++;
-          continue;
-        }
-
-        // Count consecutive frames with the same game
-        let consecutiveCount = 1;
-        let j = i + 1;
-        while (j < allDetections.length && allDetections[j].game === current.game && allDetections[j].provider === current.provider) {
-          consecutiveCount++;
-          j++;
-        }
-
-        // Only confirm if 2+ consecutive detections (≈2 minutes at 60s interval)
-        if (consecutiveCount >= 2) {
-          for (let k = i; k < j; k++) {
-            confirmedDetections.push(allDetections[k]);
-          }
-        } else {
-          // Mark isolated detections as noise — downgrade to not_casino
-          for (let k = i; k < j; k++) {
-            confirmedDetections.push({
-              ...allDetections[k],
-              category: 'not_casino',
-              game: 'Noise/Outlier',
-              confidence: 'low',
-            });
-          }
-        }
-        i = j;
-      }
-
-      // DEBUG: Log persistence filter results
-      const noiseCount = confirmedDetections.filter(d => d.game === 'Noise/Outlier').length;
-      const casinoKept = confirmedDetections.filter(d => d.category !== 'not_casino').length;
-      console.log(`[VOD AI] Persistence filter: ${allDetections.length} raw → ${casinoKept} casino confirmed, ${noiseCount} noise/outlier`);
-
-      // Build timeline from confirmed detections
-      const SAMPLING_INTERVAL = 60; // 60-second intervals
+      // Build timeline from detections sorted by timestamp
       const gameTimeline: any[] = [];
-      const casinoDetections = confirmedDetections.filter(d => d.category !== 'not_casino');
+      if (hasTimestamps && allDetections.length > 0) {
+        allDetections.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
+        const interval = allDetections.length > 1
+          ? (allDetections[allDetections.length - 1].timestampSeconds - allDetections[0].timestampSeconds) / (allDetections.length - 1)
+          : 60; // Alterado de 120 para 60
 
-      if (casinoDetections.length > 0) {
         let seg = {
-          game: casinoDetections[0].game,
-          provider: casinoDetections[0].provider,
-          category: casinoDetections[0].category,
-          startSeconds: Math.max(0, casinoDetections[0].timestampSeconds - SAMPLING_INTERVAL / 2),
-          endSeconds: casinoDetections[0].timestampSeconds + SAMPLING_INTERVAL / 2,
+          game: allDetections[0].game, provider: allDetections[0].provider,
+          category: allDetections[0].category,
+          startSeconds: Math.max(0, allDetections[0].timestampSeconds - interval / 2),
+          endSeconds: allDetections[0].timestampSeconds + interval / 2,
         };
 
-        for (let idx = 1; idx < casinoDetections.length; idx++) {
-          const det = casinoDetections[idx];
+        for (let i = 1; i < allDetections.length; i++) {
+          const det = allDetections[i];
           if (det.game === seg.game && det.provider === seg.provider) {
-            seg.endSeconds = det.timestampSeconds + SAMPLING_INTERVAL / 2;
+            seg.endSeconds = det.timestampSeconds + interval / 2;
           } else {
             gameTimeline.push({ ...seg, durationSeconds: Math.round(seg.endSeconds - seg.startSeconds) });
             seg = {
               game: det.game, provider: det.provider, category: det.category,
-              startSeconds: det.timestampSeconds - SAMPLING_INTERVAL / 2,
-              endSeconds: det.timestampSeconds + SAMPLING_INTERVAL / 2,
+              startSeconds: det.timestampSeconds - interval / 2,
+              endSeconds: det.timestampSeconds + interval / 2,
             };
           }
         }
         gameTimeline.push({ ...seg, durationSeconds: Math.round(seg.endSeconds - seg.startSeconds) });
       }
 
-      // Unique confirmed games
+      // Unique games
       const uniqueGames = new Map<string, any>();
-      for (const det of casinoDetections) {
+      for (const det of allDetections) {
         const key = `${det.game}|${det.provider}`;
         if (!uniqueGames.has(key)) uniqueGames.set(key, det);
       }
@@ -363,8 +296,6 @@ Do NOT add any text outside the JSON array.`
         games: Array.from(uniqueGames.values()),
         gameTimeline,
         totalSamples: allDetections.length,
-        confirmedSamples: casinoDetections.length,
-        filteredAsNoise: allDetections.length - confirmedDetections.length + confirmedDetections.filter(d => d.game === 'Noise/Outlier').length,
       });
     }
 
@@ -375,3 +306,50 @@ Do NOT add any text outside the JSON array.`
     return jsonResponse({ error: msg }, 500);
   }
 });
+
+export function parseDuration(s: string): number {
+  if (!s) return 0;
+  let h = 0, m = 0, sec = 0;
+  const mh = s.match(/(\d+)h/);
+  const mm = s.match(/(\d+)m/);
+  const ms = s.match(/(\d+)s/);
+  if (mh) h = parseInt(mh[1]);
+  if (mm) m = parseInt(mm[1]);
+  if (ms) sec = parseInt(ms[1]);
+  return h * 60 + m + sec / 60;
+}
+
+export function formatDuration(s: string): string {
+  const mins = parseDuration(s);
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  return h > 0 ? `${h}h${m.toString().padStart(2, '0')}m` : `${m}m`;
+}
+
+export function formatSeconds(totalSec: number): string {
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  if (h > 0) return `${h}h${m.toString().padStart(2, '0')}m`;
+  return `${m}m`;
+}
+
+export function getVodThumbnailAtOffset(thumbnailUrl: string, offsetSeconds: number, width = 1280, height = 720): string {
+  const base = thumbnailUrl
+    .replace('%{width}', String(width))
+    .replace('%{height}', String(height));
+  // Twitch VOD seek thumbnails: replace thumb0-WxH or thumb-WxH with thumb{offset}-WxH
+  return base.replace(/thumb\d*-\d+x\d+/, `thumb${offsetSeconds}-${width}x${height}`);
+}
+
+export function generateSeekThumbnails(thumbnailUrl: string, durationSeconds: number, intervalSeconds = 60): { url: string; offset: number }[] {
+  const thumbnails: { url: string; offset: number }[] = [];
+  for (let offset = 60; offset < durationSeconds - 30; offset += intervalSeconds) {
+    thumbnails.push({
+      url: getVodThumbnailAtOffset(thumbnailUrl, offset),
+      offset,
+    });
+  }
+  return thumbnails;
+}
+
+export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, AiGameDetection, AiVodAnalysis, GameTimeSegment };
