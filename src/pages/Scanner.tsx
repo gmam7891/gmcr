@@ -18,6 +18,7 @@ import { FeatureGate } from "@/components/scanner/FeatureGate";
 import { ReviewTab } from "@/components/scanner/ReviewTab";
 import { AuditTab } from "@/components/scanner/AuditTab";
 import { QualityTab } from "@/components/scanner/QualityTab";
+import { ScanStartPanel } from "@/components/scanner/ScanStartPanel";
 import { getDashboardData, getProviders, getGames } from "@/lib/scanner-api";
 import { Badge } from "@/components/ui/badge";
 
