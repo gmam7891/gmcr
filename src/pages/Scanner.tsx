@@ -120,6 +120,7 @@ const Scanner = () => {
 
       <main className="p-6 space-y-4">
         <StatusHeader />
+        <ScanStartPanel onComplete={refreshData} />
         <GlobalFilters filters={filters} onChange={setFilters} />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
