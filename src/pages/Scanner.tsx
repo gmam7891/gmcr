@@ -18,6 +18,7 @@ import { FeatureGate } from "@/components/scanner/FeatureGate";
 import { ReviewTab } from "@/components/scanner/ReviewTab";
 import { AuditTab } from "@/components/scanner/AuditTab";
 import { QualityTab } from "@/components/scanner/QualityTab";
+import { ScanStartPanel } from "@/components/scanner/ScanStartPanel";
 import { getDashboardData, getProviders, getGames } from "@/lib/scanner-api";
 import { Badge } from "@/components/ui/badge";
 
@@ -46,17 +47,21 @@ const Scanner = () => {
   const canAccessAudit = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_audit");
   const canAccessQuality = tier === "admin" || tier === "enterprise" || allowedTabs.includes("scanner_quality");
 
+  const refreshData = () => {
+    setLoading(true);
+    getDashboardData({ ...filters, block_status_filter: dataFilter })
+      .then(setDashData)
+      .catch(() => setDashData(null))
+      .finally(() => setLoading(false));
+  };
+
   useEffect(() => {
     getProviders().then(setProviders);
     getGames().then(setGames);
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    getDashboardData({ ...filters, block_status_filter: dataFilter })
-      .then(setDashData)
-      .catch(() => setDashData(null))
-      .finally(() => setLoading(false));
+    refreshData();
   }, [filters, dataFilter]);
 
   const tabs = [
@@ -115,6 +120,7 @@ const Scanner = () => {
 
       <main className="p-6 space-y-4">
         <StatusHeader />
+        <ScanStartPanel onComplete={refreshData} />
         <GlobalFilters filters={filters} onChange={setFilters} />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
