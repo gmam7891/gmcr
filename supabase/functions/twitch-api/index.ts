@@ -317,6 +317,11 @@ Do NOT add any text outside the JSON array.`
         i = j;
       }
 
+      // DEBUG: Log persistence filter results
+      const noiseCount = confirmedDetections.filter(d => d.game === 'Noise/Outlier').length;
+      const casinoKept = confirmedDetections.filter(d => d.category !== 'not_casino').length;
+      console.log(`[VOD AI] Persistence filter: ${allDetections.length} raw → ${casinoKept} casino confirmed, ${noiseCount} noise/outlier`);
+
       // Build timeline from confirmed detections
       const SAMPLING_INTERVAL = 60; // 60-second intervals
       const gameTimeline: any[] = [];
