@@ -250,9 +250,14 @@ Do NOT add any text outside the JSON array.`
         const aiData = await aiRes.json();
         const content = aiData?.choices?.[0]?.message?.content ?? '[]';
 
+        // DEBUG: Log raw AI response before any filtering
+        console.log(`[VOD AI] Batch ${batchStart / BATCH_SIZE + 1} raw AI response:`, content);
+
         try {
           const jsonMatch = content.match(/\[[\s\S]*\]/);
           const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+          // DEBUG: Log parsed detections before persistence filter
+          console.log(`[VOD AI] Batch ${batchStart / BATCH_SIZE + 1} parsed ${batchGames.length} detections:`, JSON.stringify(batchGames));
           for (const g of batchGames) {
             const imgIdx = g.image_index ?? 0;
             const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
@@ -267,8 +272,11 @@ Do NOT add any text outside the JSON array.`
         }
       }
 
-      // ── 3-Minute Persistence Filter (Noise Reduction) ──
-      // Sort by timestamp, then only keep games that appear in 3+ consecutive frames
+      // DEBUG: Log all detections before persistence filter
+      console.log(`[VOD AI] Total raw detections before filter: ${allDetections.length}`, JSON.stringify(allDetections.map(d => ({ game: d.game, cat: d.category, conf: d.confidence, ts: d.timestampSeconds }))));
+
+      // ── 2-Minute Persistence Filter (Noise Reduction) ──
+      // Sort by timestamp, then only keep games that appear in 2+ consecutive frames
       allDetections.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
 
       const confirmedDetections: typeof allDetections = [];
@@ -290,8 +298,8 @@ Do NOT add any text outside the JSON array.`
           j++;
         }
 
-        // Only confirm if 3+ consecutive detections (≈3 minutes at 60s interval)
-        if (consecutiveCount >= 3) {
+        // Only confirm if 2+ consecutive detections (≈2 minutes at 60s interval)
+        if (consecutiveCount >= 2) {
           for (let k = i; k < j; k++) {
             confirmedDetections.push(allDetections[k]);
           }
