@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, getStoryboardUrls, formatDuration, formatSeconds, parseDuration, type TwitchVod, type VodChapter, type AiGameDetection, type AiVodAnalysis, type GameTimeSegment } from "@/lib/twitch-api";
+import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, formatDuration, formatSeconds, parseDuration, generateSeekThumbnails, type TwitchVod, type VodChapter, type AiVodAnalysis } from "@/lib/twitch-api";
 import { fmtInt } from "@/lib/formatters";
 import { useLanguage } from "@/contexts/LanguageContext";
 import * as XLSX from "xlsx";
@@ -106,7 +106,7 @@ export function VodTab() {
     setLoadingChapters(null);
   };
 
-  // Deep AI Vision: sample every 2 min across the entire VOD
+  // Deep AI Vision: sample real 720p VOD thumbnails every 60s
   const analyzeWithAI = async (vod: TwitchVod) => {
     setAiLoading(vod.id);
     setAiProgress(t("vod.fetching_storyboards"));
@@ -114,30 +114,18 @@ export function VodTab() {
       const durationMins = parseDuration(vod.duration);
       const durationSecs = durationMins * 60;
 
-      // Get storyboard sprite sheet URLs from Twitch GQL
-      const storyboards = await getStoryboardUrls(vod.id, durationSecs);
+      const sampledFrames = generateSeekThumbnails(vod.thumbnail_url, durationSecs, 60).slice(0, 40);
+      const selectedUrls = sampledFrames.map((frame) => frame.url);
+      const selectedTimestamps = sampledFrames.map((frame) => frame.offset);
 
-      if (storyboards.urls.length === 0) {
-        const fallbackUrl = vod.thumbnail_url.replace('%{width}', '640').replace('%{height}', '360');
+      if (selectedUrls.length === 0) {
+        const fallbackUrl = vod.thumbnail_url.replace('%{width}', '1280').replace('%{height}', '720');
         setAiProgress(t("vod.analyzing_thumb"));
-        const result = await analyzeVodFrames([fallbackUrl], vod.title);
+        const result = await analyzeVodFrames([fallbackUrl], vod.title, [0]);
         setAiResults(prev => ({ ...prev, [vod.id]: result }));
         setAiLoading(null);
         setAiProgress(null);
         return;
-      }
-
-      // Each strip covers framesPerStrip * interval seconds
-      // Sample strips evenly, max 20 to keep costs down
-      const maxStrips = 20;
-      const step = Math.max(1, Math.floor(storyboards.urls.length / maxStrips));
-      const selectedUrls: string[] = [];
-      const selectedTimestamps: number[] = [];
-      const secondsPerStrip = storyboards.framesPerStrip * storyboards.interval;
-
-      for (let i = 0; i < storyboards.urls.length && selectedUrls.length < maxStrips; i += step) {
-        selectedUrls.push(storyboards.urls[i]);
-        selectedTimestamps.push(i * secondsPerStrip);
       }
 
       setAiProgress(`${t("vod.analyzing_storyboards").replace("...", "")} (${selectedUrls.length})...`);
@@ -374,7 +362,7 @@ export function VodTab() {
                             {aiLoading === vod.id ? (
                               <div className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
                             ) : hasAiResult ? (
-                              <span className="text-xs text-accent">✓ {hasAiResult.games.filter(g => g.category !== 'not_casino').length}</span>
+                              <span className="text-xs text-accent">✓ {hasAiResult.games.filter(g => g.category !== 'not_game' && g.category !== 'error').length}</span>
                             ) : (
                               <button
                                 className="text-xs text-muted-foreground hover:text-accent transition-colors"
@@ -425,8 +413,8 @@ export function VodTab() {
 
 function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: AiVodAnalysis; vodDurationSecs: number; compact?: boolean }) {
   const { t } = useLanguage();
-  const casinoGames = analysis.games.filter(r => r.category !== 'not_casino' && r.category !== 'error');
-  const otherGames = analysis.games.filter(r => r.category === 'not_casino');
+  const casinoGames = analysis.games.filter(r => r.category !== 'not_game' && r.category !== 'error');
+  const otherGames = analysis.games.filter(r => r.category === 'not_game');
   const timeline = analysis.gameTimeline || [];
 
   // Aggregate time per game from timeline
@@ -465,7 +453,7 @@ function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: Ai
             <tbody>
               {timeAggregated.map((g, i) => {
                 const pct = vodDurationSecs > 0 ? ((g.totalSeconds / vodDurationSecs) * 100).toFixed(1) : "0";
-                const isCasino = g.category !== 'not_casino';
+                const isCasino = g.category !== 'not_game';
                 return (
                   <tr key={i} className="border-b border-border last:border-0 hover:bg-secondary/50 transition-colors">
                     <td className="p-2 text-sm">
@@ -491,7 +479,7 @@ function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: Ai
             {timeline.map((seg, i) => {
               const widthPct = (seg.durationSeconds / vodDurationSecs) * 100;
               if (widthPct < 0.5) return null;
-              const isCasino = seg.category !== 'not_casino';
+              const isCasino = seg.category !== 'not_game';
               const colors = [
                 'bg-primary', 'bg-accent', 'bg-chart-1', 'bg-chart-2', 'bg-chart-3', 'bg-chart-4', 'bg-chart-5'
               ];
