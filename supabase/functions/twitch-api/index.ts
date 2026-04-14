@@ -237,8 +237,10 @@ Only return the JSON array, no other text.`
         const content = aiData?.choices?.[0]?.message?.content ?? '[]';
 
         try {
+          console.log(`[AI-DEBUG] Raw AI response (batch ${batchStart}):`, content.slice(0, 500));
           const jsonMatch = content.match(/\[[\s\S]*\]/);
           const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+          console.log(`[AI-DEBUG] Parsed ${batchGames.length} detections from batch ${batchStart}:`, JSON.stringify(batchGames.map((g: any) => ({ game: g.game, category: g.category, confidence: g.confidence }))));
           for (const g of batchGames) {
             const imgIdx = g.image_index ?? 0;
             const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
