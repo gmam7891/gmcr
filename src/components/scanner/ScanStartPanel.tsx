@@ -12,6 +12,66 @@ interface ScanStartProps {
   onComplete?: () => void;
 }
 
+/** Parse Twitch duration like "3h12m45s" to seconds */
+function parseDurationToSeconds(duration: string): number {
+  if (!duration) return 3600;
+  let h = 0, m = 0, s = 0;
+  const mh = duration.match(/(\d+)h/);
+  const mm = duration.match(/(\d+)m/);
+  const ms = duration.match(/(\d+)s/);
+  if (mh) h = parseInt(mh[1]);
+  if (mm) m = parseInt(mm[1]);
+  if (ms) s = parseInt(ms[1]);
+  return h * 3600 + m * 60 + s;
+}
+
+/**
+ * Extract individual frame URLs from storyboard data.
+ * Each storyboard strip contains (cols * rows) frames.
+ * We sample one frame every ~60s by picking the right strip URL + computing the timestamp.
+ */
+function buildFrameSamples(
+  storyboardUrls: string[],
+  interval: number,
+  cols: number,
+  rows: number,
+  totalCount: number,
+  vodDurationSec: number
+): { urls: string[]; timestamps: number[] } {
+  const framesPerStrip = cols * rows;
+  const totalFrames = Math.min(totalCount || storyboardUrls.length * framesPerStrip, storyboardUrls.length * framesPerStrip);
+
+  // Each frame covers `interval` seconds
+  // We want ~1 sample per 60s of VOD
+  const sampleEvery = Math.max(1, Math.round(60 / interval));
+
+  const urls: string[] = [];
+  const timestamps: number[] = [];
+  const seenUrls = new Set<string>();
+
+  for (let frameIdx = 0; frameIdx < totalFrames; frameIdx += sampleEvery) {
+    const stripIdx = Math.floor(frameIdx / framesPerStrip);
+    if (stripIdx >= storyboardUrls.length) break;
+
+    const url = storyboardUrls[stripIdx];
+    const ts = frameIdx * interval;
+
+    // Avoid sending same strip URL multiple times in the same batch
+    // Each strip is a sprite sheet - the AI will analyze all frames in it
+    if (seenUrls.has(url)) continue;
+    seenUrls.add(url);
+
+    urls.push(url);
+    timestamps.push(ts);
+  }
+
+  // Cap at 40 unique strips to avoid overwhelming the AI
+  return {
+    urls: urls.slice(0, 40),
+    timestamps: timestamps.slice(0, 40),
+  };
+}
+
 export function ScanStartPanel({ onComplete }: ScanStartProps) {
   const { t } = useLanguage();
   const [streamerLogin, setStreamerLogin] = useState("");
@@ -52,10 +112,7 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
       for (let v = 0; v < vods.length; v++) {
         const vod = vods[v];
         const vodId = vod.id;
-        const durationMatch = vod.duration?.match(/(\d+)h(\d+)m(\d+)s/);
-        const durationSec = durationMatch
-          ? parseInt(durationMatch[1]) * 3600 + parseInt(durationMatch[2]) * 60 + parseInt(durationMatch[3])
-          : 3600;
+        const durationSec = parseDurationToSeconds(vod.duration || "");
 
         setProgress(`VOD ${v + 1}/${vods.length}: Obtendo storyboard...`);
 
@@ -69,30 +126,22 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
           continue;
         }
 
-        // Build thumbnail URLs from storyboard
-        const interval = sbData.interval || 60;
-        const framesPerStrip = sbData.framesPerStrip || 1;
-        const totalFrames = sbData.storyboardUrls.length * framesPerStrip;
-        
-        // Sample every 60s (one frame per minute)
-        const sampleRate = Math.max(1, Math.round(60 / (interval || 60)));
-        const thumbnailUrls: string[] = [];
-        const timestamps: number[] = [];
+        // Build unique frame samples from storyboard
+        const { urls: sampledUrls, timestamps: sampledTs } = buildFrameSamples(
+          sbData.storyboardUrls,
+          sbData.interval || 19,
+          sbData.cols || 5,
+          sbData.rows || 10,
+          sbData.count || 0,
+          durationSec
+        );
 
-        for (let i = 0; i < totalFrames; i += sampleRate) {
-          const stripIdx = Math.floor(i / framesPerStrip);
-          if (stripIdx < sbData.storyboardUrls.length) {
-            thumbnailUrls.push(sbData.storyboardUrls[stripIdx]);
-            timestamps.push(i * (interval || 60));
-          }
+        if (sampledUrls.length === 0) {
+          setProgress(`VOD ${v + 1}/${vods.length}: Storyboard vazio, pulando...`);
+          continue;
         }
 
-        // Limit to reasonable amount
-        const maxFrames = Math.min(thumbnailUrls.length, 60);
-        const sampledUrls = thumbnailUrls.slice(0, maxFrames);
-        const sampledTs = timestamps.slice(0, maxFrames);
-
-        setProgress(`VOD ${v + 1}/${vods.length}: Analisando ${sampledUrls.length} frames com IA...`);
+        setProgress(`VOD ${v + 1}/${vods.length}: Analisando ${sampledUrls.length} strips com IA...`);
 
         // Call AI analysis
         const { data: aiData, error: aiError } = await supabase.functions.invoke("twitch-api", {
@@ -109,22 +158,30 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
           continue;
         }
 
-        // Save raw evidences
-        if (aiData.games?.length > 0 || aiData.gameTimeline?.length > 0) {
-          const evidences = (aiData.gameTimeline || []).map((seg: any) => ({
-            vod_id: vodId,
-            streamer_login: login,
-            platform: "twitch",
-            source_type: "vod",
-            source_id: vodId,
-            timestamp_seconds: seg.startSeconds || 0,
-            game: seg.game,
-            provider: seg.provider,
-            confidence: seg.category === "not_casino" ? 0.3 : 0.85,
-          }));
+        console.log(`[ScanStart] VOD ${vodId}: AI returned ${aiData.games?.length || 0} games, ${aiData.gameTimeline?.length || 0} timeline segments`);
 
-          // Also add individual game detections
-          for (const g of (aiData.games || [])) {
+        // Save raw evidences - filter out not_game entries
+        const timeline = (aiData.gameTimeline || []).filter((seg: any) => seg.category !== "not_game");
+        const games = (aiData.games || []).filter((g: any) => g.category !== "not_game");
+
+        if (timeline.length > 0 || games.length > 0) {
+          const evidences: any[] = [];
+
+          for (const seg of timeline) {
+            evidences.push({
+              vod_id: vodId,
+              streamer_login: login,
+              platform: "twitch",
+              source_type: "vod",
+              source_id: vodId,
+              timestamp_seconds: seg.startSeconds || 0,
+              game: seg.game,
+              provider: seg.provider,
+              confidence: seg.category === "not_game" ? 0.3 : 0.85,
+            });
+          }
+
+          for (const g of games) {
             evidences.push({
               vod_id: vodId,
               streamer_login: login,
@@ -134,7 +191,7 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
               timestamp_seconds: g.timestampSeconds || 0,
               game: g.game,
               provider: g.provider,
-              confidence: g.confidence === "high" ? 0.95 : g.confidence === "medium" ? 0.75 : 0.4,
+              confidence: g.confidence === "high" ? 0.95 : g.confidence === "medium" ? 0.75 : 0.5,
             });
           }
 
@@ -142,6 +199,8 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
             setProgress(`VOD ${v + 1}/${vods.length}: Salvando ${evidences.length} evidências...`);
             await saveRawEvidences(evidences, `scan_${Date.now()}`);
           }
+        } else {
+          console.log(`[ScanStart] VOD ${vodId}: No casino games detected (all filtered as not_game)`);
         }
 
         // Run pipeline (validate → consolidate → metrics)
