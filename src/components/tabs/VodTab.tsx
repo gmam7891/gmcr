@@ -441,11 +441,12 @@ function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: Ai
       {/* Time-based summary (main view) */}
       {timeAggregated.length > 0 && (
         <div className="card-surface overflow-hidden">
-          <table className="w-full">
+           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
                  <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">{t("vod.game_col")}</th>
                  <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">{t("vod.provider_col")}</th>
+                 <th className="text-left text-xs uppercase tracking-wider text-muted-foreground p-2">Evidência</th>
                  <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">{t("vod.est_time")}</th>
                  <th className="text-right text-xs uppercase tracking-wider text-muted-foreground p-2">%</th>
               </tr>
@@ -461,6 +462,9 @@ function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: Ai
                       <span className="font-medium text-foreground">{g.game}</span>
                     </td>
                     <td className="p-2 text-sm text-muted-foreground">{g.provider || '—'}</td>
+                    <td className="p-2 text-xs text-muted-foreground max-w-[200px] truncate" title={g.evidence || ''}>
+                      {g.evidence || '—'}
+                    </td>
                     <td className="p-2 text-right font-mono text-sm">{formatSeconds(g.totalSeconds)}</td>
                     <td className="p-2 text-right font-mono text-sm">{pct}%</td>
                   </tr>
