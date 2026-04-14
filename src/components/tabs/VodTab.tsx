@@ -418,14 +418,14 @@ function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: Ai
   const timeline = analysis.gameTimeline || [];
 
   // Aggregate time per game from timeline
-  const timeByGame = new Map<string, { game: string; provider: string | null; totalSeconds: number; category: string }>();
+  const timeByGame = new Map<string, { game: string; provider: string | null; totalSeconds: number; category: string; evidence: string | null }>();
   for (const seg of timeline) {
     const key = `${seg.game}|${seg.provider}`;
     const existing = timeByGame.get(key);
     if (existing) {
       existing.totalSeconds += seg.durationSeconds;
     } else {
-      timeByGame.set(key, { game: seg.game, provider: seg.provider, totalSeconds: seg.durationSeconds, category: seg.category });
+      timeByGame.set(key, { game: seg.game, provider: seg.provider, totalSeconds: seg.durationSeconds, category: seg.category, evidence: (seg as any).evidence || null });
     }
   }
   const timeAggregated = Array.from(timeByGame.values()).sort((a, b) => b.totalSeconds - a.totalSeconds);
