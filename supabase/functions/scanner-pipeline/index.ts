@@ -416,20 +416,20 @@ Deno.serve(async (req) => {
       const { data: blocks } = await query.limit(1000);
       if (!blocks?.length) return json({ rankings: [] });
 
-      const agg: Record<string, { name: string; totalSeconds: number; count: number }> = {};
+      const agg: Record<string, { key: string; exposure: number; sessions: number; viewer_minutes: number; peak: number }> = {};
       for (const b of blocks) {
-        const key = rank_by === "streamer" ? b.streamer_login
+        const k = rank_by === "streamer" ? b.streamer_login
           : rank_by === "provider" ? (b.provider_name || "Unknown")
           : (b.game_name || "Unknown");
-        if (!agg[key]) agg[key] = { name: key, totalSeconds: 0, count: 0 };
-        agg[key].totalSeconds += b.duration_seconds || 0;
-        agg[key].count++;
+        if (!agg[k]) agg[k] = { key: k, exposure: 0, sessions: 0, viewer_minutes: 0, peak: 0 };
+        agg[k].exposure += b.duration_seconds || 0;
+        agg[k].sessions++;
+        agg[k].viewer_minutes += Math.round((b.duration_seconds || 0) / 60);
       }
 
       const rankings = Object.values(agg)
-        .sort((a, b) => b.totalSeconds - a.totalSeconds)
-        .slice(0, 20)
-        .map((r, i) => ({ rank: i + 1, ...r, totalHours: Math.round(r.totalSeconds / 3600 * 10) / 10 }));
+        .sort((a, b) => b.exposure - a.exposure)
+        .slice(0, 20);
 
       return json({ rankings });
     }

@@ -17,24 +17,71 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
+const FORENSIC_SYSTEM_PROMPT = `Você é um auditor forense especializado em identificação de jogos de iGaming/Casino em transmissões ao vivo de streaming. Sua tarefa é realizar uma AUDITORIA VISUAL PRECISA de cada frame/imagem para detectar qualquer jogo de cassino online.
+
+## REGRAS DE ANÁLISE:
+1. Analise TODOS os elementos visuais: HUD, logos, botões de spin/deal, saldo, multiplicadores, grid de slots, cartas, roleta, etc.
+2. Se a imagem for uma FOLHA DE SPRITE (storyboard), analise CADA miniatura individualmente.
+3. IGNORE completamente o título do VOD e a categoria da Twitch — analise APENAS o que é visível na imagem.
+4. Se o streamer estiver ASSISTINDO conteúdo (player de vídeo, navegador, YouTube), classifique como "not_game".
+5. Priorize detecção de HUD MINIMALISTA — muitos jogos modernos têm interfaces limpas (Relax Gaming, Hacksaw).
+
+## PROVEDORAS PRIORITÁRIAS (identifique jogos destas):
+1. **Pragmatic Play**: Gates of Olympus, Sweet Bonanza, Big Bass Bonanza, Sugar Rush, Starlight Princess, Dog House, Wolf Gold, Fruit Party, Madame Destiny, The Hand of Midas, Gems Bonanza, John Hunter series, Release the Kraken, Buffalo King, Wild West Gold, Aztec Gems, Mustang Gold, Great Rhino
+2. **Relax Gaming / Studios**: Money Train 1/2/3/4, Temple Tumble, Snake Arena, Dream Drop series, Hellcatraz, Book of 99, Iron Bank — HUD minimalista, foque no GRID de símbolos e botão de spin
+3. **Hacksaw Gaming**: Wanted Dead or a Wild, Chaos Crew 1/2, Hand of Anubis, Stick 'Em, ItBro, Le Bandit, Gladiator Legends, RIP City — interface escura com grid distinto
+4. **PG Soft**: Fortune Tiger, Fortune Ox, Fortune Mouse, Fortune Rabbit, Mahjong Ways 1/2/3, Ganesha Fortune, Dragon Hatch, Treasures of Aztec
+5. **Games Global / Microgaming** (incluindo TODOS os estúdios: Stormcraft, Triple Edge, JFTW, Foxium, Rabcat, etc.): Immortal Romance, Mega Moolah, Thunderstruck, Book of Oz, Lara Croft, 9 Masks of Fire, Hyper Gold, Amazing Link
+6. **Evolution Gaming**: Lightning Roulette, Crazy Time, Monopoly Live, Dream Catcher, Lightning Blackjack, XXXtreme Lightning Roulette, Funky Time, Cash or Crash
+7. **Playtech**: Age of the Gods series, Buffalo Blitz, Great Blue, Gladiator, Adventures Beyond Wonderland
+8. **NetEnt**: Starburst, Gonzo's Quest, Dead or Alive 1/2, Divine Fortune, Mega Fortune, Narcos
+9. **Play'n GO**: Book of Dead, Reactoonz 1/2, Rise of Olympus, Moon Princess, Fire Joker, Rich Wilde series
+10. **BGaming**: Elvis Frog series, Aloha King Elvis, Space XY, Plinko, Crash, Lucky Lady Moon
+11. **Amusnet / EGT**: 40 Burning Hot, Rise of Ra, Shining Crown, Supreme Hot, Amazons' Battle
+12. **Endorphina**: Lucky Streak, Satoshi's Secret, Chance Machine, Lucky Lands, Cash Tank
+13. **FA Chai**: Golden Empire, Boxing King, Lucky Coming, Super Ace
+14. **Push Gaming**: Jammin' Jars 1/2, Fat Rabbit, Razor Shark, Big Bamboo, Ice Lobster
+15. **Nolimit City**: Mental, San Quentin, Tombstone, Fire in the Hole, Punk Rocker, East Coast vs West Coast
+16. **Red Tiger**: Gonzo's Quest Megaways, Piggy Riches, Dragon's Fire, Mystery Reels
+17. **Blueprint Gaming**: Eye of Horus, Fishin' Frenzy, Buffalo Rising
+18. **Yggdrasil**: Vikings Go Berzerk, Valley of the Gods, Jackpot Raiders
+19. **Tada Gaming**: vários jogos de estilo asiático
+20. **Spribe**: Aviator, Mines, Plinko, Dice, Hi-Lo — jogos crash/instant
+21. **Turbo Games / SmartSoft**: JetX, Cappadocia, Balloon — jogos crash
+
+## ELEMENTOS VISUAIS A DETECTAR:
+- Grids de slot (3x3, 5x3, 6x5, Megaways)
+- Botões de SPIN, AUTO-SPIN, BET
+- Saldo (BALANCE), aposta (BET/STAKE), ganho (WIN)
+- Multiplicadores (x2, x5, x100, etc.)
+- Logos de provedoras (geralmente no canto inferior)
+- Mesas de casino ao vivo (roleta, blackjack, baccarat)
+- Jogos crash (gráfico ascendente com multiplicador)
+- Interfaces de Plinko, Mines, Dice
+
+## FORMATO DE RESPOSTA (JSON array apenas):
+[{"game": "nome_exato_do_jogo", "provider": "nome_provedora", "category": "slots|live_casino|table_game|crash_game|not_game", "confidence": "high|medium|low", "evidence": "descrição breve do que foi detectado visualmente", "image_index": 0}]
+
+IMPORTANTE:
+- Retorne "evidence" com a descrição visual (ex: "Logo Pragmatic Play visível no canto inferior, grid 5x3 com símbolos de frutas, botão SPIN verde")
+- Para HUD minimalista, descreva os elementos que levaram à identificação
+- Se não for jogo (Just Chatting, navegador, player de vídeo), retorne category "not_game"
+- Retorne APENAS o JSON array, nenhum outro texto`;
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-  if (!LOVABLE_API_KEY) {
-    return jsonResponse({ error: 'LOVABLE_API_KEY not configured' }, 500);
-  }
+  if (!LOVABLE_API_KEY) return jsonResponse({ error: 'LOVABLE_API_KEY not configured' }, 500);
 
   const TWITCH_API_KEY = Deno.env.get('TWITCH_API_KEY');
-  if (!TWITCH_API_KEY) {
-    return jsonResponse({ error: 'TWITCH_API_KEY not configured' }, 500);
-  }
+  if (!TWITCH_API_KEY) return jsonResponse({ error: 'TWITCH_API_KEY not configured' }, 500);
 
   const twitchHeaders = {
     'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-    'X-Connection-Api-Key': TWITCH_API_KEY!,
+    'X-Connection-Api-Key': TWITCH_API_KEY,
   };
 
   try {
@@ -100,7 +147,6 @@ Deno.serve(async (req) => {
       return jsonResponse({ chapters });
     }
 
-
     // --- Get VOD storyboard URLs via GQL ---
     if (action === 'get_storyboard_urls') {
       if (!vod_id) throw new Error('vod_id is required');
@@ -120,25 +166,19 @@ Deno.serve(async (req) => {
         return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard URL available' });
       }
 
-      // seekPreviewsURL is an info.json file, fetch it to get actual strip image URLs
       const infoRes = await fetch(seekPreviewsURL);
       if (!infoRes.ok) {
         return jsonResponse({ storyboardUrls: [], interval: 0, error: `Failed to fetch storyboard info: ${infoRes.status}` });
       }
 
       const infoData = await infoRes.json();
-      // infoData is an array like:
-      // [{ quality: "low", images: [...], interval: 19, cols: 5, rows: 40, width: 160, height: 90, count: 200 },
-      //  { quality: "high", images: [...], interval: 19, cols: 5, rows: 10, width: 220, height: 124, count: 200 }]
-
-      // Prefer "high" quality
+      // Prefer "high" quality, fallback to any available
       const highQuality = infoData.find((q: any) => q.quality === 'high') || infoData[0];
       if (!highQuality) {
         return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard quality data' });
       }
 
-      // Build full URLs for the strip images
-      const baseUrl = seekPreviewsURL.replace(/[^/]+$/, ''); // remove info.json filename
+      const baseUrl = seekPreviewsURL.replace(/[^/]+$/, '');
       const storyboardUrls = highQuality.images.map((img: string) => baseUrl + img);
 
       return jsonResponse({
@@ -153,7 +193,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // --- Deep VOD analysis with AI Vision using storyboards ---
+    // --- Deep VOD analysis with AI Vision (FORENSIC AUDIT) ---
     if (action === 'analyze_vod_frames') {
       const { thumbnail_urls, vod_title, timestamps } = body;
       if (!thumbnail_urls || !Array.isArray(thumbnail_urls) || thumbnail_urls.length === 0) {
@@ -162,9 +202,9 @@ Deno.serve(async (req) => {
 
       const hasTimestamps = timestamps && Array.isArray(timestamps) && timestamps.length === thumbnail_urls.length;
 
-      // Process in batches of 6 images per AI call (storyboard sprites are larger)
-      const BATCH_SIZE = 6;
-      const allDetections: { game: string; provider: string | null; category: string; confidence: string; timestampSeconds: number }[] = [];
+      // Process in batches of 5 images per AI call for better accuracy
+      const BATCH_SIZE = 5;
+      const allDetections: { game: string; provider: string | null; category: string; confidence: string; evidence?: string; timestampSeconds: number }[] = [];
 
       for (let batchStart = 0; batchStart < thumbnail_urls.length; batchStart += BATCH_SIZE) {
         const batchUrls = thumbnail_urls.slice(batchStart, batchStart + BATCH_SIZE);
@@ -172,12 +212,14 @@ Deno.serve(async (req) => {
 
         const imageContent = batchUrls.map((url: string) => ({
           type: "image_url",
-          image_url: { url, detail: "low" }
+          image_url: { url, detail: "high" }
         }));
 
         const timestampInfo = hasTimestamps
           ? `\nTimestamps: ${batchTimestamps.map((t: number, i: number) => `Image ${i + 1}: ~${Math.floor(t / 60)}min`).join(', ')}`
           : '';
+
+        console.log(`[FORENSIC] Batch ${batchStart}: Analyzing ${batchUrls.length} frames...`);
 
         const aiRes = await fetch(AI_GATEWAY, {
           method: 'POST',
@@ -188,48 +230,62 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             model: 'google/gemini-2.5-flash',
             messages: [
-              {
-                role: 'system',
-                content: `Você é um especialista em identificar jogos em transmissões ao vivo. Sua tarefa é identificar o jogo principal visível na tela, focando em elementos de interface do usuário (HUD), nomes de jogos, e gameplay. Se a imagem mostrar um player de vídeo, navegador, ou apenas o streamer conversando, classifique como 'Watching Content' ou 'Just Chatting'. Ignore o título do VOD se ele não corresponder claramente ao que é visível na imagem.
-
-IMPORTANTE: Cada imagem pode ser uma folha de sprite de storyboard contendo múltiplas miniaturas pequenas organizadas em uma grade. Analise TODAS as miniaturas visíveis em cada folha de sprite.
-
-PRIORITY PROVIDERS (identify games from these):
-- Pragmatic Play (Gates of Olympus, Sweet Bonanza, Big Bass Bonanza, Sugar Rush, Starlight Princess, Dog House, Wolf Gold, Fruit Party, etc.)
-- Tada Gaming
-- Games Global / Microgaming and ALL their studios — detect ANY of these as provider "Games Global":
-  Studios: Stormcraft Studios, Triple Edge Studios, Gameburger Studios, All41 Studios, SpinPlay Games, Neon Valley Studios, Gold Coin Studios, Snowborn Games, Alchemy Gaming, Buck Stakes Entertainment, Crazy Tooth Studio, Electric Elephant, Fantasma Games, Fortune Factory Studios, Foxium, Just For The Win (JFTW), Neko Games, Northern Lights Gaming, Old Skool Studios, Pulse 8 Studios, Rabcat, Real Dealer Studios, Slingshot Studios, Switch Studios, Area Link
-  Known games: Immortal Romance, Mega Moolah, Thunderstruck, Book of Oz, Lara Croft, Break Da Bank, Avalon, 9 Masks of Fire, Hyper Gold, Amazing Link, Area Link, Book of Atem, African Legends, Agent Jane Blonde, Dragonz, Jungle Jim, Lost Vegas, Tarzan, Jurassic World, Game of Thrones, Tomb Raider, Absolootly Mad, Mega Vault Millionaire, etc.
-- BGaming (Elvis Frog, Aloha King Elvis, Space XY, etc.)
-- Amusnet / EGT (40 Burning Hot, Rise of Ra, etc.)
-- PG Soft (Fortune Tiger, Fortune Ox, Fortune Mouse, Mahjong Ways, etc.)
-- Hacksaw Gaming (Wanted Dead or a Wild, Chaos Crew, etc.)
-- Playtech (Age of the Gods, Buffalo Blitz, etc.)
-- Endorphina (Lucky Streak, Satoshi's Secret, etc.)
-- FA Chai (Golden Empire, Boxing King, etc.)
-
-For each image/sprite sheet, identify ALL distinct casino games visible. Return one entry per distinct game detected:
-[{"game": "name", "provider": "provider", "category": "slots|live_casino|table_game|not_game", "confidence": "high|medium|low", "image_index": 0}]
-
-Se uma folha de sprite mostrar vários jogos diferentes, retorne várias entradas com o mesmo image_index. Priorize o jogo principal em foco.
-Se não for um jogo (ex: Just Chatting, tela de carregamento, navegador, player de vídeo), retorne uma entrada com categoria "not_game" e o nome "Just Chatting" ou "Watching Content" conforme apropriado.
-Only return the JSON array, no other text.`
-              },
+              { role: 'system', content: FORENSIC_SYSTEM_PROMPT },
               {
                 role: 'user',
                 content: [
-                  { type: "text", text: `Analyze these ${batchUrls.length} images from the VOD "${vod_title || 'unknown'}". Some may be storyboard sprite sheets with multiple thumbnails. Identify every casino game visible.${timestampInfo}` },
+                  { type: "text", text: `AUDITORIA FORENSE: Analise estas ${batchUrls.length} imagens do VOD "${vod_title || 'unknown'}". Identifique TODOS os jogos de casino/iGaming visíveis com evidências visuais detalhadas. Foque em HUD, logos, botões e elementos de interface mesmo que minimalistas.${timestampInfo}` },
                   ...imageContent
                 ]
               }
             ],
-            max_tokens: 3000,
+            max_tokens: 4000,
           }),
         });
 
         if (!aiRes.ok) {
           const errText = await aiRes.text();
-          console.error(`AI batch error [${aiRes.status}]:`, errText);
+          console.error(`[FORENSIC] AI batch error [${aiRes.status}]:`, errText);
+          // Resolution fallback: retry with lower detail if 413 or similar
+          if (aiRes.status === 413 || aiRes.status === 400) {
+            console.log(`[FORENSIC] Retrying batch ${batchStart} with low detail...`);
+            const retryRes = await fetch(AI_GATEWAY, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-2.5-flash',
+                messages: [
+                  { role: 'system', content: FORENSIC_SYSTEM_PROMPT },
+                  {
+                    role: 'user',
+                    content: [
+                      { type: "text", text: `AUDITORIA FORENSE: Analise estas ${batchUrls.length} imagens. Identifique jogos de casino visíveis.${timestampInfo}` },
+                      ...batchUrls.map((url: string) => ({ type: "image_url", image_url: { url, detail: "low" } }))
+                    ]
+                  }
+                ],
+                max_tokens: 3000,
+              }),
+            });
+            if (retryRes.ok) {
+              const retryData = await retryRes.json();
+              const retryContent = retryData?.choices?.[0]?.message?.content ?? '[]';
+              try {
+                const jsonMatch = retryContent.match(/\[[\s\S]*\]/);
+                const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+                for (const g of batchGames) {
+                  const imgIdx = g.image_index ?? 0;
+                  const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
+                  allDetections.push({ ...g, timestampSeconds: ts });
+                }
+              } catch { /* skip */ }
+            } else {
+              await retryRes.text();
+            }
+          }
           continue;
         }
 
@@ -237,22 +293,24 @@ Only return the JSON array, no other text.`
         const content = aiData?.choices?.[0]?.message?.content ?? '[]';
 
         try {
-          console.log(`[AI-DEBUG] Raw AI response (batch ${batchStart}):`, content.slice(0, 500));
+          console.log(`[FORENSIC] Raw AI response (batch ${batchStart}):`, content.slice(0, 500));
           const jsonMatch = content.match(/\[[\s\S]*\]/);
           const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-          console.log(`[AI-DEBUG] Parsed ${batchGames.length} detections from batch ${batchStart}:`, JSON.stringify(batchGames.map((g: any) => ({ game: g.game, category: g.category, confidence: g.confidence }))));
+          console.log(`[FORENSIC] Parsed ${batchGames.length} detections:`, JSON.stringify(batchGames.map((g: any) => ({
+            game: g.game, provider: g.provider, category: g.category, confidence: g.confidence, evidence: g.evidence?.slice(0, 80)
+          }))));
           for (const g of batchGames) {
             const imgIdx = g.image_index ?? 0;
             const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
             allDetections.push({ ...g, timestampSeconds: ts });
           }
         } catch {
-          console.error('Failed to parse AI response:', content);
+          console.error('[FORENSIC] Failed to parse AI response:', content.slice(0, 300));
         }
 
         // Delay between batches
         if (batchStart + BATCH_SIZE < thumbnail_urls.length) {
-          await new Promise(r => setTimeout(r, 1500));
+          await new Promise(r => setTimeout(r, 1200));
         }
       }
 
@@ -262,11 +320,11 @@ Only return the JSON array, no other text.`
         allDetections.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
         const interval = allDetections.length > 1
           ? (allDetections[allDetections.length - 1].timestampSeconds - allDetections[0].timestampSeconds) / (allDetections.length - 1)
-          : 60; // Alterado de 120 para 60
+          : 60;
 
         let seg = {
           game: allDetections[0].game, provider: allDetections[0].provider,
-          category: allDetections[0].category,
+          category: allDetections[0].category, evidence: allDetections[0].evidence || null,
           startSeconds: Math.max(0, allDetections[0].timestampSeconds - interval / 2),
           endSeconds: allDetections[0].timestampSeconds + interval / 2,
         };
@@ -278,7 +336,7 @@ Only return the JSON array, no other text.`
           } else {
             gameTimeline.push({ ...seg, durationSeconds: Math.round(seg.endSeconds - seg.startSeconds) });
             seg = {
-              game: det.game, provider: det.provider, category: det.category,
+              game: det.game, provider: det.provider, category: det.category, evidence: det.evidence || null,
               startSeconds: det.timestampSeconds - interval / 2,
               endSeconds: det.timestampSeconds + interval / 2,
             };
@@ -287,12 +345,14 @@ Only return the JSON array, no other text.`
         gameTimeline.push({ ...seg, durationSeconds: Math.round(seg.endSeconds - seg.startSeconds) });
       }
 
-      // Unique games
+      // Unique games with evidence
       const uniqueGames = new Map<string, any>();
       for (const det of allDetections) {
         const key = `${det.game}|${det.provider}`;
         if (!uniqueGames.has(key)) uniqueGames.set(key, det);
       }
+
+      console.log(`[FORENSIC] TOTAL: ${allDetections.length} detections, ${uniqueGames.size} unique games, ${gameTimeline.length} timeline segments`);
 
       return jsonResponse({
         games: Array.from(uniqueGames.values()),
@@ -308,50 +368,3 @@ Only return the JSON array, no other text.`
     return jsonResponse({ error: msg }, 500);
   }
 });
-
-export function parseDuration(s: string): number {
-  if (!s) return 0;
-  let h = 0, m = 0, sec = 0;
-  const mh = s.match(/(\d+)h/);
-  const mm = s.match(/(\d+)m/);
-  const ms = s.match(/(\d+)s/);
-  if (mh) h = parseInt(mh[1]);
-  if (mm) m = parseInt(mm[1]);
-  if (ms) sec = parseInt(ms[1]);
-  return h * 60 + m + sec / 60;
-}
-
-export function formatDuration(s: string): string {
-  const mins = parseDuration(s);
-  const h = Math.floor(mins / 60);
-  const m = Math.round(mins % 60);
-  return h > 0 ? `${h}h${m.toString().padStart(2, '0')}m` : `${m}m`;
-}
-
-export function formatSeconds(totalSec: number): string {
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  if (h > 0) return `${h}h${m.toString().padStart(2, '0')}m`;
-  return `${m}m`;
-}
-
-export function getVodThumbnailAtOffset(thumbnailUrl: string, offsetSeconds: number, width = 1280, height = 720): string {
-  const base = thumbnailUrl
-    .replace('%{width}', String(width))
-    .replace('%{height}', String(height));
-  // Twitch VOD seek thumbnails: replace thumb0-WxH or thumb-WxH with thumb{offset}-WxH
-  return base.replace(/thumb\d*-\d+x\d+/, `thumb${offsetSeconds}-${width}x${height}`);
-}
-
-export function generateSeekThumbnails(thumbnailUrl: string, durationSeconds: number, intervalSeconds = 60): { url: string; offset: number }[] {
-  const thumbnails: { url: string; offset: number }[] = [];
-  for (let offset = 60; offset < durationSeconds - 30; offset += intervalSeconds) {
-    thumbnails.push({
-      url: getVodThumbnailAtOffset(thumbnailUrl, offset),
-      offset,
-    });
-  }
-  return thumbnails;
-}
-
-export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, AiGameDetection, AiVodAnalysis, GameTimeSegment };

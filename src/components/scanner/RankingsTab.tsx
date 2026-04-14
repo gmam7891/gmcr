@@ -45,9 +45,9 @@ export function RankingsTab({ filters, rankBy }: Props) {
           {rankings.map((r, i) => (
             <TableRow key={r.key}>
               <TableCell className="font-mono text-xs">{i + 1}</TableCell>
-              <TableCell className="font-medium text-sm">{r.key}</TableCell>
-              <TableCell className="text-right font-mono text-xs">{Math.round((r.exposure || 0) / 3600 * 10) / 10}h</TableCell>
-              <TableCell className="text-right font-mono text-xs">{Math.round((r.viewer_minutes || 0) / 1000)}k</TableCell>
+              <TableCell className="font-medium text-sm">{r.key || '—'}</TableCell>
+              <TableCell className="text-right font-mono text-xs">{Math.round((r.exposure ?? 0) / 3600 * 10) / 10}h</TableCell>
+              <TableCell className="text-right font-mono text-xs">{(r.viewer_minutes ?? 0).toLocaleString()}</TableCell>
               <TableCell className="text-right font-mono text-xs">{r.sessions ?? 0}</TableCell>
               <TableCell className="text-right font-mono text-xs">{(r.peak ?? 0).toLocaleString()}</TableCell>
             </TableRow>
