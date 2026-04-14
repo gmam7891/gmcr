@@ -81,7 +81,7 @@ export function AuditTab({ filters }: Props) {
           <MetricCard label={t("scan.suspect_blocks_total")} value={quality.suspect_blocks || 0} />
           <MetricCard label={t("scan.false_positive_rate")} value={`${(quality.false_positive_rate || 0).toFixed(1)}%`} />
           <MetricCard label={t("scan.avg_coverage_quality")} value={`${Math.round(quality.avg_coverage || 0)}%`} />
-          <MetricCard label={t("scan.avg_confidence_quality")} value={`${Math.round(quality.avg_confidence || 0)}%`} />
+          <MetricCard label={t("scan.avg_confidence_quality")} value={`${(() => { const v = quality.avg_confidence || 0; return v <= 1 ? Math.round(v * 100) : Math.round(v); })()}%`} />
         </div>
       )}
 
