@@ -674,6 +674,7 @@ export type Database = {
       stream_snapshots: {
         Row: {
           ai_confidence: number | null
+          ai_evidence: string | null
           captured_at: string
           game_id: string | null
           game_name: string | null
@@ -686,6 +687,7 @@ export type Database = {
         }
         Insert: {
           ai_confidence?: number | null
+          ai_evidence?: string | null
           captured_at?: string
           game_id?: string | null
           game_name?: string | null
@@ -698,6 +700,7 @@ export type Database = {
         }
         Update: {
           ai_confidence?: number | null
+          ai_evidence?: string | null
           captured_at?: string
           game_id?: string | null
           game_name?: string | null
