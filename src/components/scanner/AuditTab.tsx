@@ -81,7 +81,7 @@ export function AuditTab({ filters }: Props) {
           <MetricCard label={t("scan.suspect_blocks_total")} value={quality.suspect_blocks || 0} />
           <MetricCard label={t("scan.false_positive_rate")} value={`${(quality.false_positive_rate || 0).toFixed(1)}%`} />
           <MetricCard label={t("scan.avg_coverage_quality")} value={`${Math.round(quality.avg_coverage || 0)}%`} />
-          <MetricCard label={t("scan.avg_confidence_quality")} value={`${Math.round(quality.avg_confidence || 0)}%`} />
+          <MetricCard label={t("scan.avg_confidence_quality")} value={`${(() => { const v = quality.avg_confidence || 0; return v <= 1 ? Math.round(v * 100) : Math.round(v); })()}%`} />
         </div>
       )}
 
@@ -127,7 +127,14 @@ export function AuditTab({ filters }: Props) {
                         {Math.round(a.coverage_percent || 0)}%
                       </span>
                     </TableCell>
-                    <TableCell className="text-right font-mono text-xs">{Math.round(a.confidence_score || 0)}%</TableCell>
+                    <TableCell className="text-right font-mono text-xs">
+                      {(() => {
+                        const raw = a.confidence_score || 0;
+                        // Handle both 0-1 (old) and 0-100 (new) formats
+                        const pct = raw <= 1 ? Math.round(raw * 100) : Math.round(raw);
+                        return `${pct}%`;
+                      })()}
+                    </TableCell>
                     <TableCell className="text-right text-xs">
                       {a.valid_evidences || 0}/{a.total_evidences || 0}
                     </TableCell>
@@ -221,8 +228,13 @@ function VodDetailPanel({ detail }: { detail: any }) {
                   <TableCell className="text-right font-mono text-xs">{Math.round(b.duration_seconds / 60)}m</TableCell>
                   <TableCell className="text-right text-xs">{b.evidence_count}</TableCell>
                   <TableCell className="text-right font-mono text-xs">
-                    {Math.round(b.confidence_avg)}%
-                    <span className="text-muted-foreground ml-1">({Math.round(b.confidence_min)}-{Math.round(b.confidence_max)})</span>
+                    {(() => {
+                      const avg = b.confidence_avg || 0;
+                      const min = b.confidence_min || 0;
+                      const max = b.confidence_max || 0;
+                      const fmt = (v: number) => v <= 1 ? Math.round(v * 100) : Math.round(v);
+                      return <>{fmt(avg)}%<span className="text-muted-foreground ml-1">({fmt(min)}-{fmt(max)})</span></>;
+                    })()}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">{b.discard_reason || "—"}</TableCell>
                 </TableRow>

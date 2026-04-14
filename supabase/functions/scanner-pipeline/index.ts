@@ -1,194 +1,623 @@
-import { supabase } from "@/integrations/supabase/client";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-/**
- * Interfaces Unificadas para IA e Twitch
- * Estas estruturas garantem que os dados da IA e da API da Twitch 
- * possam ser comparados e reconciliados corretamente.
- */
-export interface AiGameDetection {
-  game: string;
-  provider: string | null;
-  category: string;
-  confidence: string;
-  timestampSeconds?: number;
-}
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
 
-export interface GameTimeSegment {
-  game: string;
-  provider: string | null;
-  category: string;
-  startSeconds: number;
-  endSeconds: number;
-  durationSeconds: number;
-}
-
-export interface AiVodAnalysis {
-  games: AiGameDetection[];
-  gameTimeline: GameTimeSegment[];
-}
-
-/**
- * Motor de comunicação com o Supabase Edge Functions
- */
-async function callScanner(body: Record<string, unknown>) {
-  const { data, error } = await supabase.functions.invoke("scanner-pipeline", { body });
-  if (error) throw new Error(error.message);
-  if (data?.error) throw new Error(data.error);
-  return data;
-}
-
-// ─── Ações do Pipeline Original ──────────────────
-
-export async function saveRawEvidences(evidences: any[], processingBatchId?: string) {
-  return callScanner({ action: "save_raw_evidences", evidences, processing_batch_id: processingBatchId });
-}
-
-export async function validateVod(vodId: string) {
-  return callScanner({ action: "validate_vod", vod_id: vodId });
-}
-
-export async function consolidateVod(vodId: string) {
-  return callScanner({ action: "consolidate_vod", vod_id: vodId });
-}
-
-export async function computeMetrics(vodId: string, vodDurationSeconds?: number) {
-  return callScanner({ action: "compute_metrics", vod_id: vodId, vod_duration_seconds: vodDurationSeconds });
-}
-
-/**
- * runPipeline: O comando mestre que agora inclui a reconciliação automática
- */
-export async function runPipeline(vodId: string, streamerLogin: string, vodDurationSeconds?: number) {
-  // 1. Executa o pipeline padrão (Validação -> Consolidação -> Métricas)
-  const result = await callScanner({ 
-    action: "run_pipeline", 
-    vod_id: vodId, 
-    streamer_login: streamerLogin, 
-    vod_duration_seconds: vodDurationSeconds 
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-
-  // 2. Após o pipeline, executa a reconciliação para corrigir erros da Twitch com a IA
-  if (vodDurationSeconds) {
-    try {
-      await reconcileAndCorrectSnapshots(vodId, streamerLogin, vodDurationSeconds);
-    } catch (e) {
-      console.error("Erro na reconciliação automática:", e);
-    }
-  }
-  
-  return result;
 }
 
-// ─── Lógica de Reconciliação IA vs Twitch ──────────────────
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-/**
- * reconcileAndCorrectSnapshots: O "Cérebro" Corretor
- * Esta função busca os snapshots (dados da Twitch) e os corrige usando a análise da IA.
- */
-export async function reconcileAndCorrectSnapshots(
-  vodId: string, 
-  streamerLogin: string, 
-  vodDurationSeconds: number
-) {
-  console.log(`[Reconciliação] Iniciando auditoria para VOD ${vodId} de ${streamerLogin}`);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase = createClient(supabaseUrl, serviceKey);
 
-  // 1. Busca os snapshots (dados da Twitch) salvos durante a live
-  const { data: snapshots, error: snapError } = await supabase
-    .from("stream_snapshots")
-    .select("id, game_name, captured_at")
-    .eq("streamer_login", streamerLogin)
-    .order("captured_at", { ascending: true });
+  try {
+    const body = await req.json();
+    const { action } = body;
 
-  if (snapError || !snapshots || snapshots.length === 0) {
-    console.warn("[Reconciliação] Nenhum snapshot encontrado para corrigir.");
-    return;
-  }
+    // ─── Save Raw Evidences ──────────────────
+    if (action === "save_raw_evidences") {
+      const { evidences, processing_batch_id } = body;
+      if (!evidences?.length) return json({ saved: 0 });
 
-  // 2. Busca a análise da IA (Vem da tabela de auditoria preenchida pela analyzeVodFrames)
-  const { data: aiAudit, error: aiError } = await supabase
-    .from("vod_audits")
-    .select("ai_analysis")
-    .eq("vod_id", vodId)
-    .single();
+      const rows = evidences.map((e: any) => ({
+        vod_id: e.vod_id,
+        streamer_login: e.streamer_login,
+        platform: e.platform || "twitch",
+        source_type: e.source_type || "vod",
+        source_id: e.source_id || e.vod_id,
+        timestamp_seconds: e.timestamp_seconds || 0,
+        game_detected: e.game || null,
+        provider_detected: e.provider || null,
+        confidence_score: e.confidence || 0,
+        processing_batch_id: processing_batch_id || null,
+        validation_status: "pending",
+        is_valid: true,
+      }));
 
-  if (aiError || !aiAudit?.ai_analysis) {
-    console.warn("[Reconciliação] Análise de IA não encontrada para este VOD.");
-    return;
-  }
+      const { error } = await supabase.from("raw_evidences").insert(rows);
+      if (error) throw new Error(`save_raw_evidences: ${error.message}`);
+      return json({ saved: rows.length });
+    }
 
-  const analysis = aiAudit.ai_analysis as unknown as AiVodAnalysis;
-  const timeline = analysis.gameTimeline;
+    // ─── Validate VOD ──────────────────
+    if (action === "validate_vod") {
+      const { vod_id } = body;
+      const { data: evidences } = await supabase
+        .from("raw_evidences")
+        .select("*")
+        .eq("vod_id", vod_id)
+        .eq("validation_status", "pending");
 
-  // 3. Processa as correções
-  const corrections = [];
-  const CONFIDENCE_THRESHOLD = 0.75; // Só corrigimos se a IA tiver >75% de certeza
+      if (!evidences?.length) return json({ validated: 0 });
 
-  for (const snapshot of snapshots) {
-    const snapTime = new Date(snapshot.captured_at).getTime() / 1000;
-    
-    // Encontra o que a IA viu nesse exato segundo
-    const aiView = timeline.find(seg => 
-      snapTime >= seg.startSeconds && snapTime <= seg.endSeconds
-    );
+      let valid = 0, discarded = 0;
+      for (const ev of evidences) {
+        const isValid = (ev.confidence_score || 0) >= 0.3;
+        await supabase.from("raw_evidences").update({
+          is_valid: isValid,
+          validation_status: isValid ? "valid" : "discarded",
+          discard_reason: isValid ? null : "low_confidence",
+        }).eq("id", ev.id);
+        if (isValid) valid++; else discarded++;
+      }
 
-    if (aiView) {
-      // REGRA: Se a IA viu um jogo diferente e o título da live está errado, IA vence.
-      if (aiView.game !== snapshot.game_name) {
-        corrections.push({
-          id: snapshot.id,
-          game_name: aiView.game, // IA corrige o nome do jogo
-          is_ai_verified: true,
-          ai_confidence: "high" // Baseado no nosso threshold
+      return json({ validated: valid, discarded });
+    }
+
+    // ─── Consolidate VOD into Gameplay Blocks ──────────────────
+    if (action === "consolidate_vod") {
+      const { vod_id } = body;
+      const { data: evidences } = await supabase
+        .from("raw_evidences")
+        .select("*")
+        .eq("vod_id", vod_id)
+        .eq("is_valid", true)
+        .order("timestamp_seconds", { ascending: true });
+
+      if (!evidences?.length) return json({ blocks: 0 });
+
+      // Group consecutive evidences of same game into blocks
+      // Persistence rule: need 2+ consecutive frames (2 min rule)
+      const blocks: any[] = [];
+      let current: any = null;
+
+      for (const ev of evidences) {
+        if (!current || current.game !== ev.game_detected || (ev.timestamp_seconds - current.endSec) > 180) {
+          if (current && current.count >= 2) {
+            blocks.push(current);
+          }
+          current = {
+            game: ev.game_detected,
+            provider: ev.provider_detected,
+            startSec: ev.timestamp_seconds,
+            endSec: ev.timestamp_seconds + 60,
+            confidences: [ev.confidence_score],
+            count: 1,
+          };
+        } else {
+          current.endSec = ev.timestamp_seconds + 60;
+          current.confidences.push(ev.confidence_score);
+          current.count++;
+        }
+      }
+      if (current && current.count >= 2) blocks.push(current);
+
+      // Get streamer_login from first evidence
+      const streamerLogin = evidences[0].streamer_login;
+
+      // Save blocks
+      const blockRows = blocks.map(b => ({
+        vod_id,
+        streamer_login: streamerLogin,
+        platform: "twitch",
+        source_type: "vod",
+        source_id: vod_id,
+        game_name: b.game,
+        provider_name: b.provider,
+        start_seconds: b.startSec,
+        end_seconds: b.endSec,
+        duration_seconds: b.endSec - b.startSec,
+        evidence_count: b.count,
+        confidence_avg: b.confidences.reduce((a: number, c: number) => a + c, 0) / b.confidences.length,
+        confidence_min: Math.min(...b.confidences),
+        confidence_max: Math.max(...b.confidences),
+        status: "confirmed",
+      }));
+
+      // Also track discarded single-frame detections
+      const discardedBlocks: any[] = [];
+      current = null;
+      for (const ev of evidences) {
+        if (!current || current.game !== ev.game_detected || (ev.timestamp_seconds - current.endSec) > 180) {
+          if (current && current.count < 2) {
+            discardedBlocks.push(current);
+          }
+          current = {
+            game: ev.game_detected,
+            provider: ev.provider_detected,
+            startSec: ev.timestamp_seconds,
+            endSec: ev.timestamp_seconds + 60,
+            confidences: [ev.confidence_score],
+            count: 1,
+          };
+        } else {
+          current.endSec = ev.timestamp_seconds + 60;
+          current.confidences.push(ev.confidence_score);
+          current.count++;
+        }
+      }
+      if (current && current.count < 2) discardedBlocks.push(current);
+
+      const discardedRows = discardedBlocks.map(b => ({
+        vod_id,
+        streamer_login: streamerLogin,
+        platform: "twitch",
+        source_type: "vod",
+        source_id: vod_id,
+        game_name: b.game,
+        provider_name: b.provider,
+        start_seconds: b.startSec,
+        end_seconds: b.endSec,
+        duration_seconds: b.endSec - b.startSec,
+        evidence_count: b.count,
+        confidence_avg: b.confidences.reduce((a: number, c: number) => a + c, 0) / b.confidences.length,
+        confidence_min: Math.min(...b.confidences),
+        confidence_max: Math.max(...b.confidences),
+        status: "discarded",
+        discard_reason: "single_frame_noise",
+      }));
+
+      const allRows = [...blockRows, ...discardedRows];
+      if (allRows.length > 0) {
+        const { error } = await supabase.from("gameplay_blocks").insert(allRows);
+        if (error) throw new Error(`consolidate: ${error.message}`);
+      }
+
+      return json({ confirmed: blockRows.length, discarded: discardedRows.length });
+    }
+
+    // ─── Compute Metrics (vod_audits) ──────────────────
+    if (action === "compute_metrics") {
+      const { vod_id, vod_duration_seconds } = body;
+
+      const { data: evidences } = await supabase
+        .from("raw_evidences")
+        .select("id, is_valid, validation_status")
+        .eq("vod_id", vod_id);
+
+      const { data: blocks } = await supabase
+        .from("gameplay_blocks")
+        .select("*")
+        .eq("vod_id", vod_id);
+
+      const totalEvidences = evidences?.length || 0;
+      const validEvidences = evidences?.filter(e => e.is_valid)?.length || 0;
+      const discardedEvidences = totalEvidences - validEvidences;
+
+      const confirmedBlocks = blocks?.filter(b => b.status === "confirmed") || [];
+      const suspectBlocks = blocks?.filter(b => b.status === "suspect") || [];
+      const discardedBlocks = blocks?.filter(b => b.status === "discarded") || [];
+
+      const processedDuration = confirmedBlocks.reduce((sum, b) => sum + (b.duration_seconds || 0), 0);
+      const vodDuration = vod_duration_seconds || 3600;
+      const coverage = Math.min(100, Math.round((processedDuration / vodDuration) * 100));
+
+      const allConfidences = confirmedBlocks.map(b => b.confidence_avg || 0);
+      const avgConfidence = allConfidences.length > 0
+        ? allConfidences.reduce((a, c) => a + c, 0) / allConfidences.length
+        : 0;
+
+      // Determine quality status
+      let qualityStatus = "unknown";
+      if (totalEvidences === 0) {
+        qualityStatus = "unknown";
+      } else if (coverage >= 70 && avgConfidence >= 0.75) {
+        qualityStatus = "good";
+      } else if (coverage >= 40 || avgConfidence >= 0.5) {
+        qualityStatus = "fair";
+      } else {
+        qualityStatus = "poor";
+      }
+
+      // Determine overall status
+      let status: string;
+      if (totalEvidences === 0) {
+        status = "completed"; // No casino content found is a valid result
+      } else if (confirmedBlocks.length > 0) {
+        status = "completed";
+      } else if (suspectBlocks.length > 0) {
+        status = "needs_review";
+      } else {
+        status = "completed";
+      }
+
+      const auditRow = {
+        vod_id,
+        streamer_login: confirmedBlocks[0]?.streamer_login || blocks?.[0]?.streamer_login || "unknown",
+        platform: "twitch",
+        status,
+        vod_duration_seconds: vodDuration,
+        processed_duration_seconds: processedDuration,
+        coverage_percent: coverage,
+        confidence_score: Math.round(avgConfidence * 100), // Store as 0-100 percentage
+        total_evidences: totalEvidences,
+        valid_evidences: validEvidences,
+        discarded_evidences: discardedEvidences,
+        confirmed_blocks: confirmedBlocks.length,
+        suspect_blocks: suspectBlocks.length,
+        discarded_blocks: discardedBlocks.length,
+        data_quality_status: qualityStatus,
+        completed_at: new Date().toISOString(),
+        started_at: new Date().toISOString(),
+      };
+
+      // Upsert by vod_id
+      const { data: existing } = await supabase
+        .from("vod_audits")
+        .select("id")
+        .eq("vod_id", vod_id)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase.from("vod_audits").update(auditRow).eq("vod_id", vod_id);
+      } else {
+        await supabase.from("vod_audits").insert(auditRow);
+      }
+
+      return json({ status, coverage, confidence: Math.round(avgConfidence * 100), confirmedBlocks: confirmedBlocks.length });
+    }
+
+    // ─── Run Full Pipeline ──────────────────
+    if (action === "run_pipeline") {
+      const { vod_id, streamer_login, vod_duration_seconds } = body;
+
+      // Step 1: Validate
+      const validateRes = await handleAction(supabase, { action: "validate_vod", vod_id });
+      
+      // Step 2: Consolidate
+      const consolidateRes = await handleAction(supabase, { action: "consolidate_vod", vod_id });
+      
+      // Step 3: Compute metrics
+      const metricsRes = await handleAction(supabase, { action: "compute_metrics", vod_id, vod_duration_seconds });
+
+      // Log pipeline run
+      await supabase.from("pipeline_audit_logs").insert({
+        action: "run_pipeline",
+        entity_type: "vod",
+        entity_id: vod_id,
+        vod_id,
+        details: { streamer_login, validate: validateRes, consolidate: consolidateRes, metrics: metricsRes },
+      });
+
+      return json({ pipeline: "completed", vod_id, validate: validateRes, consolidate: consolidateRes, metrics: metricsRes });
+    }
+
+    // ─── Get VOD Audit Detail ──────────────────
+    if (action === "get_vod_audit_detail") {
+      const { vod_id } = body;
+
+      const [blocksRes, evidencesRes, logsRes] = await Promise.all([
+        supabase.from("gameplay_blocks").select("*").eq("vod_id", vod_id).order("start_seconds"),
+        supabase.from("raw_evidences").select("id, is_valid, validation_status, confidence_score, game_detected, provider_detected").eq("vod_id", vod_id),
+        supabase.from("pipeline_audit_logs").select("*").eq("vod_id", vod_id).order("created_at", { ascending: false }).limit(20),
+      ]);
+
+      const evidences = evidencesRes.data || [];
+      return json({
+        blocks: blocksRes.data || [],
+        logs: logsRes.data || [],
+        evidence_summary: {
+          total: evidences.length,
+          valid: evidences.filter(e => e.is_valid).length,
+          discarded: evidences.filter(e => !e.is_valid).length,
+        },
+      });
+    }
+
+    // ─── Review Block ──────────────────
+    if (action === "review_block") {
+      const { block_id, new_status, review_notes, reviewer_id } = body;
+      const { error } = await supabase.from("gameplay_blocks").update({
+        status: new_status,
+        review_notes,
+        reviewed_by: reviewer_id || null,
+        reviewed_at: new Date().toISOString(),
+      }).eq("id", block_id);
+      if (error) throw new Error(error.message);
+
+      await supabase.from("pipeline_audit_logs").insert({
+        action: "review_block",
+        entity_type: "gameplay_block",
+        entity_id: block_id,
+        details: { new_status, review_notes },
+        performed_by: reviewer_id || null,
+      });
+
+      return json({ success: true });
+    }
+
+    // ─── Request Reprocess ──────────────────
+    if (action === "request_reprocess") {
+      const { vod_id, streamer_login } = body;
+      // Clear existing data for this VOD
+      await supabase.from("gameplay_blocks").delete().eq("vod_id", vod_id);
+      await supabase.from("raw_evidences").delete().eq("vod_id", vod_id);
+      await supabase.from("vod_audits").update({ status: "reprocessed" }).eq("vod_id", vod_id);
+      return json({ reprocessed: true, vod_id });
+    }
+
+    // ─── Get Dashboard Data ──────────────────
+    if (action === "get_dashboard") {
+      const { date_from, date_to, platform, provider_id, game_id, streamer, block_status_filter } = body;
+
+      let query = supabase.from("gameplay_blocks").select("*");
+      if (streamer) query = query.eq("streamer_login", streamer);
+      if (platform) query = query.eq("platform", platform);
+      if (block_status_filter && block_status_filter !== "all") query = query.eq("status", block_status_filter);
+      if (date_from) query = query.gte("created_at", date_from);
+      if (date_to) query = query.lte("created_at", date_to);
+
+      const { data: blocks } = await query.order("created_at", { ascending: false }).limit(500);
+      if (!blocks?.length) {
+        return json({
+          total_exposure_seconds: 0, total_viewer_minutes: 0,
+          unique_streamers: 0, total_detections: 0, avg_vod_coverage: 0,
+          provider_share: {}, game_share: {}, chat_sentiment: {},
         });
       }
+
+      const totalExposure = blocks.reduce((s, b) => s + (b.duration_seconds || 0), 0);
+      const uniqueStreamers = new Set(blocks.map(b => b.streamer_login)).size;
+
+      // Provider and game share by duration
+      const providerShare: Record<string, number> = {};
+      const gameShare: Record<string, number> = {};
+      for (const b of blocks) {
+        if (b.provider_name) providerShare[b.provider_name] = (providerShare[b.provider_name] || 0) + (b.duration_seconds || 0);
+        if (b.game_name) gameShare[b.game_name] = (gameShare[b.game_name] || 0) + (b.duration_seconds || 0);
+      }
+
+      // Get avg coverage from vod_audits
+      const { data: audits } = await supabase.from("vod_audits").select("coverage_percent").limit(100);
+      const avgCoverage = audits?.length
+        ? audits.reduce((s, a) => s + (a.coverage_percent || 0), 0) / audits.length
+        : 0;
+
+      return json({
+        total_exposure_seconds: totalExposure,
+        total_viewer_minutes: Math.round(totalExposure / 60),
+        unique_streamers: uniqueStreamers,
+        total_detections: blocks.length,
+        avg_vod_coverage: avgCoverage,
+        provider_share: providerShare,
+        game_share: gameShare,
+        chat_sentiment: {},
+      });
     }
+
+    // ─── Get Rankings ──────────────────
+    if (action === "get_rankings") {
+      const { rank_by, date_from, date_to, block_status_filter } = body;
+
+      let query = supabase.from("gameplay_blocks").select("*").eq("status", block_status_filter || "confirmed");
+      if (date_from) query = query.gte("created_at", date_from);
+      if (date_to) query = query.lte("created_at", date_to);
+
+      const { data: blocks } = await query.limit(1000);
+      if (!blocks?.length) return json({ rankings: [] });
+
+      const agg: Record<string, { name: string; totalSeconds: number; count: number }> = {};
+      for (const b of blocks) {
+        const key = rank_by === "streamer" ? b.streamer_login
+          : rank_by === "provider" ? (b.provider_name || "Unknown")
+          : (b.game_name || "Unknown");
+        if (!agg[key]) agg[key] = { name: key, totalSeconds: 0, count: 0 };
+        agg[key].totalSeconds += b.duration_seconds || 0;
+        agg[key].count++;
+      }
+
+      const rankings = Object.values(agg)
+        .sort((a, b) => b.totalSeconds - a.totalSeconds)
+        .slice(0, 20)
+        .map((r, i) => ({ rank: i + 1, ...r, totalHours: Math.round(r.totalSeconds / 3600 * 10) / 10 }));
+
+      return json({ rankings });
+    }
+
+    // ─── Get Review Queue ──────────────────
+    if (action === "get_review_queue") {
+      const { data } = await supabase.from("gameplay_blocks")
+        .select("*")
+        .in("status", ["suspect", "needs_review"])
+        .order("created_at", { ascending: false })
+        .limit(50);
+      return json({ queue: data || [] });
+    }
+
+    // ─── Get Quality Metrics ──────────────────
+    if (action === "get_quality_metrics") {
+      const { data: audits } = await supabase.from("vod_audits").select("*").limit(200);
+      if (!audits?.length) return json({ confirmed_blocks: 0, suspect_blocks: 0, false_positive_rate: 0, avg_coverage: 0, avg_confidence: 0 });
+
+      const confirmed = audits.reduce((s, a) => s + (a.confirmed_blocks || 0), 0);
+      const suspect = audits.reduce((s, a) => s + (a.suspect_blocks || 0), 0);
+      const discarded = audits.reduce((s, a) => s + (a.discarded_blocks || 0), 0);
+      const total = confirmed + suspect + discarded;
+      const fpr = total > 0 ? (discarded / total) * 100 : 0;
+      const avgCoverage = audits.reduce((s, a) => s + (a.coverage_percent || 0), 0) / audits.length;
+      const avgConfidence = audits.reduce((s, a) => s + (a.confidence_score || 0), 0) / audits.length;
+
+      return json({ confirmed_blocks: confirmed, suspect_blocks: suspect, false_positive_rate: fpr, avg_coverage: avgCoverage, avg_confidence: avgConfidence });
+    }
+
+    // ─── Get Pipeline Config ──────────────────
+    if (action === "get_pipeline_config") {
+      const { data } = await supabase.from("pipeline_configs").select("*").order("config_key");
+      return json({ configs: data || [] });
+    }
+
+    // ─── Update Pipeline Config ──────────────────
+    if (action === "update_pipeline_config") {
+      const { config_key, config_value } = body;
+      const { error } = await supabase.from("pipeline_configs").upsert({
+        config_key, config_value,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "config_key" });
+      if (error) throw new Error(error.message);
+      return json({ success: true });
+    }
+
+    // ─── Get System Status ──────────────────
+    if (action === "get_status") {
+      const [audits, blocks, queue] = await Promise.all([
+        supabase.from("vod_audits").select("id", { count: "exact", head: true }),
+        supabase.from("gameplay_blocks").select("id", { count: "exact", head: true }),
+        supabase.from("processing_queue").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      ]);
+      return json({
+        total_vods_audited: audits.count || 0,
+        total_blocks: blocks.count || 0,
+        pending_jobs: queue.count || 0,
+      });
+    }
+
+    // ─── Enqueue Job ──────────────────
+    if (action === "enqueue_job") {
+      const { job_type, streamer_login, platform, source_id, priority, metadata } = body;
+      const { error } = await supabase.from("processing_queue").insert({
+        job_type, streamer_login, platform: platform || "twitch",
+        source_id, priority: priority || "normal", metadata: metadata || {},
+      });
+      if (error) throw new Error(error.message);
+      return json({ enqueued: true });
+    }
+
+    // ─── Get Queue ──────────────────
+    if (action === "get_queue") {
+      const { status } = body;
+      let query = supabase.from("processing_queue").select("*");
+      if (status) query = query.eq("status", status);
+      const { data } = await query.order("created_at", { ascending: false }).limit(50);
+      return json({ queue: data || [] });
+    }
+
+    // ─── Get Chat Stats ──────────────────
+    if (action === "get_chat_stats") {
+      const { streamer_login, date_from, date_to } = body;
+      let query = supabase.from("chat_messages").select("sentiment_label");
+      if (streamer_login) query = query.eq("streamer_login", streamer_login);
+      if (date_from) query = query.gte("message_at", date_from);
+      if (date_to) query = query.lte("message_at", date_to);
+      const { data } = await query.limit(1000);
+
+      const sentiment: Record<string, number> = { positive: 0, neutral: 0, negative: 0 };
+      for (const m of (data || [])) {
+        if (m.sentiment_label && sentiment[m.sentiment_label] !== undefined) {
+          sentiment[m.sentiment_label]++;
+        }
+      }
+      return json({ sentiment, total: data?.length || 0 });
+    }
+
+    return json({ error: "Unknown action: " + action }, 400);
+  } catch (error: unknown) {
+    console.error("Scanner pipeline error:", error);
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return json({ error: msg }, 500);
+  }
+});
+
+// Helper to call actions internally during pipeline
+async function handleAction(supabase: any, body: any): Promise<any> {
+  const { action, vod_id, vod_duration_seconds } = body;
+
+  if (action === "validate_vod") {
+    const { data: evidences } = await supabase
+      .from("raw_evidences").select("*").eq("vod_id", vod_id).eq("validation_status", "pending");
+    if (!evidences?.length) return { validated: 0 };
+    let valid = 0, discarded = 0;
+    for (const ev of evidences) {
+      const isValid = (ev.confidence_score || 0) >= 0.3;
+      await supabase.from("raw_evidences").update({
+        is_valid: isValid, validation_status: isValid ? "valid" : "discarded",
+        discard_reason: isValid ? null : "low_confidence",
+      }).eq("id", ev.id);
+      if (isValid) valid++; else discarded++;
+    }
+    return { validated: valid, discarded };
   }
 
-  // 4. Aplica as correções no banco de dados (Batch Update)
-  if (corrections.length > 0) {
-    const { error: updateError } = await supabase
-      .from("stream_snapshots")
-      .upsert(corrections);
+  if (action === "consolidate_vod") {
+    const { data: evidences } = await supabase
+      .from("raw_evidences").select("*").eq("vod_id", vod_id).eq("is_valid", true)
+      .order("timestamp_seconds", { ascending: true });
+    if (!evidences?.length) return { blocks: 0 };
 
-    if (updateError) throw new Error(`Erro ao salvar correções: ${updateError.message}`);
-    console.log(`[Reconciliação] Sucesso! ${corrections.length} erros da Twitch foram corrigidos pela IA.`);
+    const blocks: any[] = [];
+    let current: any = null;
+    for (const ev of evidences) {
+      if (!current || current.game !== ev.game_detected || (ev.timestamp_seconds - current.endSec) > 180) {
+        if (current && current.count >= 2) blocks.push(current);
+        current = { game: ev.game_detected, provider: ev.provider_detected, startSec: ev.timestamp_seconds, endSec: ev.timestamp_seconds + 60, confidences: [ev.confidence_score], count: 1 };
+      } else {
+        current.endSec = ev.timestamp_seconds + 60;
+        current.confidences.push(ev.confidence_score);
+        current.count++;
+      }
+    }
+    if (current && current.count >= 2) blocks.push(current);
+
+    const streamerLogin = evidences[0].streamer_login;
+    const rows = blocks.map(b => ({
+      vod_id, streamer_login: streamerLogin, platform: "twitch", source_type: "vod", source_id: vod_id,
+      game_name: b.game, provider_name: b.provider, start_seconds: b.startSec, end_seconds: b.endSec,
+      duration_seconds: b.endSec - b.startSec, evidence_count: b.count,
+      confidence_avg: b.confidences.reduce((a: number, c: number) => a + c, 0) / b.confidences.length,
+      confidence_min: Math.min(...b.confidences), confidence_max: Math.max(...b.confidences), status: "confirmed",
+    }));
+    if (rows.length > 0) await supabase.from("gameplay_blocks").insert(rows);
+    return { confirmed: rows.length };
   }
 
-  return { correctedCount: corrections.length };
-}
+  if (action === "compute_metrics") {
+    const { data: evidences } = await supabase.from("raw_evidences").select("id, is_valid").eq("vod_id", vod_id);
+    const { data: blocks } = await supabase.from("gameplay_blocks").select("*").eq("vod_id", vod_id);
 
-// ─── Ações de Revisão e Auditoria ──────────────────
+    const totalEv = evidences?.length || 0;
+    const validEv = evidences?.filter((e: any) => e.is_valid)?.length || 0;
+    const confirmed = blocks?.filter((b: any) => b.status === "confirmed") || [];
+    const processedDur = confirmed.reduce((s: number, b: any) => s + (b.duration_seconds || 0), 0);
+    const vodDur = vod_duration_seconds || 3600;
+    const coverage = Math.min(100, Math.round((processedDur / vodDur) * 100));
+    const confs = confirmed.map((b: any) => b.confidence_avg || 0);
+    const avgConf = confs.length ? confs.reduce((a: number, c: number) => a + c, 0) / confs.length : 0;
 
-export async function reviewBlock(blockId: string, newStatus: string, reviewNotes?: string, reviewerId?: string) {
-  return callScanner({ action: "review_block", block_id: blockId, new_status: newStatus, review_notes: reviewNotes, reviewer_id: reviewerId });
-}
+    const auditRow = {
+      vod_id, streamer_login: blocks?.[0]?.streamer_login || "unknown", platform: "twitch",
+      status: "completed", vod_duration_seconds: vodDur, processed_duration_seconds: processedDur,
+      coverage_percent: coverage, confidence_score: Math.round(avgConf * 100),
+      total_evidences: totalEv, valid_evidences: validEv, discarded_evidences: totalEv - validEv,
+      confirmed_blocks: confirmed.length, suspect_blocks: blocks?.filter((b: any) => b.status === "suspect")?.length || 0,
+      discarded_blocks: blocks?.filter((b: any) => b.status === "discarded")?.length || 0,
+      completed_at: new Date().toISOString(),
+    };
 
-export async function requestReprocess(vodId: string, streamerLogin?: string) {
-  return callScanner({ action: "request_reprocess", vod_id: vodId, streamer_login: streamerLogin });
-}
+    const { data: existing } = await supabase.from("vod_audits").select("id").eq("vod_id", vod_id).maybeSingle();
+    if (existing) await supabase.from("vod_audits").update(auditRow).eq("vod_id", vod_id);
+    else await supabase.from("vod_audits").insert(auditRow);
 
-export async function getVodAuditDetail(vodId: string) {
-  return callScanner({ action: "get_vod_audit_detail", vod_id: vodId });
-}
+    return { coverage, confidence: Math.round(avgConf * 100), confirmed: confirmed.length };
+  }
 
-export async function getDashboardData(filters: any) {
-  return callScanner({ action: "get_dashboard", ...filters });
-}
-
-export async function getRankings(params: any) {
-  return callScanner({ action: "get_rankings", ...params });
-}
-
-// ─── Consultas Diretas ao Banco (Referência) ──────────────────
-
-export async function getProviders() {
-  const { data } = await supabase.from("providers").select("*").order("name");
-  return data || [];
-}
-
-export async function getGames(providerId?: string) {
-  let query = supabase.from("games").select("*");
-  if (providerId) query = query.eq("provider_id", providerId);
-  const { data } = await query.order("name");
-  return data || [];
+  return {};
 }
