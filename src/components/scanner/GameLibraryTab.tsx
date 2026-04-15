@@ -9,8 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Loader2, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, Clock, Zap,
-  ChevronDown, ChevronUp, Upload,
+  ChevronDown, ChevronUp, Upload, PlayCircle,
 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { BulkImportTab } from "./BulkImportTab";
 
 interface VisualDNA {
