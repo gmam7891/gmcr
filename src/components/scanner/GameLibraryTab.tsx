@@ -135,6 +135,45 @@ export function GameLibraryTab() {
 
   const trainedCount = library.filter(e => e.training_status === "trained").length;
   const processingCount = library.filter(e => e.training_status === "processing").length;
+  const pendingCount = library.filter(e => e.training_status === "pending" || e.training_status === "failed").length;
+
+  const handleBatchTrain = async () => {
+    const pendingGames = library.filter(e => e.training_status === "pending" || e.training_status === "failed");
+    if (pendingGames.length === 0) {
+      toast.error("Nenhum jogo pendente para treinar");
+      return;
+    }
+    setBatchTraining(true);
+    setBatchProgress({ current: 0, total: pendingGames.length, currentGame: "" });
+    setBatchResults({ trained: 0, failed: 0 });
+
+    let trained = 0;
+    let failed = 0;
+
+    for (let i = 0; i < pendingGames.length; i++) {
+      const game = pendingGames[i];
+      setBatchProgress({ current: i + 1, total: pendingGames.length, currentGame: game.game_name });
+
+      try {
+        const { data, error } = await supabase.functions.invoke("game-scrapper", {
+          body: { action: "train_single", id: game.id },
+        });
+        if (error) throw error;
+        if (data?.status === "trained") {
+          trained++;
+        } else {
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+      setBatchResults({ trained, failed });
+    }
+
+    setBatchTraining(false);
+    toast.success(`Treinamento concluído: ${trained} treinados, ${failed} erros`);
+    fetchLibrary();
+  };
 
   return (
     <Tabs defaultValue="library" className="space-y-4">
