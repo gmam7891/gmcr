@@ -261,7 +261,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             model: 'google/gemini-2.5-flash',
             messages: [
-              { role: 'system', content: FORENSIC_SYSTEM_PROMPT },
+              { role: 'system', content: enhancedPrompt },
               {
                 role: 'user',
                 content: [
@@ -288,7 +288,7 @@ Deno.serve(async (req) => {
               body: JSON.stringify({
                 model: 'google/gemini-2.5-flash',
                 messages: [
-                  { role: 'system', content: FORENSIC_SYSTEM_PROMPT },
+                  { role: 'system', content: enhancedPrompt },
                   {
                     role: 'user',
                     content: [
