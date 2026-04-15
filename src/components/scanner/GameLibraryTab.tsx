@@ -9,8 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Loader2, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, Clock, Zap,
-  ChevronDown, ChevronUp, Upload,
+  ChevronDown, ChevronUp, Upload, PlayCircle,
 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { BulkImportTab } from "./BulkImportTab";
 
 interface VisualDNA {
@@ -70,6 +71,9 @@ export function GameLibraryTab() {
   const [gameName, setGameName] = useState("");
   const [training, setTraining] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [batchTraining, setBatchTraining] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentGame: "" });
+  const [batchResults, setBatchResults] = useState({ trained: 0, failed: 0 });
 
   const fetchLibrary = async () => {
     setLoading(true);
@@ -131,6 +135,45 @@ export function GameLibraryTab() {
 
   const trainedCount = library.filter(e => e.training_status === "trained").length;
   const processingCount = library.filter(e => e.training_status === "processing").length;
+  const pendingCount = library.filter(e => e.training_status === "pending" || e.training_status === "failed").length;
+
+  const handleBatchTrain = async () => {
+    const pendingGames = library.filter(e => e.training_status === "pending" || e.training_status === "failed");
+    if (pendingGames.length === 0) {
+      toast.error("Nenhum jogo pendente para treinar");
+      return;
+    }
+    setBatchTraining(true);
+    setBatchProgress({ current: 0, total: pendingGames.length, currentGame: "" });
+    setBatchResults({ trained: 0, failed: 0 });
+
+    let trained = 0;
+    let failed = 0;
+
+    for (let i = 0; i < pendingGames.length; i++) {
+      const game = pendingGames[i];
+      setBatchProgress({ current: i + 1, total: pendingGames.length, currentGame: game.game_name });
+
+      try {
+        const { data, error } = await supabase.functions.invoke("game-scrapper", {
+          body: { action: "train_single", id: game.id },
+        });
+        if (error) throw error;
+        if (data?.status === "trained") {
+          trained++;
+        } else {
+          failed++;
+        }
+      } catch {
+        failed++;
+      }
+      setBatchResults({ trained, failed });
+    }
+
+    setBatchTraining(false);
+    toast.success(`Treinamento concluído: ${trained} treinados, ${failed} erros`);
+    fetchLibrary();
+  };
 
   return (
     <Tabs defaultValue="library" className="space-y-4">
@@ -167,7 +210,44 @@ export function GameLibraryTab() {
         </Card>
       </div>
 
-      {/* Quick Import Panel */}
+      {/* Batch Train Button */}
+      {pendingCount > 0 && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <PlayCircle className="h-4 w-4 text-primary" />
+                Treinar Todos Pendentes
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                {pendingCount} jogos aguardando treinamento de Visual DNA via IA
+              </p>
+            </div>
+            <Button onClick={handleBatchTrain} disabled={batchTraining} size="sm">
+              {batchTraining ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Treinando...
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  Treinar ({pendingCount})
+                </>
+              )}
+            </Button>
+          </div>
+          {batchTraining && (
+            <div className="space-y-2">
+              <Progress value={(batchProgress.current / batchProgress.total) * 100} />
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span>{batchProgress.current}/{batchProgress.total} — {batchProgress.currentGame}</span>
+                <span>✅ {batchResults.trained} | ❌ {batchResults.failed}</span>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
       <Card className="p-5 space-y-4">
         <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
           <Zap className="h-4 w-4 text-primary" />
