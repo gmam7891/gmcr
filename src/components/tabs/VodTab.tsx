@@ -117,6 +117,7 @@ export function VodTab() {
       // 1) Try real storyboard URLs from Twitch GraphQL
       let selectedUrls: string[] = [];
       let selectedTimestamps: number[] = [];
+      let storyboardInterval = 60; // default for seek thumbnails
 
       try {
         const storyboard = await getStoryboardUrls(vod.id, durationSecs);
@@ -124,11 +125,10 @@ export function VodTab() {
           const strips = storyboard.urls.slice(0, 40);
           const framesPerStrip = storyboard.framesPerStrip || 50;
           const interval = storyboard.interval || 19;
+          storyboardInterval = interval;
 
           selectedUrls = strips;
           selectedTimestamps = strips.map((_, i) => {
-            // Each strip covers framesPerStrip * interval seconds
-            // Use the midpoint of each strip as the representative timestamp
             const stripStartSec = i * framesPerStrip * interval;
             return stripStartSec + Math.floor((framesPerStrip * interval) / 2);
           });
@@ -139,6 +139,7 @@ export function VodTab() {
 
       // 2) Fallback: seek thumbnails
       if (selectedUrls.length === 0) {
+        storyboardInterval = 60;
         const sampledFrames = generateSeekThumbnails(vod.thumbnail_url, durationSecs, 60).slice(0, 40);
         selectedUrls = sampledFrames.map((frame) => frame.url);
         selectedTimestamps = sampledFrames.map((frame) => frame.offset);
@@ -157,9 +158,7 @@ export function VodTab() {
 
       setAiProgress(`${t("vod.analyzing_storyboards").replace("...", "")} (${selectedUrls.length})...`);
 
-      // Pass the storyboard interval so each detection = interval seconds of that game
-      const sampleInterval = storyboardInterval || 60;
-      const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps, sampleInterval);
+      const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps, storyboardInterval);
 
       // Check for empty results and surface a warning
       if (result.games.length === 0 && result.gameTimeline.length === 0) {
