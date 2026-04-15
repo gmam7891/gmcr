@@ -210,7 +210,44 @@ export function GameLibraryTab() {
         </Card>
       </div>
 
-      {/* Quick Import Panel */}
+      {/* Batch Train Button */}
+      {pendingCount > 0 && (
+        <Card className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <PlayCircle className="h-4 w-4 text-primary" />
+                Treinar Todos Pendentes
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                {pendingCount} jogos aguardando treinamento de Visual DNA via IA
+              </p>
+            </div>
+            <Button onClick={handleBatchTrain} disabled={batchTraining} size="sm">
+              {batchTraining ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Treinando...
+                </>
+              ) : (
+                <>
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  Treinar ({pendingCount})
+                </>
+              )}
+            </Button>
+          </div>
+          {batchTraining && (
+            <div className="space-y-2">
+              <Progress value={(batchProgress.current / batchProgress.total) * 100} />
+              <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                <span>{batchProgress.current}/{batchProgress.total} — {batchProgress.currentGame}</span>
+                <span>✅ {batchResults.trained} | ❌ {batchResults.failed}</span>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
       <Card className="p-5 space-y-4">
         <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
           <Zap className="h-4 w-4 text-primary" />
