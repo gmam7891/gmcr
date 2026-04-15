@@ -1,4 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -197,6 +198,37 @@ Deno.serve(async (req) => {
         throw new Error('thumbnail_urls array is required');
       }
 
+      // --- Fetch trained Visual DNA from game_visual_library ---
+      let visualDnaContext = '';
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+        const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+        if (supabaseUrl && supabaseKey) {
+          const sb = createClient(supabaseUrl, supabaseKey);
+          const { data: trainedGames } = await sb
+            .from('game_visual_library')
+            .select('game_name, provider_name, visual_dna')
+            .eq('training_status', 'trained')
+            .not('visual_dna', 'eq', '{}')
+            .limit(200);
+          
+          if (trainedGames && trainedGames.length > 0) {
+            const dnaEntries = trainedGames.map((g: any) => {
+              const dna = g.visual_dna || {};
+              const traits = dna.unique_traits ? dna.unique_traits.join('; ') : '';
+              const keywords = dna.detection_keywords ? dna.detection_keywords.join(', ') : '';
+              return `- "${g.game_name}" (${g.provider_name}): ${traits}${keywords ? ' | Keywords: ' + keywords : ''}`;
+            }).join('\n');
+            visualDnaContext = `\n\n## JOGOS TREINADOS (REFERÊNCIA VISUAL PRIORITÁRIA):\nOs seguintes jogos foram previamente analisados. Use estas características para identificá-los com alta confiança:\n${dnaEntries}`;
+            console.log(`[FORENSIC] Loaded ${trainedGames.length} trained game DNAs for enhanced detection`);
+          }
+        }
+      } catch (dnaErr) {
+        console.error('[FORENSIC] Failed to load Visual DNA (non-fatal):', dnaErr);
+      }
+
+      const enhancedPrompt = FORENSIC_SYSTEM_PROMPT + visualDnaContext;
+
       const hasTimestamps = timestamps && Array.isArray(timestamps) && timestamps.length === thumbnail_urls.length;
       // Each detection = one sample worth of time. Default 60s, but storyboards pass the real interval.
       const sampleDuration = sample_interval && sample_interval > 0 ? sample_interval : 60;
@@ -229,7 +261,7 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             model: 'google/gemini-2.5-flash',
             messages: [
-              { role: 'system', content: FORENSIC_SYSTEM_PROMPT },
+              { role: 'system', content: enhancedPrompt },
               {
                 role: 'user',
                 content: [
@@ -256,7 +288,7 @@ Deno.serve(async (req) => {
               body: JSON.stringify({
                 model: 'google/gemini-2.5-flash',
                 messages: [
-                  { role: 'system', content: FORENSIC_SYSTEM_PROMPT },
+                  { role: 'system', content: enhancedPrompt },
                   {
                     role: 'user',
                     content: [
