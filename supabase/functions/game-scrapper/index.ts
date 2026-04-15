@@ -129,9 +129,10 @@ serve(async (req) => {
       }
 
       // Step 2: Upload screenshots to storage
+      const ALLOWED_SCREENSHOT_KEYS = ["logo", "hud", "paytable"];
       const uploadedUrls: Record<string, string> = {};
       for (const [key, base64] of Object.entries(screenshots)) {
-        if (!base64 || key === "pageTitle") continue;
+        if (!base64 || typeof base64 !== "string" || !ALLOWED_SCREENSHOT_KEYS.includes(key)) continue;
         try {
           const buffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
           const path = `${provider_slug}/${recordId}/${key}.png`;
