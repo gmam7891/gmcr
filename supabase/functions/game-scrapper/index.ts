@@ -205,6 +205,68 @@ serve(async (req) => {
       });
     }
 
+    if (action === "bulk_import") {
+      const { games } = payload;
+      if (!Array.isArray(games) || games.length === 0) throw new Error("games array required");
+      if (games.length > 500) throw new Error("Maximum 500 games per import");
+
+      // Fetch existing games for dedup
+      const { data: existing } = await supabase
+        .from("game_visual_library")
+        .select("game_name, provider_slug");
+      const existingSet = new Set(
+        (existing || []).map(e => `${e.game_name.toLowerCase()}|${e.provider_slug.toLowerCase()}`)
+      );
+
+      const results: Array<{ game_name: string; provider: string; status: string; error?: string }> = [];
+
+      for (const game of games) {
+        const { game_name, provider, url } = game;
+        if (!game_name) {
+          results.push({ game_name: game_name || "?", provider: provider || "?", status: "error", error: "Missing name" });
+          continue;
+        }
+
+        const providerSlug = provider
+          ? provider.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")
+          : "unknown";
+
+        const key = `${game_name.toLowerCase()}|${providerSlug}`;
+        if (existingSet.has(key)) {
+          results.push({ game_name, provider, status: "duplicate" });
+          continue;
+        }
+
+        try {
+          const providerName = provider || providerSlug.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+          const { error: insertErr } = await supabase.from("game_visual_library").insert({
+            game_name,
+            provider_name: providerName,
+            provider_slug: providerSlug,
+            source_url: url || null,
+            training_status: "pending",
+          });
+          if (insertErr) throw insertErr;
+          existingSet.add(key); // prevent intra-batch duplicates
+          results.push({ game_name, provider, status: "done" });
+        } catch (e: any) {
+          results.push({ game_name, provider, status: "error", error: e.message });
+        }
+      }
+
+      const imported = results.filter(r => r.status === "done").length;
+      const duplicates = results.filter(r => r.status === "duplicate").length;
+      const errors = results.filter(r => r.status === "error").length;
+
+      console.log(`[SCRAPPER] Bulk import: ${imported} new, ${duplicates} dups, ${errors} errors`);
+
+      return new Response(JSON.stringify({
+        success: true,
+        results,
+        summary: { imported, duplicates, errors, total: games.length },
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     throw new Error(`Unknown action: ${action}`);
   } catch (e: any) {
     console.error("[SCRAPPER] Error:", e);
