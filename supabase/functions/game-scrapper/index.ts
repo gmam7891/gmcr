@@ -257,7 +257,7 @@ serve(async (req) => {
       for (let i = 0; i < toInsert.length; i += CHUNK) {
         const chunk = toInsert.slice(i, i + CHUNK);
         const map = insertMap.slice(i, i + CHUNK);
-        const { error: insertErr } = await supabase.from("game_visual_library").insert(chunk);
+        const { error: insertErr } = await supabase.from("game_visual_library").upsert(chunk, { onConflict: "game_name,provider_slug", ignoreDuplicates: true });
         if (insertErr) {
           for (const m of map) results.push({ ...m, status: "error", error: insertErr.message });
         } else {
