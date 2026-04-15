@@ -157,7 +157,9 @@ export function VodTab() {
 
       setAiProgress(`${t("vod.analyzing_storyboards").replace("...", "")} (${selectedUrls.length})...`);
 
-      const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps);
+      // Pass the storyboard interval so each detection = interval seconds of that game
+      const sampleInterval = storyboardInterval || 60;
+      const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps, sampleInterval);
 
       // Check for empty results and surface a warning
       if (result.games.length === 0 && result.gameTimeline.length === 0) {

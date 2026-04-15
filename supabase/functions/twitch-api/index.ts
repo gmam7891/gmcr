@@ -195,12 +195,14 @@ Deno.serve(async (req) => {
 
     // --- Deep VOD analysis with AI Vision (FORENSIC AUDIT) ---
     if (action === 'analyze_vod_frames') {
-      const { thumbnail_urls, vod_title, timestamps } = body;
+      const { thumbnail_urls, vod_title, timestamps, sample_interval } = body;
       if (!thumbnail_urls || !Array.isArray(thumbnail_urls) || thumbnail_urls.length === 0) {
         throw new Error('thumbnail_urls array is required');
       }
 
       const hasTimestamps = timestamps && Array.isArray(timestamps) && timestamps.length === thumbnail_urls.length;
+      // Each detection = one sample worth of time. Default 60s, but storyboards pass the real interval.
+      const sampleDuration = sample_interval && sample_interval > 0 ? sample_interval : 60;
 
       // Process in batches of 5 images per AI call for better accuracy
       const BATCH_SIZE = 5;
@@ -246,7 +248,6 @@ Deno.serve(async (req) => {
         if (!aiRes.ok) {
           const errText = await aiRes.text();
           console.error(`[FORENSIC] AI batch error [${aiRes.status}]:`, errText);
-          // Resolution fallback: retry with lower detail if 413 or similar
           if (aiRes.status === 413 || aiRes.status === 400) {
             console.log(`[FORENSIC] Retrying batch ${batchStart} with low detail...`);
             const retryRes = await fetch(AI_GATEWAY, {
@@ -308,56 +309,96 @@ Deno.serve(async (req) => {
           console.error('[FORENSIC] Failed to parse AI response:', content.slice(0, 300));
         }
 
-        // Delay between batches
         if (batchStart + BATCH_SIZE < thumbnail_urls.length) {
           await new Promise(r => setTimeout(r, 1200));
         }
       }
 
-      // Build timeline from detections sorted by timestamp
-      const gameTimeline: any[] = [];
-      if (hasTimestamps && allDetections.length > 0) {
-        allDetections.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
-        const interval = allDetections.length > 1
-          ? (allDetections[allDetections.length - 1].timestampSeconds - allDetections[0].timestampSeconds) / (allDetections.length - 1)
-          : 60;
+      // === NEW: Per-detection time calculation ===
+      // Handle overlapping detections at the same timestamp: keep highest confidence
+      const confidenceRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
+      const byTimestamp = new Map<number, typeof allDetections>();
+      for (const det of allDetections) {
+        const ts = det.timestampSeconds;
+        if (!byTimestamp.has(ts)) byTimestamp.set(ts, []);
+        byTimestamp.get(ts)!.push(det);
+      }
 
-        let seg = {
-          game: allDetections[0].game, provider: allDetections[0].provider,
-          category: allDetections[0].category, evidence: allDetections[0].evidence || null,
-          startSeconds: Math.max(0, allDetections[0].timestampSeconds - interval / 2),
-          endSeconds: allDetections[0].timestampSeconds + interval / 2,
-        };
-
-        for (let i = 1; i < allDetections.length; i++) {
-          const det = allDetections[i];
-          if (det.game === seg.game && det.provider === seg.provider) {
-            seg.endSeconds = det.timestampSeconds + interval / 2;
-          } else {
-            gameTimeline.push({ ...seg, durationSeconds: Math.round(seg.endSeconds - seg.startSeconds) });
-            seg = {
-              game: det.game, provider: det.provider, category: det.category, evidence: det.evidence || null,
-              startSeconds: det.timestampSeconds - interval / 2,
-              endSeconds: det.timestampSeconds + interval / 2,
-            };
+      // Deduplicate: at each timestamp, keep only one detection per game (highest confidence)
+      const deduped: typeof allDetections = [];
+      for (const [_ts, dets] of byTimestamp) {
+        const bestPerGame = new Map<string, typeof allDetections[0]>();
+        for (const d of dets) {
+          const key = `${d.game}|${d.provider}`;
+          const existing = bestPerGame.get(key);
+          if (!existing || (confidenceRank[d.confidence] || 0) > (confidenceRank[existing.confidence] || 0)) {
+            bestPerGame.set(key, d);
           }
         }
-        gameTimeline.push({ ...seg, durationSeconds: Math.round(seg.endSeconds - seg.startSeconds) });
+        deduped.push(...bestPerGame.values());
       }
 
-      // Unique games with evidence
-      const uniqueGames = new Map<string, any>();
-      for (const det of allDetections) {
+      // Count detections per game and calculate time = count * sampleDuration
+      const gameCountMap = new Map<string, { game: string; provider: string | null; category: string; confidence: string; evidence: string | null; count: number; totalSeconds: number }>();
+      for (const det of deduped) {
         const key = `${det.game}|${det.provider}`;
-        if (!uniqueGames.has(key)) uniqueGames.set(key, det);
+        const existing = gameCountMap.get(key);
+        if (existing) {
+          existing.count += 1;
+          existing.totalSeconds += sampleDuration;
+          // Keep highest confidence
+          if ((confidenceRank[det.confidence] || 0) > (confidenceRank[existing.confidence] || 0)) {
+            existing.confidence = det.confidence;
+          }
+          if (!existing.evidence && det.evidence) existing.evidence = det.evidence;
+        } else {
+          gameCountMap.set(key, {
+            game: det.game,
+            provider: det.provider,
+            category: det.category,
+            confidence: det.confidence,
+            evidence: det.evidence || null,
+            count: 1,
+            totalSeconds: sampleDuration,
+          });
+        }
       }
 
-      console.log(`[FORENSIC] TOTAL: ${allDetections.length} detections, ${uniqueGames.size} unique games, ${gameTimeline.length} timeline segments`);
+      // Build timeline segments from sorted detections for visualization
+      const gameTimeline: any[] = [];
+      const sortedDeduped = [...deduped].sort((a, b) => a.timestampSeconds - b.timestampSeconds);
+      for (const det of sortedDeduped) {
+        const startSec = Math.max(0, det.timestampSeconds);
+        gameTimeline.push({
+          game: det.game,
+          provider: det.provider,
+          category: det.category,
+          evidence: det.evidence || null,
+          startSeconds: startSec,
+          endSeconds: startSec + sampleDuration,
+          durationSeconds: sampleDuration,
+        });
+      }
+
+      // Unique games with detection count and real total time
+      const uniqueGames = Array.from(gameCountMap.values()).map(g => ({
+        game: g.game,
+        provider: g.provider,
+        category: g.category,
+        confidence: g.confidence,
+        evidence: g.evidence,
+        detectionCount: g.count,
+        totalSeconds: g.totalSeconds,
+      }));
+
+      console.log(`[FORENSIC] TOTAL: ${allDetections.length} raw detections, ${deduped.length} deduped, ${uniqueGames.length} unique games, sampleDuration=${sampleDuration}s`);
+      console.log(`[FORENSIC] Per-game times:`, JSON.stringify(uniqueGames.map(g => ({ game: g.game, count: g.detectionCount, totalSec: g.totalSeconds }))));
 
       return jsonResponse({
-        games: Array.from(uniqueGames.values()),
+        games: uniqueGames,
         gameTimeline,
-        totalSamples: allDetections.length,
+        totalSamples: deduped.length,
+        sampleDuration,
       });
     }
 
