@@ -212,7 +212,6 @@ const Scanner = () => {
               <GameLibraryTab />
             </FeatureGate>
           </TabsContent>
-          </TabsContent>
         </Tabs>
       </main>
     </div>
