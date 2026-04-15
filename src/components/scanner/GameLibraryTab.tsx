@@ -139,11 +139,11 @@ export function GameLibraryTab() {
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("scan.lib_total")}</p>
         </Card>
         <Card className="p-4 text-center">
-          <p className="text-2xl font-bold text-green-500">{trainedCount}</p>
+          <p className="text-2xl font-bold text-primary">{trainedCount}</p>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("scan.lib_trained")}</p>
         </Card>
         <Card className="p-4 text-center">
-          <p className="text-2xl font-bold text-blue-500">{processingCount}</p>
+          <p className="text-2xl font-bold text-accent-foreground">{processingCount}</p>
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("scan.lib_processing")}</p>
         </Card>
         <Card className="p-4 text-center">
