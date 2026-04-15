@@ -5,7 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck, Search, Activity } from "lucide-react";
+import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck, Search, Activity, BookOpen } from "lucide-react";
 import { StatusHeader } from "@/components/scanner/StatusHeader";
 import { GlobalFilters, defaultFilters } from "@/components/scanner/GlobalFilters";
 import type { ScannerFilters } from "@/components/scanner/GlobalFilters";
@@ -21,6 +21,7 @@ import { QualityTab } from "@/components/scanner/QualityTab";
 import { ScanStartPanel } from "@/components/scanner/ScanStartPanel";
 import { getDashboardData, getProviders, getGames } from "@/lib/scanner-api";
 import { Badge } from "@/components/ui/badge";
+import { GameLibraryTab } from "@/components/scanner/GameLibraryTab";
 
 const Scanner = () => {
   const { isAdmin, userAccess, signOut } = useAuth();
@@ -75,6 +76,7 @@ const Scanner = () => {
     { id: "quality", label: t("scan.quality_tab"), icon: Activity },
     { id: "vod_quality", label: t("scan.vod_quality"), icon: FileCheck },
     { id: "queue", label: t("scan.queue_tab"), icon: ListChecks },
+    { id: "game_library", label: t("scan.lib_tab"), icon: BookOpen },
   ];
 
   return (
@@ -203,6 +205,13 @@ const Scanner = () => {
             <FeatureGate requiredPlan="Pro" isLocked={!canAccessQueue}>
               <QueueTab />
             </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="game_library">
+            <FeatureGate requiredPlan="Admin" isLocked={!isAdmin}>
+              <GameLibraryTab />
+            </FeatureGate>
+          </TabsContent>
           </TabsContent>
         </Tabs>
       </main>
