@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, formatDuration, formatSeconds, parseDuration, generateSeekThumbnails, type TwitchVod, type VodChapter, type AiVodAnalysis } from "@/lib/twitch-api";
+import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, formatDuration, formatSeconds, parseDuration, getStoryboardUrls, generateSeekThumbnails, type TwitchVod, type VodChapter, type AiVodAnalysis } from "@/lib/twitch-api";
 import { fmtInt } from "@/lib/formatters";
 import { useLanguage } from "@/contexts/LanguageContext";
 import * as XLSX from "xlsx";
@@ -114,10 +114,37 @@ export function VodTab() {
       const durationMins = parseDuration(vod.duration);
       const durationSecs = durationMins * 60;
 
-      const sampledFrames = generateSeekThumbnails(vod.thumbnail_url, durationSecs, 60).slice(0, 40);
-      const selectedUrls = sampledFrames.map((frame) => frame.url);
-      const selectedTimestamps = sampledFrames.map((frame) => frame.offset);
+      // 1) Try real storyboard URLs from Twitch GraphQL
+      let selectedUrls: string[] = [];
+      let selectedTimestamps: number[] = [];
 
+      try {
+        const storyboard = await getStoryboardUrls(vod.id, durationSecs);
+        if (storyboard.urls.length > 0) {
+          const strips = storyboard.urls.slice(0, 40);
+          const framesPerStrip = storyboard.framesPerStrip || 50;
+          const interval = storyboard.interval || 19;
+
+          selectedUrls = strips;
+          selectedTimestamps = strips.map((_, i) => {
+            // Each strip covers framesPerStrip * interval seconds
+            // Use the midpoint of each strip as the representative timestamp
+            const stripStartSec = i * framesPerStrip * interval;
+            return stripStartSec + Math.floor((framesPerStrip * interval) / 2);
+          });
+        }
+      } catch (sbErr) {
+        console.warn('Storyboard fetch failed, trying seek thumbnails:', sbErr);
+      }
+
+      // 2) Fallback: seek thumbnails
+      if (selectedUrls.length === 0) {
+        const sampledFrames = generateSeekThumbnails(vod.thumbnail_url, durationSecs, 60).slice(0, 40);
+        selectedUrls = sampledFrames.map((frame) => frame.url);
+        selectedTimestamps = sampledFrames.map((frame) => frame.offset);
+      }
+
+      // 3) Last fallback: single thumbnail
       if (selectedUrls.length === 0) {
         const fallbackUrl = vod.thumbnail_url.replace('%{width}', '1280').replace('%{height}', '720');
         setAiProgress(t("vod.analyzing_thumb"));
@@ -131,13 +158,32 @@ export function VodTab() {
       setAiProgress(`${t("vod.analyzing_storyboards").replace("...", "")} (${selectedUrls.length})...`);
 
       const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps);
-      setAiResults(prev => ({ ...prev, [vod.id]: result }));
-    } catch (err) {
+
+      // Check for empty results and surface a warning
+      if (result.games.length === 0 && result.gameTimeline.length === 0) {
+        setAiResults(prev => ({
+          ...prev,
+          [vod.id]: {
+            games: [{ game: 'Nenhum jogo detectado', provider: null, category: 'info', confidence: 'low' }],
+            gameTimeline: [],
+          },
+        }));
+      } else {
+        setAiResults(prev => ({ ...prev, [vod.id]: result }));
+      }
+    } catch (err: any) {
       console.error('AI analysis error:', err);
+      const errorMsg = err?.message || String(err);
+      let displayMsg = 'Erro na análise';
+      if (errorMsg.includes('402') || errorMsg.toLowerCase().includes('credit')) {
+        displayMsg = 'Sem créditos de IA — recarregue em Settings > Usage';
+      } else if (errorMsg.includes('400')) {
+        displayMsg = 'Erro na API de IA (400) — imagens podem ser inválidas';
+      }
       setAiResults(prev => ({
         ...prev,
         [vod.id]: {
-          games: [{ game: 'Erro na análise', provider: null, category: 'error', confidence: 'low' }],
+          games: [{ game: displayMsg, provider: null, category: 'error', confidence: 'low' }],
           gameTimeline: [],
         },
       }));
