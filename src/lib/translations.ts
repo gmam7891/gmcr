@@ -667,6 +667,25 @@ const pt = {
   "scan.lib_empty": "Nenhum jogo treinado ainda. Use a importação rápida acima.",
   "scan.lib_tab": "Game Library",
 
+  // Bulk Import
+  "scan.bulk_title": "Importação em Massa",
+  "scan.bulk_desc": "Cole dados brutos de jogos: CSV, JSON, ou listas separadas por linha. O sistema extrairá automaticamente nome do jogo, provedora e URL.",
+  "scan.bulk_placeholder": "Cole aqui os dados dos jogos...\nExemplos:\nSweet Bonanza, Pragmatic Play, https://...\nGates of Olympus - Pragmatic Play\n{\"name\": \"Sugar Rush\", \"provider\": \"Pragmatic Play\"}",
+  "scan.bulk_formats": "Formatos: CSV, TSV, JSON, Nome - Provedora, Nome (Provedora)",
+  "scan.bulk_parse": "Processar e Mapear",
+  "scan.bulk_review": "Revisão",
+  "scan.bulk_games_found": "jogos encontrados",
+  "scan.bulk_new_import": "Nova Importação",
+  "scan.bulk_back": "Voltar",
+  "scan.bulk_confirm": "Confirmar Importação",
+  "scan.bulk_imported": "importados",
+  "scan.bulk_duplicates": "duplicados",
+  "scan.bulk_errors": "erros",
+  "scan.bulk_col_game": "Jogo",
+  "scan.bulk_col_provider": "Provedora",
+  "scan.bulk_processing": "Processando importação em massa...",
+  "scan.bulk_tab": "Importação em Massa",
+
   // Language
   "lang.switch": "English",
 } as const;
@@ -1337,6 +1356,25 @@ const en: Record<keyof typeof pt, string> = {
   "scan.lib_title": "Game Library",
   "scan.lib_empty": "No games trained yet. Use quick import above.",
   "scan.lib_tab": "Game Library",
+
+  // Bulk Import
+  "scan.bulk_title": "Bulk Import",
+  "scan.bulk_desc": "Paste raw game data: CSV, JSON, or line-separated lists. The system will automatically extract game name, provider and URL.",
+  "scan.bulk_placeholder": "Paste game data here...\nExamples:\nSweet Bonanza, Pragmatic Play, https://...\nGates of Olympus - Pragmatic Play\n{\"name\": \"Sugar Rush\", \"provider\": \"Pragmatic Play\"}",
+  "scan.bulk_formats": "Formats: CSV, TSV, JSON, Name - Provider, Name (Provider)",
+  "scan.bulk_parse": "Process & Map",
+  "scan.bulk_review": "Review",
+  "scan.bulk_games_found": "games found",
+  "scan.bulk_new_import": "New Import",
+  "scan.bulk_back": "Back",
+  "scan.bulk_confirm": "Confirm Import",
+  "scan.bulk_imported": "imported",
+  "scan.bulk_duplicates": "duplicates",
+  "scan.bulk_errors": "errors",
+  "scan.bulk_col_game": "Game",
+  "scan.bulk_col_provider": "Provider",
+  "scan.bulk_processing": "Processing bulk import...",
+  "scan.bulk_tab": "Bulk Import",
 
   // Language
   "lang.switch": "Português",
