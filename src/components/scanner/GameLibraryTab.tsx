@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Loader2, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, Clock, Zap,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Upload,
 } from "lucide-react";
+import { BulkImportTab } from "./BulkImportTab";
 
 interface VisualDNA {
   detected_game_name?: string;
@@ -131,7 +133,20 @@ export function GameLibraryTab() {
   const processingCount = library.filter(e => e.training_status === "processing").length;
 
   return (
-    <div className="space-y-6">
+    <Tabs defaultValue="library" className="space-y-4">
+      <TabsList className="bg-secondary/50 border border-border p-1">
+        <TabsTrigger value="library" className="text-xs font-mono uppercase tracking-wider px-3 py-1.5 flex items-center gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+          <BookOpen className="h-3.5 w-3.5" />
+          {t("scan.lib_tab")}
+        </TabsTrigger>
+        <TabsTrigger value="bulk" className="text-xs font-mono uppercase tracking-wider px-3 py-1.5 flex items-center gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+          <Upload className="h-3.5 w-3.5" />
+          {t("scan.bulk_tab")}
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="library">
+      <div className="space-y-6">
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Card className="p-4 text-center">
@@ -351,5 +366,11 @@ export function GameLibraryTab() {
         )}
       </Card>
     </div>
+      </TabsContent>
+
+      <TabsContent value="bulk">
+        <BulkImportTab onComplete={fetchLibrary} />
+      </TabsContent>
+    </Tabs>
   );
 }
