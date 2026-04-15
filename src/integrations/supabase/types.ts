@@ -268,6 +268,57 @@ export type Database = {
           },
         ]
       }
+      game_visual_library: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          game_name: string
+          hud_url: string | null
+          id: string
+          logo_url: string | null
+          metadata: Json | null
+          paytable_url: string | null
+          provider_name: string
+          provider_slug: string
+          source_url: string | null
+          training_status: Database["public"]["Enums"]["training_status"]
+          updated_at: string
+          visual_dna: Json | null
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          game_name: string
+          hud_url?: string | null
+          id?: string
+          logo_url?: string | null
+          metadata?: Json | null
+          paytable_url?: string | null
+          provider_name: string
+          provider_slug: string
+          source_url?: string | null
+          training_status?: Database["public"]["Enums"]["training_status"]
+          updated_at?: string
+          visual_dna?: Json | null
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          game_name?: string
+          hud_url?: string | null
+          id?: string
+          logo_url?: string | null
+          metadata?: Json | null
+          paytable_url?: string | null
+          provider_name?: string
+          provider_slug?: string
+          source_url?: string | null
+          training_status?: Database["public"]["Enums"]["training_status"]
+          updated_at?: string
+          visual_dna?: Json | null
+        }
+        Relationships: []
+      }
       gameplay_blocks: {
         Row: {
           confidence_avg: number
@@ -905,6 +956,7 @@ export type Database = {
         | "chat_ingest"
         | "reconciliation"
         | "reprocess"
+      training_status: "pending" | "processing" | "trained" | "failed"
       vod_status:
         | "queued"
         | "processing"
@@ -1050,6 +1102,7 @@ export const Constants = {
         "reconciliation",
         "reprocess",
       ],
+      training_status: ["pending", "processing", "trained", "failed"],
       vod_status: [
         "queued",
         "processing",
