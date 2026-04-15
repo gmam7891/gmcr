@@ -206,6 +206,94 @@ serve(async (req) => {
       });
     }
 
+    if (action === "train_single") {
+      const { id } = payload;
+      if (!id) throw new Error("id required");
+
+      const { data: entry, error: fetchErr } = await supabase
+        .from("game_visual_library")
+        .select("*")
+        .eq("id", id)
+        .single();
+      if (fetchErr || !entry) throw new Error("Game not found");
+
+      await supabase.from("game_visual_library").update({
+        training_status: "processing",
+        error_message: null,
+      }).eq("id", id);
+
+      try {
+        const profile = PROVIDER_PROFILES[entry.provider_slug] || {
+          focus: `${entry.provider_name} slots`,
+          demoSites: [],
+        };
+
+        // If there's a source_url + Apify, try screenshots
+        let uploadedUrls: Record<string, string> = {};
+        if (entry.source_url && apifyKey) {
+          try {
+            const screenshots = await captureWithApify(apifyKey, entry.source_url, entry.provider_slug);
+            const ALLOWED_SCREENSHOT_KEYS = ["logo", "hud", "paytable"];
+            for (const [key, base64] of Object.entries(screenshots)) {
+              if (!base64 || typeof base64 !== "string" || !ALLOWED_SCREENSHOT_KEYS.includes(key)) continue;
+              try {
+                const buffer = Uint8Array.from(atob(base64 as string), c => c.charCodeAt(0));
+                const path = `${entry.provider_slug}/${id}/${key}.png`;
+                const { error: uploadErr } = await supabase.storage.from("game-references").upload(path, buffer, {
+                  contentType: "image/png", upsert: true,
+                });
+                if (!uploadErr) {
+                  const { data: urlData } = supabase.storage.from("game-references").getPublicUrl(path);
+                  uploadedUrls[`${key}_url`] = urlData.publicUrl;
+                }
+              } catch {}
+            }
+          } catch (e) {
+            console.error(`[SCRAPPER] Apify capture failed for ${entry.game_name}:`, e);
+          }
+        }
+
+        const visualDna = await generateVisualDNA(lovableKey, {
+          gameName: entry.game_name,
+          providerSlug: entry.provider_slug,
+          providerFocus: profile.focus,
+          sourceUrl: entry.source_url || "",
+          hasScreenshots: Object.keys(uploadedUrls).length > 0,
+        });
+
+        await supabase.from("game_visual_library").update({
+          visual_dna: visualDna,
+          training_status: "trained",
+          ...uploadedUrls,
+          metadata: {
+            scraped_at: new Date().toISOString(),
+            has_screenshots: Object.keys(uploadedUrls).length > 0,
+            batch_trained: true,
+          },
+        }).eq("id", id);
+
+        console.log(`[SCRAPPER] ✅ Batch trained: ${entry.game_name}`);
+        return new Response(JSON.stringify({
+          success: true,
+          id,
+          game_name: entry.game_name,
+          status: "trained",
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      } catch (trainErr: any) {
+        await supabase.from("game_visual_library").update({
+          training_status: "failed",
+          error_message: trainErr.message,
+        }).eq("id", id);
+        return new Response(JSON.stringify({
+          success: false,
+          id,
+          game_name: entry.game_name,
+          status: "failed",
+          error: trainErr.message,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
     if (action === "bulk_import") {
       const { games } = payload;
       if (!Array.isArray(games) || games.length === 0) throw new Error("games array required");
