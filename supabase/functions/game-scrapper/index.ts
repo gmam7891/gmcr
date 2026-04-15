@@ -219,6 +219,8 @@ serve(async (req) => {
       );
 
       const results: Array<{ game_name: string; provider: string; status: string; error?: string }> = [];
+      const toInsert: Array<{ game_name: string; provider_name: string; provider_slug: string; source_url: string | null; training_status: string }> = [];
+      const insertMap: Array<{ game_name: string; provider: string }> = [];
 
       for (const game of games) {
         const { game_name, provider, url } = game;
@@ -237,20 +239,28 @@ serve(async (req) => {
           continue;
         }
 
-        try {
-          const providerName = provider || providerSlug.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
-          const { error: insertErr } = await supabase.from("game_visual_library").insert({
-            game_name,
-            provider_name: providerName,
-            provider_slug: providerSlug,
-            source_url: url || null,
-            training_status: "pending",
-          });
-          if (insertErr) throw insertErr;
-          existingSet.add(key); // prevent intra-batch duplicates
-          results.push({ game_name, provider, status: "done" });
-        } catch (e: any) {
-          results.push({ game_name, provider, status: "error", error: e.message });
+        existingSet.add(key);
+        const providerName = provider || providerSlug.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+        toInsert.push({
+          game_name,
+          provider_name: providerName,
+          provider_slug: providerSlug,
+          source_url: url || null,
+          training_status: "pending",
+        });
+        insertMap.push({ game_name, provider });
+      }
+
+      // Batch insert in chunks of 500
+      const CHUNK = 500;
+      for (let i = 0; i < toInsert.length; i += CHUNK) {
+        const chunk = toInsert.slice(i, i + CHUNK);
+        const map = insertMap.slice(i, i + CHUNK);
+        const { error: insertErr } = await supabase.from("game_visual_library").insert(chunk);
+        if (insertErr) {
+          for (const m of map) results.push({ ...m, status: "error", error: insertErr.message });
+        } else {
+          for (const m of map) results.push({ ...m, status: "done" });
         }
       }
 
