@@ -289,11 +289,15 @@ Deno.serve(async (req) => {
               try {
                 const jsonMatch = retryContent.match(/\[[\s\S]*\]/);
                 const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-                for (const g of batchGames) {
-                  const imgIdx = g.image_index ?? 0;
-                  const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
-                  allDetections.push({ ...g, timestampSeconds: ts });
-                }
+          for (const g of batchGames) {
+            const imgIdx = g.image_index ?? 0;
+            const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
+            allDetections.push({ ...g, timestampSeconds: ts });
+            // Audit log for Games Global / Slingshot detections
+            if (g.provider && /games\s*global|slingshot|microgaming|stormcraft|jftw|foxium/i.test(g.provider)) {
+              console.log(`[AUDIT:GAMES_GLOBAL] Detected "${g.game}" by "${g.provider}" | confidence=${g.confidence} | evidence=${(g.evidence || '').slice(0, 120)} | ts=${ts}s`);
+            }
+          }
               } catch { /* skip */ }
             } else {
               await retryRes.text();
