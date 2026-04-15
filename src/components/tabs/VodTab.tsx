@@ -117,6 +117,7 @@ export function VodTab() {
       // 1) Try real storyboard URLs from Twitch GraphQL
       let selectedUrls: string[] = [];
       let selectedTimestamps: number[] = [];
+      let storyboardInterval = 60; // default for seek thumbnails
 
       try {
         const storyboard = await getStoryboardUrls(vod.id, durationSecs);
@@ -124,11 +125,10 @@ export function VodTab() {
           const strips = storyboard.urls.slice(0, 40);
           const framesPerStrip = storyboard.framesPerStrip || 50;
           const interval = storyboard.interval || 19;
+          storyboardInterval = interval;
 
           selectedUrls = strips;
           selectedTimestamps = strips.map((_, i) => {
-            // Each strip covers framesPerStrip * interval seconds
-            // Use the midpoint of each strip as the representative timestamp
             const stripStartSec = i * framesPerStrip * interval;
             return stripStartSec + Math.floor((framesPerStrip * interval) / 2);
           });
@@ -139,6 +139,7 @@ export function VodTab() {
 
       // 2) Fallback: seek thumbnails
       if (selectedUrls.length === 0) {
+        storyboardInterval = 60;
         const sampledFrames = generateSeekThumbnails(vod.thumbnail_url, durationSecs, 60).slice(0, 40);
         selectedUrls = sampledFrames.map((frame) => frame.url);
         selectedTimestamps = sampledFrames.map((frame) => frame.offset);
@@ -157,7 +158,7 @@ export function VodTab() {
 
       setAiProgress(`${t("vod.analyzing_storyboards").replace("...", "")} (${selectedUrls.length})...`);
 
-      const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps);
+      const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps, storyboardInterval);
 
       // Check for empty results and surface a warning
       if (result.games.length === 0 && result.gameTimeline.length === 0) {
@@ -463,18 +464,34 @@ function AiResultsDisplay({ analysis, vodDurationSecs, compact }: { analysis: Ai
   const otherGames = analysis.games.filter(r => r.category === 'not_game');
   const timeline = analysis.gameTimeline || [];
 
-  // Aggregate time per game from timeline
-  const timeByGame = new Map<string, { game: string; provider: string | null; totalSeconds: number; category: string; evidence: string | null }>();
-  for (const seg of timeline) {
-    const key = `${seg.game}|${seg.provider}`;
-    const existing = timeByGame.get(key);
-    if (existing) {
-      existing.totalSeconds += seg.durationSeconds;
-    } else {
-      timeByGame.set(key, { game: seg.game, provider: seg.provider, totalSeconds: seg.durationSeconds, category: seg.category, evidence: (seg as any).evidence || null });
+  // Use per-game totalSeconds from the API (count * sampleDuration) when available
+  // Fallback to aggregating from timeline for backwards compatibility
+  const timeAggregated = useMemo(() => {
+    // Check if games have totalSeconds (new API format)
+    const gamesWithTime = analysis.games.filter((g: any) => g.totalSeconds != null && g.totalSeconds > 0);
+    if (gamesWithTime.length > 0) {
+      return gamesWithTime.map((g: any) => ({
+        game: g.game,
+        provider: g.provider,
+        totalSeconds: g.totalSeconds as number,
+        category: g.category,
+        evidence: g.evidence || null,
+        detectionCount: g.detectionCount || 1,
+      })).sort((a: any, b: any) => b.totalSeconds - a.totalSeconds);
     }
-  }
-  const timeAggregated = Array.from(timeByGame.values()).sort((a, b) => b.totalSeconds - a.totalSeconds);
+    // Fallback: aggregate from timeline
+    const timeByGame = new Map<string, { game: string; provider: string | null; totalSeconds: number; category: string; evidence: string | null }>();
+    for (const seg of timeline) {
+      const key = `${seg.game}|${seg.provider}`;
+      const existing = timeByGame.get(key);
+      if (existing) {
+        existing.totalSeconds += seg.durationSeconds;
+      } else {
+        timeByGame.set(key, { game: seg.game, provider: seg.provider, totalSeconds: seg.durationSeconds, category: seg.category, evidence: (seg as any).evidence || null });
+      }
+    }
+    return Array.from(timeByGame.values()).sort((a, b) => b.totalSeconds - a.totalSeconds);
+  }, [analysis, timeline]);
 
   return (
     <div className="space-y-3">

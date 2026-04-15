@@ -126,8 +126,8 @@ export async function getStoryboardUrls(vodId: string, durationSeconds: number):
   };
 }
 
-export async function analyzeVodFrames(thumbnailUrls: string[], vodTitle?: string, timestamps?: number[]): Promise<AiVodAnalysis> {
-  const result = await callTwitch({ action: 'analyze_vod_frames', thumbnail_urls: thumbnailUrls, vod_title: vodTitle, timestamps });
+export async function analyzeVodFrames(thumbnailUrls: string[], vodTitle?: string, timestamps?: number[], sampleInterval?: number): Promise<AiVodAnalysis> {
+  const result = await callTwitch({ action: 'analyze_vod_frames', thumbnail_urls: thumbnailUrls, vod_title: vodTitle, timestamps, sample_interval: sampleInterval });
   return {
     games: result?.games ?? [],
     gameTimeline: result?.gameTimeline ?? [],
