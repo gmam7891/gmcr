@@ -71,6 +71,9 @@ export function GameLibraryTab() {
   const [gameName, setGameName] = useState("");
   const [training, setTraining] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [batchTraining, setBatchTraining] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentGame: "" });
+  const [batchResults, setBatchResults] = useState({ trained: 0, failed: 0 });
 
   const fetchLibrary = async () => {
     setLoading(true);
