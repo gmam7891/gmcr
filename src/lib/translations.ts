@@ -653,6 +653,20 @@ const pt = {
   "scan.all_data": "Todos",
   "scan.suspect_data": "Suspeitos",
 
+  // Game Library
+  "scan.lib_total": "Total de Jogos",
+  "scan.lib_trained": "Treinados",
+  "scan.lib_processing": "Processando",
+  "scan.lib_providers": "Provedoras",
+  "scan.lib_quick_import": "Importação Rápida",
+  "scan.lib_game_name_hint": "Nome do jogo (opcional)",
+  "scan.lib_game_url": "URL do jogo para treinar",
+  "scan.lib_training": "Treinando...",
+  "scan.lib_start_training": "Iniciar Treinamento",
+  "scan.lib_title": "Biblioteca de Jogos",
+  "scan.lib_empty": "Nenhum jogo treinado ainda. Use a importação rápida acima.",
+  "scan.lib_tab": "Game Library",
+
   // Language
   "lang.switch": "English",
 } as const;
@@ -1309,6 +1323,20 @@ const en: Record<keyof typeof pt, string> = {
   "scan.confirmed_only": "Confirmed",
   "scan.all_data": "All",
   "scan.suspect_data": "Suspect",
+
+  // Game Library
+  "scan.lib_total": "Total Games",
+  "scan.lib_trained": "Trained",
+  "scan.lib_processing": "Processing",
+  "scan.lib_providers": "Providers",
+  "scan.lib_quick_import": "Quick Import",
+  "scan.lib_game_name_hint": "Game name (optional)",
+  "scan.lib_game_url": "Game URL for training",
+  "scan.lib_training": "Training...",
+  "scan.lib_start_training": "Start Training",
+  "scan.lib_title": "Game Library",
+  "scan.lib_empty": "No games trained yet. Use quick import above.",
+  "scan.lib_tab": "Game Library",
 
   // Language
   "lang.switch": "Português",
