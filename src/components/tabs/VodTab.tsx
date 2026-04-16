@@ -361,7 +361,8 @@ export function VodTab() {
             <MetricCard label={t("vod.avg_views_hour")} value={fmtInt(avgViewsPerHour)} status={avgViewsPerHour > 100 ? "go" : undefined} />
           </div>
 
-          <div className="card-surface overflow-hidden">
+          {/* Desktop table */}
+          <div className="card-surface overflow-hidden hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
@@ -445,6 +446,61 @@ export function VodTab() {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="space-y-2 md:hidden">
+            {vods.map((vod) => {
+              const mins = parseDuration(vod.duration);
+              const hours = mins / 60;
+              const vph = hours > 0 ? vod.view_count / hours : 0;
+              const hasChapters = chaptersMap[vod.id];
+              const isExpanded = expandedVod === vod.id;
+              const hasAiResult = aiResults[vod.id];
+              return (
+                <div key={vod.id} className="card-surface p-3 space-y-2" onClick={() => fetchChapters(vod.id)}>
+                  <p className="text-sm font-medium truncate">{vod.title}</p>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
+                    <span>{formatDuration(vod.duration)}</span>
+                    <span>{fmtInt(vod.view_count)} views</span>
+                    <span>{fmtInt(vph)} v/h</span>
+                    <span>{new Date(vod.created_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {loadingChapters === vod.id ? (
+                      <div className="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    ) : hasChapters ? (
+                      <span className="text-xs text-primary">{hasChapters.length > 0 ? `${hasChapters.length} jogos` : "—"}</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">🔍 Chapters</span>
+                    )}
+                    {aiLoading === vod.id ? (
+                      <div className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                    ) : hasAiResult ? (
+                      <span className="text-xs text-accent">🤖 ✓ {hasAiResult.games.filter(g => g.category !== 'not_game' && g.category !== 'error').length}</span>
+                    ) : (
+                      <button
+                        className="text-xs text-muted-foreground hover:text-accent"
+                        onClick={(e) => { e.stopPropagation(); analyzeWithAI(vod); }}
+                      >
+                        🤖 Scan IA
+                      </button>
+                    )}
+                  </div>
+                  {isExpanded && (
+                    <div className="pt-2 space-y-2 border-t border-border">
+                      {hasChapters && hasChapters.length > 0 && <ChapterDisplay chapters={hasChapters} compact />}
+                      {hasAiResult && <AiResultsDisplay analysis={hasAiResult} vodDurationSecs={mins * 60} compact />}
+                      {!hasAiResult && (
+                        <Button variant="outline" size="sm" onClick={() => analyzeWithAI(vod)} disabled={!!aiLoading}>
+                          {aiLoading === vod.id ? `🤖 ${aiProgress || t("vod.analyzing")}` : t("vod.ai_deep_scan")}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
