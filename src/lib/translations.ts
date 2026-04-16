@@ -725,6 +725,30 @@ const pt = {
   "mod.discovery.title": "Prospecção",
   "mod.discovery.desc": "Encontre influenciadores qualificados para iGaming usando IA. Descreva seu briefing e receba perfis pontuados automaticamente.",
 
+  // SullyGnome
+  "sully.title": "Estatísticas Oficiais da Twitch",
+  "sully.subtitle": "Consulte dados do SullyGnome para validar categorias, tempo de stream e viewers de qualquer streamer.",
+  "sully.placeholder": "Login do streamer (ex: gaules)",
+  "sully.search_btn": "Consultar",
+  "sully.success": "Dados obtidos",
+  "sully.categories_found": "categorias encontradas",
+  "sully.error": "Erro ao consultar SullyGnome",
+  "sully.total_categories": "Categorias",
+  "sully.total_stream": "Tempo Total",
+  "sully.casino_time": "Tempo Cassino",
+  "sully.casino_pct": "% Cassino",
+  "sully.time_distribution": "Distribuição de Tempo por Categoria",
+  "sully.game_stats": "Estatísticas por Jogo",
+  "sully.category": "Categoria",
+  "sully.stream_time": "Tempo",
+  "sully.avg_viewers": "Média Viewers",
+  "sully.no_data": "Sem dados",
+  "sully.discrepancy_title": "Análise de Discrepância: SullyGnome vs IA",
+  "sully.discrepancy_desc": "Compare o tempo de cassino reportado pelo SullyGnome com nossa detecção por IA para identificar divergências.",
+  "sully.ai_detection": "Detecção IA",
+  "sully.diff": "Diferença",
+  "sully.tab": "SullyGnome",
+
   // Language
   "lang.switch": "English",
 } as const;
