@@ -257,28 +257,28 @@ export function VodTab() {
   };
 
   return (
-    <div className="max-w-5xl space-y-6">
-      <div className="card-surface p-4 space-y-1 flex items-start justify-between">
+    <div className="max-w-5xl space-y-4 sm:space-y-6">
+      <div className="card-surface p-3 sm:p-4 space-y-1 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div>
           <p className="text-xs text-primary font-medium uppercase tracking-wider">{t("vod.title_header")}</p>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs sm:text-sm text-muted-foreground">
             {t("vod.description")}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0">
+        <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0 self-start">
           {t("app.export_excel")}
         </Button>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
         <Input
           value={vodUrl}
           onChange={(e) => setVodUrl(e.target.value)}
           placeholder={t("vod.placeholder")}
-          className="font-mono bg-secondary border-border"
+          className="font-mono bg-secondary border-border text-sm"
           onKeyDown={(e) => e.key === 'Enter' && analyze()}
         />
-        <Button onClick={analyze} disabled={loading || !vodUrl.trim()}>
+        <Button onClick={analyze} disabled={loading || !vodUrl.trim()} className="shrink-0">
           {loading ? t("vod.analyzing") : t("vod.analyze")}
         </Button>
       </div>
@@ -298,7 +298,7 @@ export function VodTab() {
       {singleVod && mode === "single" && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("vod.selected_vod")}</h3>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <MetricCard label="Título" value={singleVod.title.slice(0, 40) + (singleVod.title.length > 40 ? "..." : "")} />
             <MetricCard label="Duração" value={formatDuration(singleVod.duration)} />
             <MetricCard label="Views" value={fmtInt(singleVod.view_count)} />
@@ -354,14 +354,15 @@ export function VodTab() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <MetricCard label={t("vod.total_vods")} value={fmtInt(vods.length)} />
             <MetricCard label={t("yt.total_views")} value={fmtInt(totalViews)} />
             <MetricCard label={t("yt.total_hours")} value={`${totalHours.toFixed(1)}h`} />
             <MetricCard label={t("vod.avg_views_hour")} value={fmtInt(avgViewsPerHour)} status={avgViewsPerHour > 100 ? "go" : undefined} />
           </div>
 
-          <div className="card-surface overflow-hidden">
+          {/* Desktop table */}
+          <div className="card-surface overflow-hidden hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border">
@@ -445,6 +446,61 @@ export function VodTab() {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="space-y-2 md:hidden">
+            {vods.map((vod) => {
+              const mins = parseDuration(vod.duration);
+              const hours = mins / 60;
+              const vph = hours > 0 ? vod.view_count / hours : 0;
+              const hasChapters = chaptersMap[vod.id];
+              const isExpanded = expandedVod === vod.id;
+              const hasAiResult = aiResults[vod.id];
+              return (
+                <div key={vod.id} className="card-surface p-3 space-y-2" onClick={() => fetchChapters(vod.id)}>
+                  <p className="text-sm font-medium truncate">{vod.title}</p>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground font-mono">
+                    <span>{formatDuration(vod.duration)}</span>
+                    <span>{fmtInt(vod.view_count)} views</span>
+                    <span>{fmtInt(vph)} v/h</span>
+                    <span>{new Date(vod.created_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {loadingChapters === vod.id ? (
+                      <div className="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    ) : hasChapters ? (
+                      <span className="text-xs text-primary">{hasChapters.length > 0 ? `${hasChapters.length} jogos` : "—"}</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">🔍 Chapters</span>
+                    )}
+                    {aiLoading === vod.id ? (
+                      <div className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                    ) : hasAiResult ? (
+                      <span className="text-xs text-accent">🤖 ✓ {hasAiResult.games.filter(g => g.category !== 'not_game' && g.category !== 'error').length}</span>
+                    ) : (
+                      <button
+                        className="text-xs text-muted-foreground hover:text-accent"
+                        onClick={(e) => { e.stopPropagation(); analyzeWithAI(vod); }}
+                      >
+                        🤖 Scan IA
+                      </button>
+                    )}
+                  </div>
+                  {isExpanded && (
+                    <div className="pt-2 space-y-2 border-t border-border">
+                      {hasChapters && hasChapters.length > 0 && <ChapterDisplay chapters={hasChapters} compact />}
+                      {hasAiResult && <AiResultsDisplay analysis={hasAiResult} vodDurationSecs={mins * 60} compact />}
+                      {!hasAiResult && (
+                        <Button variant="outline" size="sm" onClick={() => analyzeWithAI(vod)} disabled={!!aiLoading}>
+                          {aiLoading === vod.id ? `🤖 ${aiProgress || t("vod.analyzing")}` : t("vod.ai_deep_scan")}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

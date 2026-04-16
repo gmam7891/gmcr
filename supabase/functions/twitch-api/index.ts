@@ -270,7 +270,7 @@ Deno.serve(async (req) => {
                 ]
               }
             ],
-            max_tokens: 4000,
+            max_tokens: 8192,
           }),
         });
 
@@ -297,23 +297,26 @@ Deno.serve(async (req) => {
                     ]
                   }
                 ],
-                max_tokens: 3000,
+                max_tokens: 8192,
               }),
             });
             if (retryRes.ok) {
               const retryData = await retryRes.json();
               const retryContent = retryData?.choices?.[0]?.message?.content ?? '[]';
               try {
-                const jsonMatch = retryContent.match(/\[[\s\S]*\]/);
-                const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+                let cleanRetry = retryContent.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+                const jsonMatch = cleanRetry.match(/\[[\s\S]*\]/);
+                let batchGames: any[] = [];
+                if (jsonMatch) {
+                  try { batchGames = JSON.parse(jsonMatch[0]); } catch {
+                    const lastBrace = jsonMatch[0].lastIndexOf('}');
+                    if (lastBrace > 0) { try { batchGames = JSON.parse(jsonMatch[0].substring(0, lastBrace + 1) + ']'); } catch {} }
+                  }
+                }
           for (const g of batchGames) {
             const imgIdx = g.image_index ?? 0;
             const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
             allDetections.push({ ...g, timestampSeconds: ts });
-            // Audit log for Games Global / Slingshot detections
-            if (g.provider && /games\s*global|slingshot|microgaming|stormcraft|jftw|foxium/i.test(g.provider)) {
-              console.log(`[AUDIT:GAMES_GLOBAL] Detected "${g.game}" by "${g.provider}" | confidence=${g.confidence} | evidence=${(g.evidence || '').slice(0, 120)} | ts=${ts}s`);
-            }
           }
               } catch { /* skip */ }
             } else {
@@ -328,8 +331,28 @@ Deno.serve(async (req) => {
 
         try {
           console.log(`[FORENSIC] Raw AI response (batch ${batchStart}):`, content.slice(0, 500));
-          const jsonMatch = content.match(/\[[\s\S]*\]/);
-          const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+          // Strip markdown code fences if present
+          let cleanContent = content.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+          const jsonMatch = cleanContent.match(/\[[\s\S]*\]/);
+          let batchGames: any[] = [];
+          if (jsonMatch) {
+            try {
+              batchGames = JSON.parse(jsonMatch[0]);
+            } catch (parseErr) {
+              // Truncated JSON — try to recover by closing the array
+              console.warn(`[FORENSIC] Truncated JSON detected, attempting recovery...`);
+              let partial = jsonMatch[0];
+              // Find the last complete object (ends with })
+              const lastComplete = partial.lastIndexOf('}');
+              if (lastComplete > 0) {
+                partial = partial.substring(0, lastComplete + 1) + ']';
+                try {
+                  batchGames = JSON.parse(partial);
+                  console.log(`[FORENSIC] Recovered ${batchGames.length} detections from truncated response`);
+                } catch { /* truly broken */ }
+              }
+            }
+          }
           console.log(`[FORENSIC] Parsed ${batchGames.length} detections:`, JSON.stringify(batchGames.map((g: any) => ({
             game: g.game, provider: g.provider, category: g.category, confidence: g.confidence, evidence: g.evidence?.slice(0, 80)
           }))));
