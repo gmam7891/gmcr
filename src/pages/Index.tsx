@@ -13,15 +13,8 @@ import { AuthenticityTab } from "@/components/tabs/AuthenticityTab";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
-import { useNavigate } from "react-router-dom";
 import { Shield, LogOut, ScanLine } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useLanguage } from "@/contexts/LanguageContext";
-import twitchLogo from "@/assets/twitch-logo.png";
-import youtubeLogo from "@/assets/youtube-logo.png";
-import kickLogo from "@/assets/kick-logo.png";
-import type { ComponentType } from "react";
-
 import instagramIcon from "@/assets/instagram-icon.png";
 import twitchLogo from "@/assets/twitch-logo.png";
 import youtubeLogo from "@/assets/youtube-logo.png";
@@ -32,23 +25,23 @@ interface TabConfig {
   id: string;
   label: string;
   icon?: string;
-  component: ComponentType;
+  component: ComponentType | null;
+  route?: string;
 }
+
 const TAB_CONFIG: TabConfig[] = [
-  { id: "icp", label: "ICP Calc", icon: "📊" },
-  { id: "discovery", label: "Prospecção", icon: "🔎" },
-  { id: "instagram", label: "Instagram", icon: instagramIcon },
-  { id: "twitch", label: "Twitch", icon: twitchLogo },
-  { id: "youtube", label: "YouTube", icon: youtubeLogo },
-  { id: "kick", label: "Kick", icon: kickLogo },
-  { id: "vod", label: "VOD Analyzer", icon: "📈" },
-  { id: "monitor", label: "Monitor", icon: "📡" },
-  { id: "simulator", label: "Simulador", icon: "⚡" },
-  { id: "authenticity", label: "Authenticity", icon: "🔍" },
-].map((t) => ({
-  ...t,
-  component: { simulator: SimulatorTab, monitor: MonitorTab, authenticity: AuthenticityTab, instagram: InstagramTab, twitch: TwitchTab, youtube: YouTubeTab, kick: KickTab, icp: IcpTab, vod: VodTab, discovery: DiscoveryTab }[t.id] as ComponentType,
-}));
+  { id: "scanner", label: "Casino Scanner", icon: "🎰", component: null, route: "/scanner" },
+  { id: "icp", label: "ICP Calc", icon: "📊", component: IcpTab },
+  { id: "discovery", label: "Prospecção", icon: "🔎", component: DiscoveryTab },
+  { id: "instagram", label: "Instagram", icon: instagramIcon, component: InstagramTab },
+  { id: "twitch", label: "Twitch", icon: twitchLogo, component: TwitchTab },
+  { id: "youtube", label: "YouTube", icon: youtubeLogo, component: YouTubeTab },
+  { id: "kick", label: "Kick", icon: kickLogo, component: KickTab },
+  { id: "vod", label: "VOD Analyzer", icon: "📈", component: VodTab },
+  { id: "monitor", label: "Monitor", icon: "📡", component: MonitorTab },
+  { id: "simulator", label: "Simulador", icon: "⚡", component: SimulatorTab },
+  { id: "authenticity", label: "Authenticity", icon: "🔍", component: AuthenticityTab },
+];
 
 const Index = () => {
   const { isAdmin, userAccess, signOut } = useAuth();
@@ -58,8 +51,9 @@ const Index = () => {
 
   const allowedTabs = userAccess?.allowed_tabs || [];
   const visibleTabs = TAB_CONFIG.filter((t) => allowedTabs.includes(t.id));
+  const contentTabs = visibleTabs.filter((t) => t.component !== null);
   const tabFromUrl = searchParams.get("tab");
-  const defaultTab = (tabFromUrl && visibleTabs.some(t => t.id === tabFromUrl)) ? tabFromUrl : visibleTabs[0]?.id || "icp";
+  const defaultTab = (tabFromUrl && contentTabs.some(t => t.id === tabFromUrl)) ? tabFromUrl : contentTabs[0]?.id || "icp";
 
   const isExpired = userAccess?.expires_at && new Date(userAccess.expires_at) < new Date();
 
@@ -110,7 +104,8 @@ const Index = () => {
             {visibleTabs.map((tab) => (
               <TabsTrigger
                 key={tab.id}
-                value={tab.id}
+                value={tab.route ? "__nav__" : tab.id}
+                onClick={tab.route ? (e) => { e.preventDefault(); navigate(tab.route!); } : undefined}
                 className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2 flex items-center gap-1.5"
               >
                 {tab.icon && (tab.icon.length > 5 ? (
@@ -123,9 +118,9 @@ const Index = () => {
             ))}
           </TabsList>
 
-          {visibleTabs.map((tab) => (
+          {contentTabs.map((tab) => (
             <TabsContent key={tab.id} value={tab.id}>
-              <tab.component />
+              {tab.component && <tab.component />}
             </TabsContent>
           ))}
         </Tabs>
