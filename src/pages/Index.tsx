@@ -5,6 +5,7 @@ import { TwitchTab } from "@/components/tabs/TwitchTab";
 import { YouTubeTab } from "@/components/tabs/YouTubeTab";
 import { KickTab } from "@/components/tabs/KickTab";
 import { IcpTab } from "@/components/tabs/IcpTab";
+import { DiscoveryTab } from "@/components/tabs/DiscoveryTab";
 import { VodTab } from "@/components/tabs/VodTab";
 import { SimulatorTab } from "@/components/tabs/SimulatorTab";
 import { MonitorTab } from "@/components/tabs/MonitorTab";
@@ -30,6 +31,7 @@ interface TabConfig {
 
 const TAB_CONFIG: TabConfig[] = [
   { id: "icp", label: "ICP Calc", icon: "📊" },
+  { id: "discovery", label: "Prospecção", icon: "🔎" },
   { id: "instagram", label: "Instagram", icon: instagramIcon },
   { id: "twitch", label: "Twitch", icon: twitchLogo },
   { id: "youtube", label: "YouTube", icon: youtubeLogo },
@@ -40,7 +42,7 @@ const TAB_CONFIG: TabConfig[] = [
   { id: "authenticity", label: "Authenticity", icon: "🔍" },
 ].map((t) => ({
   ...t,
-  component: { simulator: SimulatorTab, monitor: MonitorTab, authenticity: AuthenticityTab, instagram: InstagramTab, twitch: TwitchTab, youtube: YouTubeTab, kick: KickTab, icp: IcpTab, vod: VodTab }[t.id] as ComponentType,
+  component: { simulator: SimulatorTab, monitor: MonitorTab, authenticity: AuthenticityTab, instagram: InstagramTab, twitch: TwitchTab, youtube: YouTubeTab, kick: KickTab, icp: IcpTab, vod: VodTab, discovery: DiscoveryTab }[t.id] as ComponentType,
 }));
 
 const Index = () => {
