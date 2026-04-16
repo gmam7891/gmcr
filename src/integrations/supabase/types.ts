@@ -167,6 +167,81 @@ export type Database = {
           },
         ]
       }
+      discovery_prospects: {
+        Row: {
+          avatar_url: string | null
+          avg_views: number | null
+          bio: string | null
+          briefing_id: string
+          briefing_text: string | null
+          created_at: string
+          display_name: string | null
+          follower_following_ratio: number | null
+          followers: number | null
+          has_casino_content: boolean | null
+          id: string
+          is_spam: boolean | null
+          lives_last_30d: number | null
+          location_declared: string | null
+          location_inferred: string | null
+          match_score: number | null
+          platform: string
+          posts_last_30d: number | null
+          profile_url: string | null
+          score_breakdown: Json | null
+          search_keywords: string[] | null
+          username: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          avg_views?: number | null
+          bio?: string | null
+          briefing_id?: string
+          briefing_text?: string | null
+          created_at?: string
+          display_name?: string | null
+          follower_following_ratio?: number | null
+          followers?: number | null
+          has_casino_content?: boolean | null
+          id?: string
+          is_spam?: boolean | null
+          lives_last_30d?: number | null
+          location_declared?: string | null
+          location_inferred?: string | null
+          match_score?: number | null
+          platform?: string
+          posts_last_30d?: number | null
+          profile_url?: string | null
+          score_breakdown?: Json | null
+          search_keywords?: string[] | null
+          username: string
+        }
+        Update: {
+          avatar_url?: string | null
+          avg_views?: number | null
+          bio?: string | null
+          briefing_id?: string
+          briefing_text?: string | null
+          created_at?: string
+          display_name?: string | null
+          follower_following_ratio?: number | null
+          followers?: number | null
+          has_casino_content?: boolean | null
+          id?: string
+          is_spam?: boolean | null
+          lives_last_30d?: number | null
+          location_declared?: string | null
+          location_inferred?: string | null
+          match_score?: number | null
+          platform?: string
+          posts_last_30d?: number | null
+          profile_url?: string | null
+          score_breakdown?: Json | null
+          search_keywords?: string[] | null
+          username?: string
+        }
+        Relationships: []
+      }
       exposure_blocks: {
         Row: {
           avg_viewers: number | null

@@ -1,0 +1,355 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+const APIFY_API_KEY = Deno.env.get("APIFY_API_KEY") || "";
+const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+
+// ─── AI Briefing Expansion ─────────────────────────────────────────────
+async function expandBriefing(briefing: string): Promise<{ keywords: string[]; filters: any }> {
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${LOVABLE_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages: [
+        {
+          role: "system",
+          content: `Você é um especialista em marketing de iGaming/Cassino no Brasil. Dado um briefing em linguagem natural, gere uma matriz de busca.
+Responda APENAS com JSON no formato:
+{
+  "keywords_twitch": ["termo1","termo2",...],
+  "keywords_instagram": ["#hashtag1","#hashtag2",...],
+  "target_regions": ["SP","RJ",...],
+  "min_followers": 20000,
+  "content_indicators": ["slots","cassino","apostas","bet",...]
+}
+Foque em termos brasileiros do nicho iGaming/cassino/apostas esportivas.`,
+        },
+        { role: "user", content: briefing },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "search_matrix",
+            description: "Search matrix for influencer discovery",
+            parameters: {
+              type: "object",
+              properties: {
+                keywords_twitch: { type: "array", items: { type: "string" } },
+                keywords_instagram: { type: "array", items: { type: "string" } },
+                target_regions: { type: "array", items: { type: "string" } },
+                min_followers: { type: "number" },
+                content_indicators: { type: "array", items: { type: "string" } },
+              },
+              required: ["keywords_twitch", "keywords_instagram", "target_regions", "min_followers", "content_indicators"],
+              additionalProperties: false,
+            },
+          },
+        },
+      ],
+      tool_choice: { type: "function", function: { name: "search_matrix" } },
+    }),
+  });
+
+  if (!res.ok) {
+    console.error("AI gateway error:", res.status, await res.text());
+    return {
+      keywords: ["cassino", "slots", "apostas", "bet", "iGaming"],
+      filters: { min_followers: 20000, target_regions: ["SP", "RJ", "MG"] },
+    };
+  }
+
+  const data = await res.json();
+  try {
+    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+    const parsed = JSON.parse(toolCall.function.arguments);
+    return {
+      keywords: [...(parsed.keywords_twitch || []), ...(parsed.keywords_instagram || [])],
+      filters: parsed,
+    };
+  } catch {
+    return {
+      keywords: ["cassino", "slots", "apostas", "bet"],
+      filters: { min_followers: 20000, target_regions: ["SP", "RJ"] },
+    };
+  }
+}
+
+// ─── Apify Scraping ────────────────────────────────────────────────────
+async function scrapeTwitch(keywords: string[], limit: number): Promise<any[]> {
+  try {
+    const actorId = "epctex/twitch-scraper";
+    const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=120`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        searchQueries: keywords.slice(0, 5),
+        maxItems: limit,
+        proxy: { useApifyProxy: true },
+      }),
+    });
+    if (!res.ok) {
+      console.error("Twitch scraper error:", res.status);
+      return [];
+    }
+    return await res.json();
+  } catch (e) {
+    console.error("Twitch scrape failed:", e);
+    return [];
+  }
+}
+
+async function scrapeInstagram(keywords: string[], limit: number): Promise<any[]> {
+  try {
+    const actorId = "apify/instagram-hashtag-scraper";
+    const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=120`;
+    const hashtags = keywords
+      .filter((k) => k.startsWith("#"))
+      .map((k) => k.replace("#", ""))
+      .slice(0, 5);
+    if (hashtags.length === 0) hashtags.push("cassino", "slots", "apostas");
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        hashtags,
+        resultsLimit: limit,
+      }),
+    });
+    if (!res.ok) {
+      console.error("Instagram scraper error:", res.status);
+      return [];
+    }
+    return await res.json();
+  } catch (e) {
+    console.error("Instagram scrape failed:", e);
+    return [];
+  }
+}
+
+// ─── Match Score ────────────────────────────────────────────────────────
+const SE_STATES = ["SP", "RJ", "MG", "ES"];
+const CASINO_KEYWORDS = ["casino", "cassino", "slot", "slots", "bet", "aposta", "apostas", "gambling", "igaming", "roleta", "blackjack", "poker", "tigrinho", "fortune"];
+
+function calculateMatchScore(profile: any, filters: any): { score: number; breakdown: any } {
+  let locationScore = 0;
+  const loc = (profile.location_declared || profile.location_inferred || "").toLowerCase();
+  if (SE_STATES.some((s) => loc.includes(s.toLowerCase()) || loc.includes("são paulo") || loc.includes("rio de janeiro") || loc.includes("minas gerais") || loc.includes("espírito santo") || loc.includes("brasil") || loc.includes("brazil"))) {
+    locationScore = 30;
+  }
+
+  let followersScore = 0;
+  if ((profile.followers || 0) >= (filters?.min_followers || 20000)) followersScore = 30;
+  else if ((profile.followers || 0) >= 10000) followersScore = 15;
+
+  let frequencyScore = 0;
+  const activity = (profile.posts_last_30d || 0) + (profile.lives_last_30d || 0);
+  if (activity >= 12) frequencyScore = 20;
+  else if (activity >= 6) frequencyScore = 10;
+
+  let contentScore = 0;
+  const bio = (profile.bio || "").toLowerCase();
+  const name = (profile.display_name || "").toLowerCase();
+  const combined = `${bio} ${name}`;
+  if (CASINO_KEYWORDS.some((kw) => combined.includes(kw))) {
+    contentScore = 20;
+    profile.has_casino_content = true;
+  }
+
+  const score = locationScore + followersScore + frequencyScore + contentScore;
+  return {
+    score,
+    breakdown: {
+      location: locationScore,
+      followers: followersScore,
+      frequency: frequencyScore,
+      content: contentScore,
+    },
+  };
+}
+
+// ─── Spam Validation ────────────────────────────────────────────────────
+function validateSpam(profile: any): boolean {
+  const ratio = profile.follower_following_ratio || 0;
+  if (ratio > 0 && ratio < 0.1) return true; // way more following than followers
+  if ((profile.followers || 0) > 100000 && (profile.avg_views || 0) < 100) return true;
+  return false;
+}
+
+// ─── Normalize Profiles ────────────────────────────────────────────────
+function normalizeTwitchProfile(raw: any): any {
+  return {
+    platform: "twitch",
+    username: raw.login || raw.name || raw.displayName || "",
+    display_name: raw.displayName || raw.name || raw.login || "",
+    bio: raw.description || raw.bio || "",
+    avatar_url: raw.profileImageURL || raw.profileImageUrl || raw.thumbnailUrl || "",
+    profile_url: `https://twitch.tv/${raw.login || raw.name || ""}`,
+    followers: raw.followers || raw.followersCount || 0,
+    avg_views: raw.averageViewers || raw.viewCount || 0,
+    posts_last_30d: 0,
+    lives_last_30d: raw.recentBroadcasts?.length || 0,
+    location_declared: raw.location || "",
+    location_inferred: raw.language === "pt" || raw.broadcasterLanguage === "pt" ? "Brasil" : "",
+    follower_following_ratio: 1,
+  };
+}
+
+function normalizeInstagramProfile(raw: any): any {
+  const following = raw.followingCount || raw.followsCount || 1;
+  const followers = raw.followersCount || raw.likesCount || 0;
+  return {
+    platform: "instagram",
+    username: raw.ownerUsername || raw.username || "",
+    display_name: raw.ownerFullName || raw.fullName || raw.ownerUsername || "",
+    bio: raw.biography || raw.caption || "",
+    avatar_url: raw.profilePicUrl || "",
+    profile_url: `https://instagram.com/${raw.ownerUsername || raw.username || ""}`,
+    followers,
+    avg_views: raw.videoViewCount || raw.videoPlayCount || 0,
+    posts_last_30d: raw.postsCount ? Math.min(raw.postsCount, 30) : 0,
+    lives_last_30d: 0,
+    location_declared: raw.locationName || "",
+    location_inferred: "",
+    follower_following_ratio: following > 0 ? followers / following : 0,
+  };
+}
+
+// ─── Main Handler ──────────────────────────────────────────────────────
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const { action, briefing, platforms, limit } = await req.json();
+    const maxResults = Math.min(limit || 50, 100);
+
+    if (action === "discover") {
+      if (!briefing) {
+        return new Response(JSON.stringify({ error: "briefing is required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      console.log("[Discovery] Expanding briefing with AI...");
+      const { keywords, filters } = await expandBriefing(briefing);
+      console.log("[Discovery] Keywords:", keywords);
+      console.log("[Discovery] Filters:", JSON.stringify(filters));
+
+      const selectedPlatforms = platforms || ["twitch", "instagram"];
+      const allProfiles: any[] = [];
+
+      // Scrape platforms in parallel
+      const promises: Promise<void>[] = [];
+
+      if (selectedPlatforms.includes("twitch")) {
+        promises.push(
+          scrapeTwitch(filters.keywords_twitch || keywords, maxResults).then((results) => {
+            for (const r of results) {
+              allProfiles.push(normalizeTwitchProfile(r));
+            }
+          })
+        );
+      }
+
+      if (selectedPlatforms.includes("instagram")) {
+        promises.push(
+          scrapeInstagram(filters.keywords_instagram || keywords, maxResults).then((results) => {
+            // Deduplicate by username
+            const seen = new Set<string>();
+            for (const r of results) {
+              const profile = normalizeInstagramProfile(r);
+              if (profile.username && !seen.has(profile.username)) {
+                seen.add(profile.username);
+                allProfiles.push(profile);
+              }
+            }
+          })
+        );
+      }
+
+      await Promise.all(promises);
+      console.log(`[Discovery] Scraped ${allProfiles.length} profiles total`);
+
+      // Score and filter
+      const briefingId = crypto.randomUUID();
+      const scored = allProfiles.map((p) => {
+        const { score, breakdown } = calculateMatchScore(p, filters);
+        const isSpam = validateSpam(p);
+        return {
+          ...p,
+          briefing_id: briefingId,
+          match_score: score,
+          score_breakdown: breakdown,
+          is_spam: isSpam,
+          briefing_text: briefing,
+          search_keywords: keywords,
+        };
+      });
+
+      // Filter: score > 70 and not spam
+      const qualified = scored
+        .filter((p) => p.match_score >= 70 && !p.is_spam)
+        .sort((a, b) => b.match_score - a.match_score);
+
+      // Save to database
+      if (qualified.length > 0) {
+        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+        const { error } = await supabase.from("discovery_prospects").insert(qualified);
+        if (error) console.error("[Discovery] DB insert error:", error.message);
+      }
+
+      return new Response(
+        JSON.stringify({
+          briefing_id: briefingId,
+          keywords,
+          filters,
+          total_scraped: allProfiles.length,
+          total_qualified: qualified.length,
+          total_spam: scored.filter((p) => p.is_spam).length,
+          total_low_score: scored.filter((p) => p.match_score < 70 && !p.is_spam).length,
+          prospects: qualified,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Action: list past searches
+    if (action === "list") {
+      const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+      const { data, error } = await supabase
+        .from("discovery_prospects")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(200);
+      if (error) throw new Error(error.message);
+      return new Response(JSON.stringify({ prospects: data }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    return new Response(JSON.stringify({ error: "Unknown action" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (error: any) {
+    console.error("[Discovery] Error:", error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});
