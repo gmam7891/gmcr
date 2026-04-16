@@ -18,6 +18,7 @@ interface ModuleConfig {
 const modules: ModuleConfig[] = [
   { id: "scanner", icon: ScanLine, titleKey: "mod.scanner.title", descKey: "mod.scanner.desc", color: "from-orange-500/20 to-red-600/10", route: "/scanner" },
   { id: "icp", icon: Target, titleKey: "mod.icp.title", descKey: "mod.icp.desc", color: "from-blue-500/20 to-blue-600/10" },
+  { id: "discovery", icon: Search, titleKey: "mod.discovery.title", descKey: "mod.discovery.desc", color: "from-teal-500/20 to-teal-600/10" },
   { id: "instagram", icon: Instagram, titleKey: "mod.instagram.title", descKey: "mod.instagram.desc", color: "from-pink-500/20 to-purple-600/10" },
   { id: "twitch", icon: Tv, titleKey: "mod.twitch.title", descKey: "mod.twitch.desc", color: "from-violet-500/20 to-violet-600/10" },
   { id: "youtube", icon: Youtube, titleKey: "mod.youtube.title", descKey: "mod.youtube.desc", color: "from-red-500/20 to-red-600/10" },
