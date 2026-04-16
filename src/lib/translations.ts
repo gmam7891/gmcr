@@ -1478,6 +1478,30 @@ const en: Record<keyof typeof pt, string> = {
   "mod.discovery.title": "Discovery",
   "mod.discovery.desc": "Find qualified iGaming influencers using AI. Describe your briefing and get auto-scored profiles.",
 
+  // SullyGnome
+  "sully.title": "Official Twitch Statistics",
+  "sully.subtitle": "Query SullyGnome data to validate categories, stream time and viewers for any streamer.",
+  "sully.placeholder": "Streamer login (e.g. gaules)",
+  "sully.search_btn": "Query",
+  "sully.success": "Data retrieved",
+  "sully.categories_found": "categories found",
+  "sully.error": "Error querying SullyGnome",
+  "sully.total_categories": "Categories",
+  "sully.total_stream": "Total Time",
+  "sully.casino_time": "Casino Time",
+  "sully.casino_pct": "% Casino",
+  "sully.time_distribution": "Time Distribution by Category",
+  "sully.game_stats": "Game Statistics",
+  "sully.category": "Category",
+  "sully.stream_time": "Time",
+  "sully.avg_viewers": "Avg Viewers",
+  "sully.no_data": "No data",
+  "sully.discrepancy_title": "Discrepancy Analysis: SullyGnome vs AI",
+  "sully.discrepancy_desc": "Compare casino time reported by SullyGnome with our AI detection to identify divergences.",
+  "sully.ai_detection": "AI Detection",
+  "sully.diff": "Difference",
+  "sully.tab": "SullyGnome",
+
   // Language
   "lang.switch": "Português",
 };
