@@ -304,16 +304,19 @@ Deno.serve(async (req) => {
               const retryData = await retryRes.json();
               const retryContent = retryData?.choices?.[0]?.message?.content ?? '[]';
               try {
-                const jsonMatch = retryContent.match(/\[[\s\S]*\]/);
-                const batchGames = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+                let cleanRetry = retryContent.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+                const jsonMatch = cleanRetry.match(/\[[\s\S]*\]/);
+                let batchGames: any[] = [];
+                if (jsonMatch) {
+                  try { batchGames = JSON.parse(jsonMatch[0]); } catch {
+                    const lastBrace = jsonMatch[0].lastIndexOf('}');
+                    if (lastBrace > 0) { try { batchGames = JSON.parse(jsonMatch[0].substring(0, lastBrace + 1) + ']'); } catch {} }
+                  }
+                }
           for (const g of batchGames) {
             const imgIdx = g.image_index ?? 0;
             const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
             allDetections.push({ ...g, timestampSeconds: ts });
-            // Audit log for Games Global / Slingshot detections
-            if (g.provider && /games\s*global|slingshot|microgaming|stormcraft|jftw|foxium/i.test(g.provider)) {
-              console.log(`[AUDIT:GAMES_GLOBAL] Detected "${g.game}" by "${g.provider}" | confidence=${g.confidence} | evidence=${(g.evidence || '').slice(0, 120)} | ts=${ts}s`);
-            }
           }
               } catch { /* skip */ }
             } else {
