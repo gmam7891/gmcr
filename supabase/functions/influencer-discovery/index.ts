@@ -384,3 +384,72 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+// ─── SullyGnome Quick Validation ───────────────────────────────────────
+async function fetchSullyGnomeQuick(streamerLogin: string): Promise<any | null> {
+  try {
+    const actorId = "apify/web-scraper";
+    const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=60`;
+
+    const pageFunction = `
+      async function pageFunction(context) {
+        const { $ } = context;
+        const gameStats = [];
+        $('#tblData tbody tr').each((i, el) => {
+          gameStats.push({
+            category: $(el).find('td:nth-child(2)').text().trim(),
+            streamTime: $(el).find('td:nth-child(3)').text().trim(),
+            percentage: $(el).find('td:nth-child(8)').text().trim()
+          });
+        });
+        return { gameStats };
+      }
+    `;
+
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startUrls: [{ url: `https://sullygnome.com/channel/${streamerLogin}/30/games` }],
+        pageFunction,
+        proxyConfiguration: { useApifyProxy: true },
+        maxRequestsPerCrawl: 1,
+        maxConcurrency: 1,
+      }),
+    });
+
+    if (!res.ok) return null;
+    const items = await res.json();
+    const stats = items?.[0]?.gameStats || [];
+    if (stats.length === 0) return null;
+
+    const casinoKw = ["virtual casino", "slots", "casino", "gambling"];
+    let totalMin = 0;
+    let casinoMin = 0;
+    for (const g of stats) {
+      const mins = parseTime(g.streamTime || "0");
+      totalMin += mins;
+      if (casinoKw.some((k) => (g.category || "").toLowerCase().includes(k))) casinoMin += mins;
+    }
+
+    return {
+      totalStreamMinutes: totalMin,
+      casinoStreamMinutes: casinoMin,
+      casinoPercentage: totalMin > 0 ? Math.round((casinoMin / totalMin) * 100) : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseTime(raw: string): number {
+  let t = 0;
+  const d = raw.match(/(\d+)d/);
+  const h = raw.match(/(\d+)h/);
+  const m = raw.match(/(\d+)m/);
+  if (d) t += parseInt(d[1]) * 1440;
+  if (h) t += parseInt(h[1]) * 60;
+  if (m) t += parseInt(m[1]);
+  if (!d && !h && !m) { const n = parseInt(raw.replace(/,/g, ""), 10); if (!isNaN(n)) t = n * 60; }
+  return t;
+}
