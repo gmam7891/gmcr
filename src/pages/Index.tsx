@@ -1,5 +1,5 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { InstagramTab } from "@/components/tabs/InstagramTab";
 import { TwitchTab } from "@/components/tabs/TwitchTab";
 import { YouTubeTab } from "@/components/tabs/YouTubeTab";
@@ -14,8 +14,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { Shield, LogOut } from "lucide-react";
+import { Shield, LogOut, ScanLine } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useLanguage } from "@/contexts/LanguageContext";
+import twitchLogo from "@/assets/twitch-logo.png";
+import youtubeLogo from "@/assets/youtube-logo.png";
+import kickLogo from "@/assets/kick-logo.png";
+import type { ComponentType } from "react";
+
 import instagramIcon from "@/assets/instagram-icon.png";
 import twitchLogo from "@/assets/twitch-logo.png";
 import youtubeLogo from "@/assets/youtube-logo.png";
@@ -28,7 +34,6 @@ interface TabConfig {
   icon?: string;
   component: ComponentType;
 }
-
 const TAB_CONFIG: TabConfig[] = [
   { id: "icp", label: "ICP Calc", icon: "📊" },
   { id: "discovery", label: "Prospecção", icon: "🔎" },
