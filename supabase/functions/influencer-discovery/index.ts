@@ -301,14 +301,45 @@ Deno.serve(async (req) => {
       });
 
       // Filter: score > 70 and not spam
-      const qualified = scored
+      let qualified = scored
         .filter((p) => p.match_score >= 70 && !p.is_spam)
         .sort((a, b) => b.match_score - a.match_score);
+
+      // SullyGnome validation for Twitch prospects
+      const twitchProspects = qualified.filter((p) => p.platform === "twitch");
+      if (twitchProspects.length > 0 && APIFY_API_KEY) {
+        console.log(`[Discovery] Validating ${twitchProspects.length} Twitch prospects via SullyGnome...`);
+        for (const prospect of twitchProspects.slice(0, 5)) {
+          try {
+            const sullyData = await fetchSullyGnomeQuick(prospect.username);
+            if (sullyData) {
+              prospect.sullygnome_data = sullyData;
+              // Boost score if SullyGnome confirms casino content
+              if (sullyData.casinoPercentage > 10) {
+                prospect.match_score = Math.min(100, prospect.match_score + 5);
+                prospect.score_breakdown.content = Math.min(20, (prospect.score_breakdown.content || 0) + 5);
+              }
+              // Penalize if SullyGnome shows very low hours (< 10h in 30d)
+              if (sullyData.totalStreamMinutes < 600) {
+                prospect.match_score = Math.max(0, prospect.match_score - 10);
+                prospect.score_breakdown.frequency = Math.max(0, (prospect.score_breakdown.frequency || 0) - 5);
+              }
+            }
+          } catch (e: any) {
+            console.warn(`[Discovery] SullyGnome validation failed for ${prospect.username}:`, e.message);
+          }
+        }
+        // Re-filter after score adjustments
+        qualified = qualified
+          .filter((p) => p.match_score >= 70)
+          .sort((a, b) => b.match_score - a.match_score);
+      }
 
       // Save to database
       if (qualified.length > 0) {
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const { error } = await supabase.from("discovery_prospects").insert(qualified);
+        const dbRecords = qualified.map(({ sullygnome_data, ...rest }) => rest);
+        const { error } = await supabase.from("discovery_prospects").insert(dbRecords);
         if (error) console.error("[Discovery] DB insert error:", error.message);
       }
 
@@ -353,3 +384,72 @@ Deno.serve(async (req) => {
     });
   }
 });
+
+// ─── SullyGnome Quick Validation ───────────────────────────────────────
+async function fetchSullyGnomeQuick(streamerLogin: string): Promise<any | null> {
+  try {
+    const actorId = "apify/web-scraper";
+    const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=60`;
+
+    const pageFunction = `
+      async function pageFunction(context) {
+        const { $ } = context;
+        const gameStats = [];
+        $('#tblData tbody tr').each((i, el) => {
+          gameStats.push({
+            category: $(el).find('td:nth-child(2)').text().trim(),
+            streamTime: $(el).find('td:nth-child(3)').text().trim(),
+            percentage: $(el).find('td:nth-child(8)').text().trim()
+          });
+        });
+        return { gameStats };
+      }
+    `;
+
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startUrls: [{ url: `https://sullygnome.com/channel/${streamerLogin}/30/games` }],
+        pageFunction,
+        proxyConfiguration: { useApifyProxy: true },
+        maxRequestsPerCrawl: 1,
+        maxConcurrency: 1,
+      }),
+    });
+
+    if (!res.ok) return null;
+    const items = await res.json();
+    const stats = items?.[0]?.gameStats || [];
+    if (stats.length === 0) return null;
+
+    const casinoKw = ["virtual casino", "slots", "casino", "gambling"];
+    let totalMin = 0;
+    let casinoMin = 0;
+    for (const g of stats) {
+      const mins = parseTime(g.streamTime || "0");
+      totalMin += mins;
+      if (casinoKw.some((k) => (g.category || "").toLowerCase().includes(k))) casinoMin += mins;
+    }
+
+    return {
+      totalStreamMinutes: totalMin,
+      casinoStreamMinutes: casinoMin,
+      casinoPercentage: totalMin > 0 ? Math.round((casinoMin / totalMin) * 100) : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseTime(raw: string): number {
+  let t = 0;
+  const d = raw.match(/(\d+)d/);
+  const h = raw.match(/(\d+)h/);
+  const m = raw.match(/(\d+)m/);
+  if (d) t += parseInt(d[1]) * 1440;
+  if (h) t += parseInt(h[1]) * 60;
+  if (m) t += parseInt(m[1]);
+  if (!d && !h && !m) { const n = parseInt(raw.replace(/,/g, ""), 10); if (!isNaN(n)) t = n * 60; }
+  return t;
+}
