@@ -73,17 +73,17 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-base font-semibold tracking-tight text-foreground cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate("/")}>{t("app.name")}</h1>
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
+      <header className="border-b border-border px-3 sm:px-6 py-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <h1 className="text-sm sm:text-base font-semibold tracking-tight text-foreground cursor-pointer hover:opacity-80 transition-opacity truncate" onClick={() => navigate("/")}>{t("app.name")}</h1>
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono hidden sm:inline">
             {t("app.subtitle")}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <ThemeToggle />
           {userAccess?.expires_at && (
-            <span className="text-[10px] text-muted-foreground font-mono">
+            <span className="text-[10px] text-muted-foreground font-mono hidden md:inline">
               {t("app.access_until")} {new Date(userAccess.expires_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}
             </span>
           )}
@@ -98,22 +98,22 @@ const Index = () => {
         </div>
       </header>
 
-      <main className="p-6">
-        <Tabs defaultValue={defaultTab} className="space-y-6">
-          <TabsList className="bg-secondary/50 border border-border p-1 h-auto gap-1 flex-wrap">
+      <main className="p-3 sm:p-6">
+        <Tabs defaultValue={defaultTab} className="space-y-4 sm:space-y-6">
+          <TabsList className="bg-secondary/50 border border-border p-1 h-auto gap-1 flex-wrap overflow-x-auto">
             {visibleTabs.map((tab) => (
               <TabsTrigger
                 key={tab.id}
                 value={tab.route ? "__nav__" : tab.id}
                 onClick={tab.route ? (e) => { e.preventDefault(); navigate(tab.route!); } : undefined}
-                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs font-mono uppercase tracking-wider px-4 py-2 flex items-center gap-1.5"
+                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-[10px] sm:text-xs font-mono uppercase tracking-wider px-2 sm:px-4 py-1.5 sm:py-2 flex items-center gap-1 sm:gap-1.5"
               >
                 {tab.icon && (tab.icon.length > 5 ? (
-                  <img src={tab.icon} alt="" className="h-4 w-4 object-contain" />
+                  <img src={tab.icon} alt="" className="h-3.5 w-3.5 sm:h-4 sm:w-4 object-contain" />
                 ) : (
-                  <span>{tab.icon}</span>
+                  <span className="text-xs sm:text-sm">{tab.icon}</span>
                 ))}
-                {tab.label}
+                <span className="hidden xs:inline sm:inline">{tab.label}</span>
               </TabsTrigger>
             ))}
           </TabsList>

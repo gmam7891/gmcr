@@ -257,28 +257,28 @@ export function VodTab() {
   };
 
   return (
-    <div className="max-w-5xl space-y-6">
-      <div className="card-surface p-4 space-y-1 flex items-start justify-between">
+    <div className="max-w-5xl space-y-4 sm:space-y-6">
+      <div className="card-surface p-3 sm:p-4 space-y-1 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
         <div>
           <p className="text-xs text-primary font-medium uppercase tracking-wider">{t("vod.title_header")}</p>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs sm:text-sm text-muted-foreground">
             {t("vod.description")}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0">
+        <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0 self-start">
           {t("app.export_excel")}
         </Button>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
         <Input
           value={vodUrl}
           onChange={(e) => setVodUrl(e.target.value)}
           placeholder={t("vod.placeholder")}
-          className="font-mono bg-secondary border-border"
+          className="font-mono bg-secondary border-border text-sm"
           onKeyDown={(e) => e.key === 'Enter' && analyze()}
         />
-        <Button onClick={analyze} disabled={loading || !vodUrl.trim()}>
+        <Button onClick={analyze} disabled={loading || !vodUrl.trim()} className="shrink-0">
           {loading ? t("vod.analyzing") : t("vod.analyze")}
         </Button>
       </div>
@@ -298,7 +298,7 @@ export function VodTab() {
       {singleVod && mode === "single" && (
         <div className="space-y-4">
           <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("vod.selected_vod")}</h3>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <MetricCard label="Título" value={singleVod.title.slice(0, 40) + (singleVod.title.length > 40 ? "..." : "")} />
             <MetricCard label="Duração" value={formatDuration(singleVod.duration)} />
             <MetricCard label="Views" value={fmtInt(singleVod.view_count)} />
@@ -354,7 +354,7 @@ export function VodTab() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <MetricCard label={t("vod.total_vods")} value={fmtInt(vods.length)} />
             <MetricCard label={t("yt.total_views")} value={fmtInt(totalViews)} />
             <MetricCard label={t("yt.total_hours")} value={`${totalHours.toFixed(1)}h`} />
