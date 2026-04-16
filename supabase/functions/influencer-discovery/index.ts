@@ -301,14 +301,45 @@ Deno.serve(async (req) => {
       });
 
       // Filter: score > 70 and not spam
-      const qualified = scored
+      let qualified = scored
         .filter((p) => p.match_score >= 70 && !p.is_spam)
         .sort((a, b) => b.match_score - a.match_score);
+
+      // SullyGnome validation for Twitch prospects
+      const twitchProspects = qualified.filter((p) => p.platform === "twitch");
+      if (twitchProspects.length > 0 && APIFY_API_KEY) {
+        console.log(`[Discovery] Validating ${twitchProspects.length} Twitch prospects via SullyGnome...`);
+        for (const prospect of twitchProspects.slice(0, 5)) {
+          try {
+            const sullyData = await fetchSullyGnomeQuick(prospect.username);
+            if (sullyData) {
+              prospect.sullygnome_data = sullyData;
+              // Boost score if SullyGnome confirms casino content
+              if (sullyData.casinoPercentage > 10) {
+                prospect.match_score = Math.min(100, prospect.match_score + 5);
+                prospect.score_breakdown.content = Math.min(20, (prospect.score_breakdown.content || 0) + 5);
+              }
+              // Penalize if SullyGnome shows very low hours (< 10h in 30d)
+              if (sullyData.totalStreamMinutes < 600) {
+                prospect.match_score = Math.max(0, prospect.match_score - 10);
+                prospect.score_breakdown.frequency = Math.max(0, (prospect.score_breakdown.frequency || 0) - 5);
+              }
+            }
+          } catch (e: any) {
+            console.warn(`[Discovery] SullyGnome validation failed for ${prospect.username}:`, e.message);
+          }
+        }
+        // Re-filter after score adjustments
+        qualified = qualified
+          .filter((p) => p.match_score >= 70)
+          .sort((a, b) => b.match_score - a.match_score);
+      }
 
       // Save to database
       if (qualified.length > 0) {
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const { error } = await supabase.from("discovery_prospects").insert(qualified);
+        const dbRecords = qualified.map(({ sullygnome_data, ...rest }) => rest);
+        const { error } = await supabase.from("discovery_prospects").insert(dbRecords);
         if (error) console.error("[Discovery] DB insert error:", error.message);
       }
 
