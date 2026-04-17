@@ -29,7 +29,7 @@ export function VodAuditProgressBar({ progress }: { progress: VodAuditProgress |
         {progress.progress_message || (total > 0 ? `Minuto ${current} de ${total} • ${progress.progress_games_found} jogos detectados` : "")}
       </p>
       {isDone && hasPending && (
-        <p className="text-xs text-yellow-600">⚠ {progress.pending_audit_segments.length} segmento(s) marcado(s) para auditoria pendente</p>
+        <p className="text-xs text-destructive">⚠ {progress.pending_audit_segments.length} segmento(s) marcado(s) para auditoria pendente</p>
       )}
     </div>
   );

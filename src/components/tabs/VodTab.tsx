@@ -2,9 +2,12 @@ import { useState, useMemo } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, formatDuration, formatSeconds, parseDuration, getStoryboardUrls, generateSeekThumbnails, type TwitchVod, type VodChapter, type AiVodAnalysis } from "@/lib/twitch-api";
+import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, analyzeVodSurgical, formatDuration, formatSeconds, parseDuration, getStoryboardUrls, generateSeekThumbnails, type TwitchVod, type VodChapter, type AiVodAnalysis } from "@/lib/twitch-api";
 import { fmtInt } from "@/lib/formatters";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { supabase } from "@/integrations/supabase/client";
+import { VodAuditProgressBar } from "@/components/VodAuditProgressBar";
+import { useVodAuditProgress } from "@/hooks/useVodAuditProgress";
 import * as XLSX from "xlsx";
 
 interface GameSummary {
