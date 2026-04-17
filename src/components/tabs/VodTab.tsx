@@ -313,6 +313,9 @@ export function VodTab() {
             </Button>
             <span className="text-xs text-muted-foreground">{t("vod.ai_deep_desc")}</span>
           </div>
+          {(aiLoading === singleVod.id || (auditProgress && activeAuditId)) && (
+            <VodAuditProgressBar progress={auditProgress} />
+          )}
           {aiResults[singleVod.id] && (
             <AiResultsDisplay analysis={aiResults[singleVod.id]} vodDurationSecs={parseDuration(singleVod.duration) * 60} />
           )}
