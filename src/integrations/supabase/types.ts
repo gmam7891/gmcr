@@ -931,14 +931,21 @@ export type Database = {
           gap_seconds: number | null
           id: string
           model_version: string | null
+          pending_audit_segments: Json | null
           platform: string
           processed_duration_seconds: number | null
           processed_frames: number | null
           processing_version: string | null
+          progress_current_minute: number | null
+          progress_games_found: number | null
+          progress_message: string | null
+          progress_phase: string | null
+          progress_total_minutes: number | null
           rules_version: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["vod_status"]
           streamer_login: string
+          sullygnome_snapshot: Json | null
           suspect_blocks: number | null
           total_evidences: number | null
           updated_at: string
@@ -961,14 +968,21 @@ export type Database = {
           gap_seconds?: number | null
           id?: string
           model_version?: string | null
+          pending_audit_segments?: Json | null
           platform?: string
           processed_duration_seconds?: number | null
           processed_frames?: number | null
           processing_version?: string | null
+          progress_current_minute?: number | null
+          progress_games_found?: number | null
+          progress_message?: string | null
+          progress_phase?: string | null
+          progress_total_minutes?: number | null
           rules_version?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["vod_status"]
           streamer_login: string
+          sullygnome_snapshot?: Json | null
           suspect_blocks?: number | null
           total_evidences?: number | null
           updated_at?: string
@@ -991,14 +1005,21 @@ export type Database = {
           gap_seconds?: number | null
           id?: string
           model_version?: string | null
+          pending_audit_segments?: Json | null
           platform?: string
           processed_duration_seconds?: number | null
           processed_frames?: number | null
           processing_version?: string | null
+          progress_current_minute?: number | null
+          progress_games_found?: number | null
+          progress_message?: string | null
+          progress_phase?: string | null
+          progress_total_minutes?: number | null
           rules_version?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["vod_status"]
           streamer_login?: string
+          sullygnome_snapshot?: Json | null
           suspect_blocks?: number | null
           total_evidences?: number | null
           updated_at?: string
