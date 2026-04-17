@@ -11,6 +11,13 @@ const GQL_URL = 'https://gql.twitch.tv/gql';
 const GQL_CLIENT_ID = 'kimne78kx3ncx6brgo4mv6wki5h1ko';
 const AI_GATEWAY = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 
+// === SAMPLING CONSTANTS (Surgical Audit Architecture) ===
+const SAMPLE_INTERVAL_NORMAL = 15;       // 1 frame / 15s = 4 frames/min
+const SAMPLE_INTERVAL_TRANSITION = 10;   // 1 frame / 10s in transition windows
+const TRANSITION_WINDOW_SECONDS = 300;   // 5 minutes after a category change
+const BATCH_SIZE = 5;
+const CASINO_CATEGORY_HINTS = ['virtual casino', 'slots', 'casino', 'gambling'];
+
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -66,10 +73,68 @@ IMPORTANTE:
 - MESMO QUE APAREÇA EM APENAS 1 FRAME/MINIATURA, reporte o jogo.
 - Retorne APENAS o JSON array, nenhum outro texto`;
 
-Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+const FORENSIC_RECOVERY_PROMPT = `Você é um auditor de iGaming. ESTAS IMAGENS pertencem a um período em que o streamer JÁ ESTAVA JOGANDO CASSINO (confirmado por estatísticas externas). NÃO use a categoria "not_game" — o jogo ESTÁ na tela; sua tarefa é IDENTIFICÁ-LO.
+
+Procure por: grids de slot, botões SPIN, saldos em R$/$/€, multiplicadores, logo de provedora, abas de navegador, URL, ou descreva visualmente o jogo se o nome não for legível.
+
+Responda em JSON array: [{"game":"...","provider":"...","category":"slots|live_casino|table_game|crash_game","confidence":"high|medium|low","evidence":"...","image_index":0}]`;
+
+// ========= Helpers =========
+
+async function callAI(messages: any[], apiKey: string, maxTokens = 8192) {
+  return await fetch(AI_GATEWAY, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'google/gemini-2.5-flash', messages, max_tokens: maxTokens }),
+  });
+}
+
+function parseAIBatch(content: string): any[] {
+  try {
+    let clean = content.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    const match = clean.match(/\[[\s\S]*\]/);
+    if (!match) return [];
+    try { return JSON.parse(match[0]); } catch {
+      const lastBrace = match[0].lastIndexOf('}');
+      if (lastBrace > 0) {
+        try { return JSON.parse(match[0].substring(0, lastBrace + 1) + ']'); } catch { return []; }
+      }
+    }
+    return [];
+  } catch { return []; }
+}
+
+function isCasinoCategory(name?: string | null): boolean {
+  if (!name) return false;
+  const lower = name.toLowerCase();
+  return CASINO_CATEGORY_HINTS.some(k => lower.includes(k));
+}
+
+// Build adaptive sample timestamps from chapters (transition densification)
+function buildAdaptiveTimestamps(durationSec: number, chapters: any[]): number[] {
+  const timestamps = new Set<number>();
+
+  // 1) Base: every SAMPLE_INTERVAL_NORMAL seconds across the whole VOD
+  for (let t = 30; t < durationSec; t += SAMPLE_INTERVAL_NORMAL) timestamps.add(t);
+
+  // 2) Transition densification: at every chapter start, add dense window
+  if (Array.isArray(chapters)) {
+    for (const ch of chapters) {
+      const start = ch?.positionSeconds ?? 0;
+      const windowEnd = Math.min(start + TRANSITION_WINDOW_SECONDS, durationSec);
+      for (let t = start; t < windowEnd; t += SAMPLE_INTERVAL_TRANSITION) {
+        timestamps.add(t);
+      }
+    }
   }
+
+  return Array.from(timestamps).sort((a, b) => a - b);
+}
+
+// ========= Main handler =========
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
   if (!LOVABLE_API_KEY) return jsonResponse({ error: 'LOVABLE_API_KEY not configured' }, 500);
@@ -148,57 +213,285 @@ Deno.serve(async (req) => {
     // --- Get VOD storyboard URLs via GQL ---
     if (action === 'get_storyboard_urls') {
       if (!vod_id) throw new Error('vod_id is required');
-
       const gqlRes = await fetch(GQL_URL, {
         method: 'POST',
         headers: { 'Client-ID': GQL_CLIENT_ID, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: `query { video(id: "${vod_id}") { seekPreviewsURL } }`,
-        }),
+        body: JSON.stringify({ query: `query { video(id: "${vod_id}") { seekPreviewsURL } }` }),
       });
-
       const gqlData = await gqlRes.json();
       const seekPreviewsURL = gqlData?.data?.video?.seekPreviewsURL;
-
-      if (!seekPreviewsURL) {
-        return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard URL available' });
-      }
+      if (!seekPreviewsURL) return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard URL available' });
 
       const infoRes = await fetch(seekPreviewsURL);
-      if (!infoRes.ok) {
-        return jsonResponse({ storyboardUrls: [], interval: 0, error: `Failed to fetch storyboard info: ${infoRes.status}` });
-      }
+      if (!infoRes.ok) return jsonResponse({ storyboardUrls: [], interval: 0, error: `Failed to fetch storyboard info: ${infoRes.status}` });
 
       const infoData = await infoRes.json();
-      // Prefer "high" quality, fallback to any available
       const highQuality = infoData.find((q: any) => q.quality === 'high') || infoData[0];
-      if (!highQuality) {
-        return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard quality data' });
-      }
+      if (!highQuality) return jsonResponse({ storyboardUrls: [], interval: 0, error: 'No storyboard quality data' });
 
       const baseUrl = seekPreviewsURL.replace(/[^/]+$/, '');
       const storyboardUrls = highQuality.images.map((img: string) => baseUrl + img);
 
       return jsonResponse({
-        storyboardUrls,
-        interval: highQuality.interval,
-        cols: highQuality.cols,
-        rows: highQuality.rows,
-        width: highQuality.width,
-        height: highQuality.height,
-        count: highQuality.count,
+        storyboardUrls, interval: highQuality.interval, cols: highQuality.cols, rows: highQuality.rows,
+        width: highQuality.width, height: highQuality.height, count: highQuality.count,
         framesPerStrip: highQuality.cols * highQuality.rows,
       });
     }
 
-    // --- Deep VOD analysis with AI Vision (FORENSIC AUDIT) ---
+    // ====================================================================
+    // === SURGICAL VOD AUDIT (full pipeline w/ progress + SullyGnome) ====
+    // ====================================================================
+    if (action === 'analyze_vod_surgical') {
+      const { thumbnail_url, vod_title, vod_duration_seconds, streamer_login, audit_id } = body;
+      if (!thumbnail_url || !vod_duration_seconds || !streamer_login) {
+        throw new Error('thumbnail_url, vod_duration_seconds, streamer_login required');
+      }
+
+      const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+      const sb = createClient(supabaseUrl, supabaseKey);
+
+      const totalMinutes = Math.round(vod_duration_seconds / 60);
+
+      const updateProgress = async (patch: Record<string, any>) => {
+        if (!audit_id) return;
+        await sb.from('vod_audits').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', audit_id);
+      };
+
+      // === Phase 1: Fetch chapters (transition map) ===
+      await updateProgress({ progress_phase: 'fetching_chapters', progress_message: 'Lendo capítulos da Twitch...', progress_total_minutes: totalMinutes });
+      let chapters: any[] = [];
+      try {
+        const gqlRes = await fetch(GQL_URL, {
+          method: 'POST',
+          headers: { 'Client-ID': GQL_CLIENT_ID, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            operationName: "VideoPlayer_ChapterSelectButtonVideo",
+            variables: { videoID: String(vod_id) },
+            extensions: { persistedQuery: { version: 1, sha256Hash: "8d2793384aac3773beab5e59bd5d6f585aedb923d292800571571c2d1f41881c" } }
+          }),
+        });
+        const gqlData = await gqlRes.json();
+        const moments = gqlData?.data?.video?.moments?.edges ?? [];
+        chapters = moments.map((edge: any) => ({
+          positionSeconds: Math.round(edge.node.positionMilliseconds / 1000),
+          durationSeconds: Math.round(edge.node.durationMilliseconds / 1000),
+          game: edge.node.details?.game?.displayName ?? edge.node.description,
+        }));
+      } catch (e) { console.warn('[SURGICAL] chapters failed:', e); }
+
+      // === Phase 2: SullyGnome gabarito ===
+      await updateProgress({ progress_phase: 'fetching_sullygnome', progress_message: 'Consultando SullyGnome (gabarito oficial)...' });
+      let sullyData: any = null;
+      try {
+        const sullyRes = await sb.functions.invoke('sullygnome-scraper', {
+          body: { action: 'scrape', streamer_login },
+        });
+        sullyData = sullyRes?.data || null;
+      } catch (e) { console.warn('[SURGICAL] SullyGnome failed:', e); }
+      await updateProgress({ sullygnome_snapshot: sullyData || {} });
+
+      // === Phase 3: Build adaptive timestamps ===
+      const timestamps = buildAdaptiveTimestamps(vod_duration_seconds, chapters);
+      console.log(`[SURGICAL] Built ${timestamps.length} adaptive timestamps (normal=${SAMPLE_INTERVAL_NORMAL}s, transitions=${chapters.length})`);
+      await updateProgress({ progress_phase: 'sampling', progress_message: `Amostragem adaptativa: ${timestamps.length} frames planejados` });
+
+      // === Phase 4: Build thumbnail URLs at each timestamp ===
+      const baseThumb = thumbnail_url.replace('%{width}', '1280').replace('%{height}', '720');
+      const frameUrls = timestamps.map(ts => baseThumb.replace(/thumb\d*-\d+x\d+/, `thumb${ts}-1280x720`));
+
+      // === Phase 5: Load Visual DNA ===
+      let visualDnaContext = '';
+      try {
+        const { data: trainedGames } = await sb
+          .from('game_visual_library')
+          .select('game_name, provider_name, visual_dna')
+          .eq('training_status', 'trained')
+          .not('visual_dna', 'eq', '{}')
+          .limit(200);
+        if (trainedGames && trainedGames.length > 0) {
+          const dnaEntries = trainedGames.map((g: any) => {
+            const dna = g.visual_dna || {};
+            const traits = dna.unique_traits ? dna.unique_traits.join('; ') : '';
+            const keywords = dna.detection_keywords ? dna.detection_keywords.join(', ') : '';
+            return `- "${g.game_name}" (${g.provider_name}): ${traits}${keywords ? ' | Keywords: ' + keywords : ''}`;
+          }).join('\n');
+          visualDnaContext = `\n\n## JOGOS TREINADOS (REFERÊNCIA VISUAL PRIORITÁRIA):\n${dnaEntries}`;
+        }
+      } catch {}
+
+      const enhancedPrompt = FORENSIC_SYSTEM_PROMPT + visualDnaContext;
+
+      // === Phase 6: Batch analysis with live progress ===
+      const allDetections: any[] = [];
+      const pendingAuditSegments: any[] = [];
+
+      for (let i = 0; i < frameUrls.length; i += BATCH_SIZE) {
+        const batchUrls = frameUrls.slice(i, i + BATCH_SIZE);
+        const batchTs = timestamps.slice(i, i + BATCH_SIZE);
+        const currentMinute = Math.round(batchTs[0] / 60);
+
+        // Identify if this batch is in a known casino chapter (gabarito)
+        const chapterAtBatch = chapters.find(ch =>
+          batchTs[0] >= ch.positionSeconds &&
+          batchTs[0] < (ch.positionSeconds + ch.durationSeconds)
+        );
+        const isKnownCasino = isCasinoCategory(chapterAtBatch?.game);
+
+        // Live progress update
+        const detectedSoFar = new Set(allDetections.filter(d => d.category !== 'not_game').map(d => `${d.game}|${d.provider}`)).size;
+        await updateProgress({
+          progress_phase: 'analyzing',
+          progress_current_minute: currentMinute,
+          progress_games_found: detectedSoFar,
+          progress_message: `Analisando minuto ${currentMinute} de ${totalMinutes}... ${detectedSoFar} jogos detectados`,
+        });
+
+        const imageContent = batchUrls.map((url: string) => ({ type: "image_url", image_url: { url, detail: "high" } }));
+        const tsHint = batchTs.map((t, ix) => `Image ${ix + 1}: ${Math.floor(t / 60)}min`).join(', ');
+
+        const aiRes = await callAI([
+          { role: 'system', content: enhancedPrompt },
+          { role: 'user', content: [
+            { type: "text", text: `AUDITORIA FORENSE de "${vod_title}". Identifique jogos. Timestamps: ${tsHint}` },
+            ...imageContent,
+          ] },
+        ], LOVABLE_API_KEY);
+
+        if (!aiRes.ok) { await aiRes.text(); continue; }
+        const aiData = await aiRes.json();
+        const batchGames = parseAIBatch(aiData?.choices?.[0]?.message?.content ?? '[]');
+
+        // === SOVEREIGNTY: re-analyze if known-casino but AI says not_game ===
+        const allNotGame = batchGames.length > 0 && batchGames.every((g: any) => g.category === 'not_game');
+        let finalBatch = batchGames;
+
+        if (isKnownCasino && (allNotGame || batchGames.length === 0)) {
+          console.log(`[SURGICAL] Conflict at min ${currentMinute}: chapter=${chapterAtBatch?.game}, AI=not_game. Re-analyzing aggressively.`);
+          const retryRes = await callAI([
+            { role: 'system', content: FORENSIC_RECOVERY_PROMPT + visualDnaContext },
+            { role: 'user', content: [
+              { type: "text", text: `Período confirmado como ${chapterAtBatch?.game}. Identifique o jogo na tela.` },
+              ...imageContent,
+            ] },
+          ], LOVABLE_API_KEY);
+
+          if (retryRes.ok) {
+            const retryData = await retryRes.json();
+            const retryGames = parseAIBatch(retryData?.choices?.[0]?.message?.content ?? '[]');
+            const stillFailing = retryGames.length === 0 || retryGames.every((g: any) => g.category === 'not_game');
+            if (stillFailing) {
+              // Flag for manual audit
+              pendingAuditSegments.push({
+                start_minute: currentMinute,
+                chapter_category: chapterAtBatch?.game,
+                frames: batchUrls,
+                timestamps: batchTs,
+                reason: 'AI_could_not_identify_in_known_casino_window',
+              });
+            } else {
+              finalBatch = retryGames;
+            }
+          } else { await retryRes.text(); }
+        }
+
+        for (const g of finalBatch) {
+          const imgIdx = g.image_index ?? 0;
+          const ts = batchTs[imgIdx] ?? batchTs[0];
+          allDetections.push({ ...g, timestampSeconds: ts });
+        }
+
+        if (i + BATCH_SIZE < frameUrls.length) await new Promise(r => setTimeout(r, 1000));
+      }
+
+      // === Phase 7: REAL TIME COUNT ===
+      // TIME_TOTAL = (POSITIVE_FRAMES * SAMPLE_INTERVAL_NORMAL) / 60 minutes
+      // Each detection represents one frame; we deduplicate per (game, timestamp).
+      const confidenceRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
+      const byTimestamp = new Map<number, any[]>();
+      for (const det of allDetections) {
+        if (!byTimestamp.has(det.timestampSeconds)) byTimestamp.set(det.timestampSeconds, []);
+        byTimestamp.get(det.timestampSeconds)!.push(det);
+      }
+
+      const deduped: any[] = [];
+      for (const [_ts, dets] of byTimestamp) {
+        const bestPerGame = new Map<string, any>();
+        for (const d of dets) {
+          const key = `${d.game}|${d.provider}`;
+          const existing = bestPerGame.get(key);
+          if (!existing || (confidenceRank[d.confidence] || 0) > (confidenceRank[existing.confidence] || 0)) {
+            bestPerGame.set(key, d);
+          }
+        }
+        deduped.push(...bestPerGame.values());
+      }
+
+      // Each positive frame = SAMPLE_INTERVAL_NORMAL seconds (rigorous)
+      const gameMap = new Map<string, any>();
+      for (const det of deduped) {
+        if (det.category === 'not_game') continue;
+        const key = `${det.game}|${det.provider}`;
+        const existing = gameMap.get(key);
+        if (existing) {
+          existing.count += 1;
+          existing.totalSeconds += SAMPLE_INTERVAL_NORMAL;
+          if ((confidenceRank[det.confidence] || 0) > (confidenceRank[existing.confidence] || 0)) existing.confidence = det.confidence;
+          if (!existing.evidence && det.evidence) existing.evidence = det.evidence;
+        } else {
+          gameMap.set(key, {
+            game: det.game, provider: det.provider, category: det.category, confidence: det.confidence,
+            evidence: det.evidence || null, count: 1, totalSeconds: SAMPLE_INTERVAL_NORMAL,
+          });
+        }
+      }
+
+      const uniqueGames = Array.from(gameMap.values()).map(g => ({
+        game: g.game, provider: g.provider, category: g.category, confidence: g.confidence,
+        evidence: g.evidence, detectionCount: g.count, totalSeconds: g.totalSeconds,
+      })).sort((a, b) => b.totalSeconds - a.totalSeconds);
+
+      const gameTimeline = deduped
+        .filter(d => d.category !== 'not_game')
+        .sort((a, b) => a.timestampSeconds - b.timestampSeconds)
+        .map(d => ({
+          game: d.game, provider: d.provider, category: d.category, evidence: d.evidence || null,
+          startSeconds: d.timestampSeconds, endSeconds: d.timestampSeconds + SAMPLE_INTERVAL_NORMAL,
+          durationSeconds: SAMPLE_INTERVAL_NORMAL,
+        }));
+
+      // Final progress update
+      await updateProgress({
+        progress_phase: 'completed',
+        progress_current_minute: totalMinutes,
+        progress_games_found: uniqueGames.length,
+        progress_message: `Concluído: ${uniqueGames.length} jogos detectados em ${deduped.filter(d => d.category !== 'not_game').length} frames positivos`,
+        pending_audit_segments: pendingAuditSegments,
+        completed_at: new Date().toISOString(),
+        status: pendingAuditSegments.length > 0 ? 'needs_review' : 'completed',
+      });
+
+      console.log(`[SURGICAL] DONE: ${uniqueGames.length} games, ${pendingAuditSegments.length} pending audits`);
+
+      return jsonResponse({
+        games: uniqueGames,
+        gameTimeline,
+        totalSamples: timestamps.length,
+        positiveFrames: deduped.filter(d => d.category !== 'not_game').length,
+        sampleDuration: SAMPLE_INTERVAL_NORMAL,
+        pendingAuditSegments,
+        sullygnome: sullyData,
+      });
+    }
+
+    // === Legacy: analyze_vod_frames (kept for backward compat) ===
     if (action === 'analyze_vod_frames') {
       const { thumbnail_urls, vod_title, timestamps, sample_interval } = body;
       if (!thumbnail_urls || !Array.isArray(thumbnail_urls) || thumbnail_urls.length === 0) {
         throw new Error('thumbnail_urls array is required');
       }
 
-      // --- Fetch trained Visual DNA from game_visual_library ---
       let visualDnaContext = '';
       try {
         const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
@@ -211,7 +504,6 @@ Deno.serve(async (req) => {
             .eq('training_status', 'trained')
             .not('visual_dna', 'eq', '{}')
             .limit(200);
-          
           if (trainedGames && trainedGames.length > 0) {
             const dnaEntries = trainedGames.map((g: any) => {
               const dna = g.visual_dna || {};
@@ -219,171 +511,49 @@ Deno.serve(async (req) => {
               const keywords = dna.detection_keywords ? dna.detection_keywords.join(', ') : '';
               return `- "${g.game_name}" (${g.provider_name}): ${traits}${keywords ? ' | Keywords: ' + keywords : ''}`;
             }).join('\n');
-            visualDnaContext = `\n\n## JOGOS TREINADOS (REFERÊNCIA VISUAL PRIORITÁRIA):\nOs seguintes jogos foram previamente analisados. Use estas características para identificá-los com alta confiança:\n${dnaEntries}`;
-            console.log(`[FORENSIC] Loaded ${trainedGames.length} trained game DNAs for enhanced detection`);
+            visualDnaContext = `\n\n## JOGOS TREINADOS:\n${dnaEntries}`;
           }
         }
-      } catch (dnaErr) {
-        console.error('[FORENSIC] Failed to load Visual DNA (non-fatal):', dnaErr);
-      }
+      } catch {}
 
       const enhancedPrompt = FORENSIC_SYSTEM_PROMPT + visualDnaContext;
-
       const hasTimestamps = timestamps && Array.isArray(timestamps) && timestamps.length === thumbnail_urls.length;
-      // Each detection = one sample worth of time. Default 60s, but storyboards pass the real interval.
-      const sampleDuration = sample_interval && sample_interval > 0 ? sample_interval : 60;
+      const sampleDuration = sample_interval && sample_interval > 0 ? sample_interval : SAMPLE_INTERVAL_NORMAL;
 
-      // Process in batches of 5 images per AI call for better accuracy
-      const BATCH_SIZE = 5;
-      const allDetections: { game: string; provider: string | null; category: string; confidence: string; evidence?: string; timestampSeconds: number }[] = [];
-
+      const allDetections: any[] = [];
       for (let batchStart = 0; batchStart < thumbnail_urls.length; batchStart += BATCH_SIZE) {
         const batchUrls = thumbnail_urls.slice(batchStart, batchStart + BATCH_SIZE);
         const batchTimestamps = hasTimestamps ? timestamps.slice(batchStart, batchStart + BATCH_SIZE) : [];
+        const imageContent = batchUrls.map((url: string) => ({ type: "image_url", image_url: { url, detail: "high" } }));
+        const aiRes = await callAI([
+          { role: 'system', content: enhancedPrompt },
+          { role: 'user', content: [
+            { type: "text", text: `AUDITORIA FORENSE: Analise estas ${batchUrls.length} imagens.` },
+            ...imageContent,
+          ] },
+        ], LOVABLE_API_KEY);
 
-        const imageContent = batchUrls.map((url: string) => ({
-          type: "image_url",
-          image_url: { url, detail: "high" }
-        }));
-
-        const timestampInfo = hasTimestamps
-          ? `\nTimestamps: ${batchTimestamps.map((t: number, i: number) => `Image ${i + 1}: ~${Math.floor(t / 60)}min`).join(', ')}`
-          : '';
-
-        console.log(`[FORENSIC] Batch ${batchStart}: Analyzing ${batchUrls.length} frames...`);
-
-        const aiRes = await fetch(AI_GATEWAY, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'google/gemini-2.5-flash',
-            messages: [
-              { role: 'system', content: enhancedPrompt },
-              {
-                role: 'user',
-                content: [
-                  { type: "text", text: `AUDITORIA FORENSE: Analise estas ${batchUrls.length} imagens do VOD "${vod_title || 'unknown'}". Identifique TODOS os jogos de casino/iGaming visíveis com evidências visuais detalhadas. Foque em HUD, logos, botões e elementos de interface mesmo que minimalistas.${timestampInfo}` },
-                  ...imageContent
-                ]
-              }
-            ],
-            max_tokens: 8192,
-          }),
-        });
-
-        if (!aiRes.ok) {
-          const errText = await aiRes.text();
-          console.error(`[FORENSIC] AI batch error [${aiRes.status}]:`, errText);
-          if (aiRes.status === 413 || aiRes.status === 400) {
-            console.log(`[FORENSIC] Retrying batch ${batchStart} with low detail...`);
-            const retryRes = await fetch(AI_GATEWAY, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'google/gemini-2.5-flash',
-                messages: [
-                  { role: 'system', content: enhancedPrompt },
-                  {
-                    role: 'user',
-                    content: [
-                      { type: "text", text: `AUDITORIA FORENSE: Analise estas ${batchUrls.length} imagens. Identifique jogos de casino visíveis.${timestampInfo}` },
-                      ...batchUrls.map((url: string) => ({ type: "image_url", image_url: { url, detail: "low" } }))
-                    ]
-                  }
-                ],
-                max_tokens: 8192,
-              }),
-            });
-            if (retryRes.ok) {
-              const retryData = await retryRes.json();
-              const retryContent = retryData?.choices?.[0]?.message?.content ?? '[]';
-              try {
-                let cleanRetry = retryContent.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-                const jsonMatch = cleanRetry.match(/\[[\s\S]*\]/);
-                let batchGames: any[] = [];
-                if (jsonMatch) {
-                  try { batchGames = JSON.parse(jsonMatch[0]); } catch {
-                    const lastBrace = jsonMatch[0].lastIndexOf('}');
-                    if (lastBrace > 0) { try { batchGames = JSON.parse(jsonMatch[0].substring(0, lastBrace + 1) + ']'); } catch {} }
-                  }
-                }
-          for (const g of batchGames) {
-            const imgIdx = g.image_index ?? 0;
-            const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
-            allDetections.push({ ...g, timestampSeconds: ts });
-          }
-              } catch { /* skip */ }
-            } else {
-              await retryRes.text();
-            }
-          }
-          continue;
-        }
-
+        if (!aiRes.ok) { await aiRes.text(); continue; }
         const aiData = await aiRes.json();
-        const content = aiData?.choices?.[0]?.message?.content ?? '[]';
-
-        try {
-          console.log(`[FORENSIC] Raw AI response (batch ${batchStart}):`, content.slice(0, 500));
-          // Strip markdown code fences if present
-          let cleanContent = content.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-          const jsonMatch = cleanContent.match(/\[[\s\S]*\]/);
-          let batchGames: any[] = [];
-          if (jsonMatch) {
-            try {
-              batchGames = JSON.parse(jsonMatch[0]);
-            } catch (parseErr) {
-              // Truncated JSON — try to recover by closing the array
-              console.warn(`[FORENSIC] Truncated JSON detected, attempting recovery...`);
-              let partial = jsonMatch[0];
-              // Find the last complete object (ends with })
-              const lastComplete = partial.lastIndexOf('}');
-              if (lastComplete > 0) {
-                partial = partial.substring(0, lastComplete + 1) + ']';
-                try {
-                  batchGames = JSON.parse(partial);
-                  console.log(`[FORENSIC] Recovered ${batchGames.length} detections from truncated response`);
-                } catch { /* truly broken */ }
-              }
-            }
-          }
-          console.log(`[FORENSIC] Parsed ${batchGames.length} detections:`, JSON.stringify(batchGames.map((g: any) => ({
-            game: g.game, provider: g.provider, category: g.category, confidence: g.confidence, evidence: g.evidence?.slice(0, 80)
-          }))));
-          for (const g of batchGames) {
-            const imgIdx = g.image_index ?? 0;
-            const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
-            allDetections.push({ ...g, timestampSeconds: ts });
-          }
-        } catch {
-          console.error('[FORENSIC] Failed to parse AI response:', content.slice(0, 300));
+        const batchGames = parseAIBatch(aiData?.choices?.[0]?.message?.content ?? '[]');
+        for (const g of batchGames) {
+          const imgIdx = g.image_index ?? 0;
+          const ts = hasTimestamps && batchTimestamps[imgIdx] != null ? batchTimestamps[imgIdx] : 0;
+          allDetections.push({ ...g, timestampSeconds: ts });
         }
-
-        if (batchStart + BATCH_SIZE < thumbnail_urls.length) {
-          await new Promise(r => setTimeout(r, 1200));
-        }
+        if (batchStart + BATCH_SIZE < thumbnail_urls.length) await new Promise(r => setTimeout(r, 1200));
       }
 
-      // === NEW: Per-detection time calculation ===
-      // Handle overlapping detections at the same timestamp: keep highest confidence
       const confidenceRank: Record<string, number> = { high: 3, medium: 2, low: 1 };
-      const byTimestamp = new Map<number, typeof allDetections>();
+      const byTimestamp = new Map<number, any[]>();
       for (const det of allDetections) {
-        const ts = det.timestampSeconds;
-        if (!byTimestamp.has(ts)) byTimestamp.set(ts, []);
-        byTimestamp.get(ts)!.push(det);
+        if (!byTimestamp.has(det.timestampSeconds)) byTimestamp.set(det.timestampSeconds, []);
+        byTimestamp.get(det.timestampSeconds)!.push(det);
       }
 
-      // Deduplicate: at each timestamp, keep only one detection per game (highest confidence)
-      const deduped: typeof allDetections = [];
+      const deduped: any[] = [];
       for (const [_ts, dets] of byTimestamp) {
-        const bestPerGame = new Map<string, typeof allDetections[0]>();
+        const bestPerGame = new Map<string, any>();
         for (const d of dets) {
           const key = `${d.game}|${d.provider}`;
           const existing = bestPerGame.get(key);
@@ -394,68 +564,39 @@ Deno.serve(async (req) => {
         deduped.push(...bestPerGame.values());
       }
 
-      // Count detections per game and calculate time = count * sampleDuration
-      const gameCountMap = new Map<string, { game: string; provider: string | null; category: string; confidence: string; evidence: string | null; count: number; totalSeconds: number }>();
+      const gameCountMap = new Map<string, any>();
       for (const det of deduped) {
+        if (det.category === 'not_game') continue;
         const key = `${det.game}|${det.provider}`;
         const existing = gameCountMap.get(key);
         if (existing) {
           existing.count += 1;
           existing.totalSeconds += sampleDuration;
-          // Keep highest confidence
-          if ((confidenceRank[det.confidence] || 0) > (confidenceRank[existing.confidence] || 0)) {
-            existing.confidence = det.confidence;
-          }
+          if ((confidenceRank[det.confidence] || 0) > (confidenceRank[existing.confidence] || 0)) existing.confidence = det.confidence;
           if (!existing.evidence && det.evidence) existing.evidence = det.evidence;
         } else {
           gameCountMap.set(key, {
-            game: det.game,
-            provider: det.provider,
-            category: det.category,
-            confidence: det.confidence,
-            evidence: det.evidence || null,
-            count: 1,
-            totalSeconds: sampleDuration,
+            game: det.game, provider: det.provider, category: det.category, confidence: det.confidence,
+            evidence: det.evidence || null, count: 1, totalSeconds: sampleDuration,
           });
         }
       }
 
-      // Build timeline segments from sorted detections for visualization
-      const gameTimeline: any[] = [];
-      const sortedDeduped = [...deduped].sort((a, b) => a.timestampSeconds - b.timestampSeconds);
-      for (const det of sortedDeduped) {
-        const startSec = Math.max(0, det.timestampSeconds);
-        gameTimeline.push({
-          game: det.game,
-          provider: det.provider,
-          category: det.category,
-          evidence: det.evidence || null,
-          startSeconds: startSec,
-          endSeconds: startSec + sampleDuration,
+      const gameTimeline: any[] = deduped
+        .filter(d => d.category !== 'not_game')
+        .sort((a, b) => a.timestampSeconds - b.timestampSeconds)
+        .map(d => ({
+          game: d.game, provider: d.provider, category: d.category, evidence: d.evidence || null,
+          startSeconds: Math.max(0, d.timestampSeconds), endSeconds: Math.max(0, d.timestampSeconds) + sampleDuration,
           durationSeconds: sampleDuration,
-        });
-      }
+        }));
 
-      // Unique games with detection count and real total time
       const uniqueGames = Array.from(gameCountMap.values()).map(g => ({
-        game: g.game,
-        provider: g.provider,
-        category: g.category,
-        confidence: g.confidence,
-        evidence: g.evidence,
-        detectionCount: g.count,
-        totalSeconds: g.totalSeconds,
+        game: g.game, provider: g.provider, category: g.category, confidence: g.confidence,
+        evidence: g.evidence, detectionCount: g.count, totalSeconds: g.totalSeconds,
       }));
 
-      console.log(`[FORENSIC] TOTAL: ${allDetections.length} raw detections, ${deduped.length} deduped, ${uniqueGames.length} unique games, sampleDuration=${sampleDuration}s`);
-      console.log(`[FORENSIC] Per-game times:`, JSON.stringify(uniqueGames.map(g => ({ game: g.game, count: g.detectionCount, totalSec: g.totalSeconds }))));
-
-      return jsonResponse({
-        games: uniqueGames,
-        gameTimeline,
-        totalSamples: deduped.length,
-        sampleDuration,
-      });
+      return jsonResponse({ games: uniqueGames, gameTimeline, totalSamples: deduped.length, sampleDuration });
     }
 
     return jsonResponse({ error: 'Unknown action' }, 400);
