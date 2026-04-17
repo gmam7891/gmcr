@@ -111,61 +111,42 @@ export function VodTab() {
     setLoadingChapters(null);
   };
 
-  // Deep AI Vision: sample real 720p VOD thumbnails every 60s
+  // Surgical AI Vision: adaptive sampling + SullyGnome gabarito + realtime progress
   const analyzeWithAI = async (vod: TwitchVod) => {
     setAiLoading(vod.id);
     setAiProgress(t("vod.fetching_storyboards"));
     try {
-      const durationMins = parseDuration(vod.duration);
-      const durationSecs = durationMins * 60;
+      const durationSecs = parseDuration(vod.duration) * 60;
 
-      // 1) Try real storyboard URLs from Twitch GraphQL
-      let selectedUrls: string[] = [];
-      let selectedTimestamps: number[] = [];
-      let storyboardInterval = 60; // default for seek thumbnails
+      // 1) Create vod_audit row to track realtime progress
+      const { data: auditRow, error: auditErr } = await supabase
+        .from("vod_audits")
+        .insert({
+          vod_id: vod.id,
+          streamer_login: vod.user_login,
+          platform: "twitch",
+          status: "processing",
+          vod_duration_seconds: Math.round(durationSecs),
+          progress_phase: "starting",
+          progress_message: "Iniciando auditoria cirúrgica...",
+        })
+        .select("id")
+        .single();
 
-      try {
-        const storyboard = await getStoryboardUrls(vod.id, durationSecs);
-        if (storyboard.urls.length > 0) {
-          const strips = storyboard.urls.slice(0, 40);
-          const framesPerStrip = storyboard.framesPerStrip || 50;
-          const interval = storyboard.interval || 19;
-          storyboardInterval = interval;
+      if (auditErr) console.warn("[VOD] failed to create audit row, continuing without realtime:", auditErr);
+      const auditId = auditRow?.id || null;
+      setActiveAuditId(auditId);
 
-          selectedUrls = strips;
-          selectedTimestamps = strips.map((_, i) => {
-            const stripStartSec = i * framesPerStrip * interval;
-            return stripStartSec + Math.floor((framesPerStrip * interval) / 2);
-          });
-        }
-      } catch (sbErr) {
-        console.warn('Storyboard fetch failed, trying seek thumbnails:', sbErr);
-      }
+      // 2) Run surgical analysis (backend updates progress via realtime)
+      const result = await analyzeVodSurgical({
+        vodId: vod.id,
+        thumbnailUrl: vod.thumbnail_url,
+        vodTitle: vod.title,
+        vodDurationSeconds: Math.round(durationSecs),
+        streamerLogin: vod.user_login,
+        auditId: auditId || undefined,
+      });
 
-      // 2) Fallback: seek thumbnails
-      if (selectedUrls.length === 0) {
-        storyboardInterval = 60;
-        const sampledFrames = generateSeekThumbnails(vod.thumbnail_url, durationSecs, 60).slice(0, 40);
-        selectedUrls = sampledFrames.map((frame) => frame.url);
-        selectedTimestamps = sampledFrames.map((frame) => frame.offset);
-      }
-
-      // 3) Last fallback: single thumbnail
-      if (selectedUrls.length === 0) {
-        const fallbackUrl = vod.thumbnail_url.replace('%{width}', '1280').replace('%{height}', '720');
-        setAiProgress(t("vod.analyzing_thumb"));
-        const result = await analyzeVodFrames([fallbackUrl], vod.title, [0]);
-        setAiResults(prev => ({ ...prev, [vod.id]: result }));
-        setAiLoading(null);
-        setAiProgress(null);
-        return;
-      }
-
-      setAiProgress(`${t("vod.analyzing_storyboards").replace("...", "")} (${selectedUrls.length})...`);
-
-      const result = await analyzeVodFrames(selectedUrls, vod.title, selectedTimestamps, storyboardInterval);
-
-      // Check for empty results and surface a warning
       if (result.games.length === 0 && result.gameTimeline.length === 0) {
         setAiResults(prev => ({
           ...prev,
@@ -196,6 +177,7 @@ export function VodTab() {
     }
     setAiLoading(null);
     setAiProgress(null);
+    // Keep activeAuditId so progress bar stays visible at 100%
   };
 
   const allGameSummary = useMemo(() => {
