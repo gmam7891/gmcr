@@ -71,9 +71,21 @@ interface AiGameDetection {
   timestampSeconds?: number;
 }
 
+interface PendingAuditSegment {
+  start_minute: number;
+  chapter_category: string;
+  frames: string[];
+  timestamps: number[];
+  reason: string;
+}
+
 interface AiVodAnalysis {
   games: AiGameDetection[];
   gameTimeline: GameTimeSegment[];
+  pendingAuditSegments?: PendingAuditSegment[];
+  positiveFrames?: number;
+  totalSamples?: number;
+  sullygnome?: any;
 }
 
 interface GameTimeSegment {
@@ -134,6 +146,33 @@ export async function analyzeVodFrames(thumbnailUrls: string[], vodTitle?: strin
   };
 }
 
+export async function analyzeVodSurgical(params: {
+  vodId: string;
+  thumbnailUrl: string;
+  vodTitle: string;
+  vodDurationSeconds: number;
+  streamerLogin: string;
+  auditId?: string;
+}): Promise<AiVodAnalysis> {
+  const result = await callTwitch({
+    action: 'analyze_vod_surgical',
+    vod_id: params.vodId,
+    thumbnail_url: params.thumbnailUrl,
+    vod_title: params.vodTitle,
+    vod_duration_seconds: params.vodDurationSeconds,
+    streamer_login: params.streamerLogin,
+    audit_id: params.auditId,
+  });
+  return {
+    games: result?.games ?? [],
+    gameTimeline: result?.gameTimeline ?? [],
+    pendingAuditSegments: result?.pendingAuditSegments ?? [],
+    positiveFrames: result?.positiveFrames ?? 0,
+    totalSamples: result?.totalSamples ?? 0,
+    sullygnome: result?.sullygnome ?? null,
+  };
+}
+
 export function parseDuration(s: string): number {
   if (!s) return 0;
   let h = 0, m = 0, sec = 0;
@@ -179,4 +218,4 @@ export function generateSeekThumbnails(thumbnailUrl: string, durationSeconds: nu
   return thumbnails;
 }
 
-export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, AiGameDetection, AiVodAnalysis, GameTimeSegment };
+export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, AiGameDetection, AiVodAnalysis, GameTimeSegment, PendingAuditSegment };
