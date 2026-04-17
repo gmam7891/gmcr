@@ -49,6 +49,8 @@ export function VodTab() {
   const [aiResults, setAiResults] = useState<Record<string, AiVodAnalysis>>({});
   const [aiLoading, setAiLoading] = useState<string | null>(null);
   const [aiProgress, setAiProgress] = useState<string | null>(null);
+  const [activeAuditId, setActiveAuditId] = useState<string | null>(null);
+  const auditProgress = useVodAuditProgress(activeAuditId);
 
   const analyze = async () => {
     if (!vodUrl.trim()) return;
