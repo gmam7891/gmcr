@@ -16,7 +16,10 @@ export function VodAuditProgressBar({ progress }: { progress: VodAuditProgress |
   const current = progress.progress_current_minute || 0;
   const pct = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
   const isDone = progress.progress_phase === "completed";
-  const hasPending = (progress.pending_audit_segments?.length || 0) > 0;
+  // pending_audit_segments can be an array (legacy) or { plan, flagged } (autonomous agent)
+  const seg: any = progress.pending_audit_segments;
+  const flaggedCount = Array.isArray(seg) ? seg.length : (seg?.flagged?.length || 0);
+  const hasPending = flaggedCount > 0;
 
   return (
     <div className="card-surface p-3 space-y-2">
@@ -29,7 +32,7 @@ export function VodAuditProgressBar({ progress }: { progress: VodAuditProgress |
         {progress.progress_message || (total > 0 ? `Minuto ${current} de ${total} • ${progress.progress_games_found} jogos detectados` : "")}
       </p>
       {isDone && hasPending && (
-        <p className="text-xs text-destructive">⚠ {progress.pending_audit_segments.length} segmento(s) marcado(s) para auditoria pendente</p>
+        <p className="text-xs text-destructive">⚠ {flaggedCount} segmento(s) marcado(s) para auditoria pendente</p>
       )}
     </div>
   );

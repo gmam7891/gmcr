@@ -3,11 +3,14 @@ import { MetricCard } from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getUser, getVod, getVods, getVodChapters, analyzeVodFrames, analyzeVodSurgical, formatDuration, formatSeconds, parseDuration, getStoryboardUrls, generateSeekThumbnails, type TwitchVod, type VodChapter, type AiVodAnalysis } from "@/lib/twitch-api";
+import { startWatcher } from "@/lib/vod-watcher";
+import { AuditReportCard } from "@/components/AuditReportCard";
 import { fmtInt } from "@/lib/formatters";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { VodAuditProgressBar } from "@/components/VodAuditProgressBar";
 import { useVodAuditProgress } from "@/hooks/useVodAuditProgress";
+import { toast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 
 interface GameSummary {
@@ -111,73 +114,45 @@ export function VodTab() {
     setLoadingChapters(null);
   };
 
-  // Surgical AI Vision: adaptive sampling + SullyGnome gabarito + realtime progress
+  // Autonomous Watcher Agent: starts background processing, user can close the page
   const analyzeWithAI = async (vod: TwitchVod) => {
     setAiLoading(vod.id);
-    setAiProgress(t("vod.fetching_storyboards"));
+    setAiProgress("Iniciando agente...");
     try {
       const durationSecs = parseDuration(vod.duration) * 60;
-
-      // 1) Create vod_audit row to track realtime progress
-      const { data: auditRow, error: auditErr } = await supabase
-        .from("vod_audits")
-        .insert({
-          vod_id: vod.id,
-          streamer_login: vod.user_login,
-          platform: "twitch",
-          status: "processing",
-          vod_duration_seconds: Math.round(durationSecs),
-          progress_phase: "starting",
-          progress_message: "Iniciando auditoria cirúrgica...",
-        })
-        .select("id")
-        .single();
-
-      if (auditErr) console.warn("[VOD] failed to create audit row, continuing without realtime:", auditErr);
-      const auditId = auditRow?.id || null;
-      setActiveAuditId(auditId);
-
-      // 2) Run surgical analysis (backend updates progress via realtime)
-      const result = await analyzeVodSurgical({
+      const result = await startWatcher({
         vodId: vod.id,
+        streamerLogin: vod.user_login,
+        vodDurationSeconds: Math.round(durationSecs),
         thumbnailUrl: vod.thumbnail_url,
         vodTitle: vod.title,
-        vodDurationSeconds: Math.round(durationSecs),
-        streamerLogin: vod.user_login,
-        auditId: auditId || undefined,
       });
-
-      if (result.games.length === 0 && result.gameTimeline.length === 0) {
-        setAiResults(prev => ({
-          ...prev,
-          [vod.id]: {
-            games: [{ game: 'Nenhum jogo detectado', provider: null, category: 'info', confidence: 'low' }],
-            gameTimeline: [],
-          },
-        }));
-      } else {
-        setAiResults(prev => ({ ...prev, [vod.id]: result }));
-      }
-    } catch (err: any) {
-      console.error('AI analysis error:', err);
-      const errorMsg = err?.message || String(err);
-      let displayMsg = 'Erro na análise';
-      if (errorMsg.includes('402') || errorMsg.toLowerCase().includes('credit')) {
-        displayMsg = 'Sem créditos de IA — recarregue em Settings > Usage';
-      } else if (errorMsg.includes('400')) {
-        displayMsg = 'Erro na API de IA (400) — imagens podem ser inválidas';
-      }
-      setAiResults(prev => ({
+      setActiveAuditId(result.audit_id);
+      toast({
+        title: "🤖 Agente iniciado em background",
+        description: `${result.total_frames} frames serão analisados. Pode fechar a página — o agente continua.`,
+      });
+      setAiResults((prev) => ({
         ...prev,
         [vod.id]: {
-          games: [{ game: displayMsg, provider: null, category: 'error', confidence: 'low' }],
+          games: [{ game: `Agente rodando (${result.total_frames} frames)`, provider: null, category: 'info', confidence: 'medium' }],
+          gameTimeline: [],
+        },
+      }));
+    } catch (err: any) {
+      console.error('Watcher start error:', err);
+      const msg = err?.message || String(err);
+      toast({ title: "Erro ao iniciar agente", description: msg, variant: "destructive" });
+      setAiResults((prev) => ({
+        ...prev,
+        [vod.id]: {
+          games: [{ game: `Erro: ${msg.slice(0, 80)}`, provider: null, category: 'error', confidence: 'low' }],
           gameTimeline: [],
         },
       }));
     }
     setAiLoading(null);
     setAiProgress(null);
-    // Keep activeAuditId so progress bar stays visible at 100%
   };
 
   const allGameSummary = useMemo(() => {
@@ -315,6 +290,9 @@ export function VodTab() {
           </div>
           {(aiLoading === singleVod.id || (auditProgress && activeAuditId)) && (
             <VodAuditProgressBar progress={auditProgress} />
+          )}
+          {activeAuditId && auditProgress?.progress_phase === "completed" && (
+            <AuditReportCard auditId={activeAuditId} />
           )}
           {aiResults[singleVod.id] && (
             <AiResultsDisplay analysis={aiResults[singleVod.id]} vodDurationSecs={parseDuration(singleVod.duration) * 60} />
