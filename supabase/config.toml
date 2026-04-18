@@ -2,3 +2,33 @@ project_id = "couivtyswlgvyyqiueap"
 
 [functions.instagram-profile]
 verify_jwt = false
+
+[functions.twitch-api]
+verify_jwt = false
+
+[functions.scanner-pipeline]
+verify_jwt = false
+
+[functions.influencer-discovery]
+verify_jwt = false
+
+[functions.sullygnome-scraper]
+verify_jwt = false
+
+[functions.game-scrapper]
+verify_jwt = false
+
+[functions.stream-monitor]
+verify_jwt = false
+
+[functions.youtube-kick-api]
+verify_jwt = false
+
+[functions.generate-report]
+verify_jwt = false
+
+[functions.admin-users]
+verify_jwt = false
+
+[functions.vod-watcher-agent]
+verify_jwt = false
