@@ -149,47 +149,33 @@ Deno.serve(async (req) => {
     const timestamps: number[] = [];
     for (let t = 30; t < vod_duration_seconds; t += SAMPLE_INTERVAL) timestamps.push(t);
 
-    // Fetch chapters & SullyGnome up-front (gabarito)
-    const chapters = await fetchChapters(vod_id);
-    let sullyData: any = null;
+    // Fetch chapters quickly (cheap GraphQL call, ~1s). SullyGnome is deferred to background.
+    let chapters: any[] = [];
     try {
-      const sully = await sb.functions.invoke("sullygnome-scraper", {
-        body: { action: "scrape", streamer_login },
-      });
-      sullyData = sully?.data || null;
-    } catch (e) { console.warn("[Watcher] SullyGnome fetch failed:", e); }
+      chapters = await Promise.race([
+        fetchChapters(vod_id),
+        new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+      ]);
+    } catch (e) { console.warn("[Watcher] chapters fetch error:", e); }
 
-    // Create audit row
-    const { data: auditRow, error: auditErr } = await sb
-      .from("vod_audits")
-      .insert({
-        vod_id,
-        streamer_login,
-        platform: "twitch",
-        status: "processing",
-        vod_duration_seconds: Math.round(vod_duration_seconds),
-        expected_frames: timestamps.length,
-        progress_phase: "starting",
-        progress_total_minutes: totalMinutes,
-        progress_current_minute: 0,
-        progress_games_found: 0,
-        progress_message: `Agente iniciado: ${timestamps.length} frames planejados (${SAMPLE_INTERVAL}s cada)`,
-        sullygnome_snapshot: sullyData || {},
-      })
-      .select("id")
-      .single();
-
-    if (auditErr || !auditRow) {
-      return jsonResponse({ error: `Failed to create audit: ${auditErr?.message}` }, 500);
-    }
-
-    // Persist execution plan in metadata (we'll re-read each chunk)
-    await sb.from("vod_audits").update({
+    // Upsert audit row IMMEDIATELY (idempotent: re-runs on same VOD reset progress)
+    const auditPayload = {
+      vod_id,
+      streamer_login,
+      platform: "twitch",
+      status: "processing" as const,
+      vod_duration_seconds: Math.round(vod_duration_seconds),
+      expected_frames: timestamps.length,
+      processed_frames: 0,
+      started_at: new Date().toISOString(),
+      completed_at: null,
+      error_message: null,
+      progress_phase: "starting",
+      progress_total_minutes: totalMinutes,
+      progress_current_minute: 0,
+      progress_games_found: 0,
       progress_message: `Plano: ${timestamps.length} frames | ${chapters.length} capítulos`,
-    }).eq("id", auditRow.id);
-
-    // Store plan as JSON in pending_audit_segments for retrieval (cheap & sufficient)
-    await sb.from("vod_audits").update({
+      sullygnome_snapshot: {},
       pending_audit_segments: {
         plan: {
           timestamps,
@@ -200,7 +186,31 @@ Deno.serve(async (req) => {
         },
         flagged: [],
       } as any,
-    }).eq("id", auditRow.id);
+    };
+
+    const { data: auditRow, error: auditErr } = await sb
+      .from("vod_audits")
+      .upsert(auditPayload, { onConflict: "vod_id,platform" })
+      .select("id")
+      .single();
+
+    if (auditErr || !auditRow) {
+      console.error("[Watcher] failed to upsert audit:", auditErr);
+      return jsonResponse({ error: `Failed to create audit: ${auditErr?.message}` }, 500);
+    }
+
+    // Defer SullyGnome scraping to background (don't block start response)
+    EdgeRuntime.waitUntil((async () => {
+      try {
+        const sully = await sb.functions.invoke("sullygnome-scraper", {
+          body: { action: "scrape", streamer_login },
+        });
+        if (sully?.data) {
+          await sb.from("vod_audits").update({ sullygnome_snapshot: sully.data })
+            .eq("id", auditRow.id);
+        }
+      } catch (e) { console.warn("[Watcher] SullyGnome background fetch failed:", e); }
+    })());
 
     // Kick off background processing
     selfInvokeResume(auditRow.id);
