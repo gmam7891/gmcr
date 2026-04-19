@@ -113,7 +113,7 @@ async function scrapeTwitch(keywords: string[], limit: number): Promise<any[]> {
 
 async function scrapeInstagram(keywords: string[], limit: number): Promise<any[]> {
   try {
-    const actorId = "apify/instagram-hashtag-scraper";
+    const actorId = "apify~instagram-hashtag-scraper";
     const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=120`;
     const hashtags = keywords
       .filter((k) => k.startsWith("#"))
@@ -388,7 +388,7 @@ Deno.serve(async (req) => {
 // ─── SullyGnome Quick Validation ───────────────────────────────────────
 async function fetchSullyGnomeQuick(streamerLogin: string): Promise<any | null> {
   try {
-    const actorId = "apify/web-scraper";
+    const actorId = "apify~web-scraper";
     const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=60`;
 
     const pageFunction = `

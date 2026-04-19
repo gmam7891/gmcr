@@ -55,7 +55,7 @@ async function scrapeSullyGnome(streamerLogin: string) {
   const targetUrl = `https://sullygnome.com/channel/${streamerLogin}/30/games`;
   console.log(`[SullyGnome] Scraping: ${targetUrl}`);
 
-  const actorId = "apify/web-scraper";
+  const actorId = "apify~web-scraper";
   const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=120`;
 
   const pageFunction = `
