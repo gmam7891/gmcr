@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
     let profileData: any = {};
 
     try {
-      posts = await callApify("apify/instagram-post-scraper", {
+      posts = await callApify("apify~instagram-post-scraper", {
         usernames: [cleanUsername],
         resultsLimit: 40,
       });
@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
     }
 
     try {
-      const profileItems = await callApify("apify/instagram-profile-scraper", {
+      const profileItems = await callApify("apify~instagram-profile-scraper", {
         usernames: [cleanUsername],
       });
       profileData = profileItems?.[0] || {};
