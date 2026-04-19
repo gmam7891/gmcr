@@ -158,39 +158,44 @@ Deno.serve(async (req) => {
       ]);
     } catch (e) { console.warn("[Watcher] chapters fetch error:", e); }
 
-    // Create audit row IMMEDIATELY (no slow external calls before this)
+    // Upsert audit row IMMEDIATELY (idempotent: re-runs on same VOD reset progress)
+    const auditPayload = {
+      vod_id,
+      streamer_login,
+      platform: "twitch",
+      status: "processing" as const,
+      vod_duration_seconds: Math.round(vod_duration_seconds),
+      expected_frames: timestamps.length,
+      processed_frames: 0,
+      started_at: new Date().toISOString(),
+      completed_at: null,
+      error_message: null,
+      progress_phase: "starting",
+      progress_total_minutes: totalMinutes,
+      progress_current_minute: 0,
+      progress_games_found: 0,
+      progress_message: `Plano: ${timestamps.length} frames | ${chapters.length} capítulos`,
+      sullygnome_snapshot: {},
+      pending_audit_segments: {
+        plan: {
+          timestamps,
+          chapters,
+          thumbnail_url,
+          vod_title: vod_title || "",
+          processed_until: 0,
+        },
+        flagged: [],
+      } as any,
+    };
+
     const { data: auditRow, error: auditErr } = await sb
       .from("vod_audits")
-      .insert({
-        vod_id,
-        streamer_login,
-        platform: "twitch",
-        status: "processing",
-        vod_duration_seconds: Math.round(vod_duration_seconds),
-        expected_frames: timestamps.length,
-        started_at: new Date().toISOString(),
-        progress_phase: "starting",
-        progress_total_minutes: totalMinutes,
-        progress_current_minute: 0,
-        progress_games_found: 0,
-        progress_message: `Plano: ${timestamps.length} frames | ${chapters.length} capítulos`,
-        sullygnome_snapshot: {},
-        pending_audit_segments: {
-          plan: {
-            timestamps,
-            chapters,
-            thumbnail_url,
-            vod_title: vod_title || "",
-            processed_until: 0,
-          },
-          flagged: [],
-        } as any,
-      })
+      .upsert(auditPayload, { onConflict: "vod_id,platform" })
       .select("id")
       .single();
 
     if (auditErr || !auditRow) {
-      console.error("[Watcher] failed to create audit:", auditErr);
+      console.error("[Watcher] failed to upsert audit:", auditErr);
       return jsonResponse({ error: `Failed to create audit: ${auditErr?.message}` }, 500);
     }
 
