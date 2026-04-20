@@ -42,8 +42,15 @@ REGRAS:
 
 PROVEDORAS (lista parcial — identifique TODAS): Pragmatic Play, Relax Gaming, PG Soft, Hacksaw, Push Gaming, NetEnt, Play'n GO, Nolimit City, Red Tiger, Yggdrasil, Evolution, Playtech, BGaming, Spribe, Turbo Games, ELK, Big Time Gaming, Wazdan, Booongo, Habanero, Quickspin, Thunderkick, Fantasma, Avatar UX, Spinomenal, 3 Oaks Gaming, Ezugi, Atmosfera.
 
+EXTRAÇÃO VISUAL EXTRA (somente quando category != "not_game"):
+- balance: saldo visível na tela (ex: "R$ 1.234,56", "$500", null se não visível)
+- bet_amount: valor da aposta atual (ex: "R$ 5,00", null)
+- bonus_hud: true se HUD de bônus/free spins/multiplicador estiver visível
+- free_spins_active: true se rodadas grátis ativas
+- big_win_banner: true se animação/banner de big win/mega win visível
+
 RESPONDA APENAS JSON ARRAY:
-[{"game":"nome","provider":"provedora_ou_Unknown","category":"slots|live_casino|table_game|crash_game|not_game","confidence":"high|medium|low","evidence":"o que viu","image_index":0}]`;
+[{"game":"nome","provider":"provedora_ou_Unknown","category":"slots|live_casino|table_game|crash_game|not_game","confidence":"high|medium|low","evidence":"o que viu","image_index":0,"balance":null,"bet_amount":null,"bonus_hud":false,"free_spins_active":false,"big_win_banner":false}]`;
 
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -357,6 +364,16 @@ Deno.serve(async (req) => {
             confidence_score: det.confidence === "high" ? 0.95 : det.confidence === "medium" ? 0.7 : 0.4,
             is_valid: true,
             validation_status: "ai_detected",
+            extra_metadata: {
+              category: det.category || null,
+              balance: det.balance ?? null,
+              bet_amount: det.bet_amount ?? null,
+              bonus_hud: det.bonus_hud === true,
+              free_spins_active: det.free_spins_active === true,
+              big_win_banner: det.big_win_banner === true,
+              evidence_text: det.evidence || null,
+              chapter_category: chapterCategory,
+            },
           };
         });
       if (evidenceRows.length > 0) {
