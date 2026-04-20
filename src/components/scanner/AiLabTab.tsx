@@ -212,9 +212,9 @@ function VisionPlayground() {
         )}
 
         {result && result.parse_error && (
-          <div className="bg-destructive/10 border border-destructive/30 rounded-md p-3 text-xs text-destructive flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-            <span>A IA não retornou JSON válido. Veja resposta bruta abaixo.</span>
+          <div className="bg-muted/40 border border-border rounded-md p-3 text-xs flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+            <span>A IA respondeu, mas o formato precisou ser ajustado automaticamente. Veja o JSON bruto abaixo para depurar.</span>
           </div>
         )}
 
