@@ -213,8 +213,8 @@ function VisionPlayground() {
         )}
 
         {result && !result.parse_error && result.category === "not_game" && (
-          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-md p-3 text-xs flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-yellow-500" />
+          <div className="bg-muted/40 border border-border rounded-md p-3 text-xs flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
             <span>Não foi possível identificar elementos de iGaming nesta imagem. Verifique a resolução ou a provedora.</span>
           </div>
         )}
@@ -225,7 +225,7 @@ function VisionPlayground() {
               <div className="bg-secondary/50 rounded-md p-2">
                 <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Jogo</div>
                 <div className="text-sm font-semibold flex items-center gap-1.5">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                   {result.game}
                 </div>
               </div>

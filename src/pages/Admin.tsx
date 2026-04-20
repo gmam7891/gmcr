@@ -9,9 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { Loader2, UserPlus, Trash2, Shield, ArrowLeft, Key, BookOpen } from "lucide-react";
+import { Loader2, UserPlus, Trash2, Shield, ArrowLeft, Key } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { GameLibraryTab } from "@/components/scanner/GameLibraryTab";
 
 const ALL_TABS = [
   { id: "simulator", label: "⚡ Simulador" },
@@ -358,15 +357,6 @@ export default function Admin() {
               </div>
             </Card>
 
-            <Card className="p-5 space-y-4">
-              <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                <BookOpen className="h-4 w-4" /> Game Library & Importação em Massa
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                Gerencie a biblioteca de jogos treinados e importe novos provedores em massa. Acesso restrito a administradores.
-              </p>
-              <GameLibraryTab />
-            </Card>
           </>
         )}
       </main>
