@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.vod-watcher-agent]
 verify_jwt = false
+
+[functions.instagram-image-proxy]
+verify_jwt = false
