@@ -70,7 +70,7 @@ function VisionPlayground() {
     setResult(null);
     try {
       const { data, error } = await supabase.functions.invoke("ai-vision-test", {
-        body: { action: "test", image_data_url: imageDataUrl },
+        body: { action: "test", image_data_url: imageDataUrl, persist_snapshot: true },
       });
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error || "Falha na análise");
@@ -79,10 +79,16 @@ function VisionPlayground() {
       setElapsedMs(data.elapsed_ms || 0);
       if (data.parsed?.game) setEditGame(data.parsed.game);
       if (data.parsed?.provider && data.parsed.provider !== "Unknown") setEditProvider(data.parsed.provider);
-      if (data.parsed?.category === "not_game" || data.parsed?.parse_error) {
-        toast.warning("Não foi possível identificar elementos de iGaming nesta imagem. Verifique a resolução ou a provedora.");
+      if (data.parsed?.parse_error) {
+        toast.warning("A IA respondeu mas o JSON precisou ser reparado. Veja o JSON bruto abaixo.");
+      } else if (data.parsed?.category === "not_game") {
+        toast.info("Imagem analisada — nenhum elemento de iGaming detectado.");
       } else {
-        toast.success(`Análise concluída em ${data.elapsed_ms}ms`);
+        toast.success(
+          data.snapshot_id
+            ? `Análise concluída em ${data.elapsed_ms}ms • snapshot salvo`
+            : `Análise concluída em ${data.elapsed_ms}ms`
+        );
       }
     } catch (err: any) {
       toast.error(err?.message || "Erro ao chamar a IA");
