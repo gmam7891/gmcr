@@ -19,29 +19,31 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-const FORENSIC_PROMPT = `Você é um auditor forense de iGaming/Casino. Analise a imagem e identifique:
+const FORENSIC_PROMPT = `Você é um auditor forense de iGaming/Casino. Analise a imagem e identifique jogo, provedora, categoria e elementos visuais.
 
-1. JOGO: nome canônico do slot/jogo de cassino (ex: "Fortune Tiger", "Sweet Bonanza")
-2. PROVEDORA: ex Pragmatic Play, PG Soft, Hacksaw, Push Gaming, NetEnt, Play'n GO, Nolimit City, Evolution, BGaming, Spribe, Relax Gaming, Yggdrasil
-3. CATEGORIA: slots | live_casino | table_game | crash_game | not_game
-4. ELEMENTOS VISUAIS encontrados na tela: liste TUDO que viu (logo, botão de spin, saldo, HUD de bônus, free spins, paytable, jackpot, banner de big win, multiplicador, etc)
-5. Confiança 0-100
+REGRAS DE RESPOSTA (CRÍTICO):
+- Responda APENAS com um objeto JSON puro.
+- NÃO inclua texto antes ou depois do JSON.
+- NÃO use blocos de código markdown (sem \`\`\`json, sem \`\`\`).
+- NÃO escreva explicações fora do JSON. Toda explicação deve ir dentro do campo "evidence".
+- Use null (não a string "null") quando um campo não for detectável.
 
-Se NÃO houver jogo de cassino, use category="not_game" e explique no campo evidence.
+Categorias permitidas: slots | live_casino | table_game | crash_game | not_game.
+Provedoras conhecidas: Pragmatic Play, PG Soft, Hacksaw, Push Gaming, NetEnt, Play'n GO, Nolimit City, Evolution, BGaming, Spribe, Relax Gaming, Yggdrasil.
 
-RESPONDA APENAS JSON (sem markdown):
+Schema obrigatório:
 {
-  "game": "nome_do_jogo_ou_null",
-  "provider": "provedora_ou_Unknown",
+  "game": "string ou null",
+  "provider": "string (use \\"Unknown\\" se não souber)",
   "category": "slots|live_casino|table_game|crash_game|not_game",
-  "confidence": 85,
-  "balance": "R$ 1.234,56 ou null",
-  "bet_amount": "R$ 5,00 ou null",
-  "visual_elements": ["logo do jogo", "botão de spin", "HUD de bônus", "..."],
+  "confidence": 0,
+  "balance": "string ou null",
+  "bet_amount": "string ou null",
+  "visual_elements": ["string"],
   "bonus_hud": false,
   "free_spins_active": false,
   "big_win_banner": false,
-  "evidence": "descrição do que viu"
+  "evidence": "string"
 }`;
 
 function json(data: unknown, status = 200) {
@@ -77,14 +79,30 @@ async function callVision(imageDataUrl: string) {
   }
   const body = await res.json();
   const content = body?.choices?.[0]?.message?.content || "";
-  let parsed: any = null;
-  try {
-    const cleaned = content.replace(/```json\s*|\s*```/g, "").trim();
-    parsed = JSON.parse(cleaned);
-  } catch (_) {
-    parsed = { parse_error: true };
-  }
+  const parsed = robustJsonParse(content);
   return { raw: content, parsed, usage: body?.usage };
+}
+
+// Robust JSON extraction: strips markdown fences, leading/trailing prose, and
+// falls back to extracting the largest balanced { ... } block.
+function robustJsonParse(content: string): any {
+  if (!content || typeof content !== "string") return { parse_error: true, reason: "empty" };
+  let txt = content.trim();
+  // 1. Strip markdown code fences
+  txt = txt.replace(/^```(?:json|JSON)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+  // 2. Direct parse
+  try { return JSON.parse(txt); } catch (_) { /* fall through */ }
+  // 3. Extract largest {...} block via brace matching
+  const start = txt.indexOf("{");
+  const end = txt.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    const candidate = txt.slice(start, end + 1);
+    try { return JSON.parse(candidate); } catch (_) { /* fall through */ }
+    // 4. Try removing trailing commas
+    const noTrailing = candidate.replace(/,(\s*[}\]])/g, "$1");
+    try { return JSON.parse(noTrailing); } catch (_) { /* fall through */ }
+  }
+  return { parse_error: true, reason: "invalid_json", raw_preview: txt.slice(0, 200) };
 }
 
 Deno.serve(async (req) => {
@@ -104,15 +122,38 @@ Deno.serve(async (req) => {
     const action = body.action || "test";
 
     if (action === "test") {
-      const { image_data_url } = body;
+      const { image_data_url, persist_snapshot, streamer_login } = body;
       if (!image_data_url || typeof image_data_url !== "string") {
         return json({ error: "image_data_url obrigatório (data URL base64)" }, 400);
       }
       const t0 = Date.now();
       const result = await callVision(image_data_url);
+
+      let snapshot_id: string | null = null;
+      const p: any = result.parsed;
+      if (persist_snapshot && p && !p.parse_error && p.category !== "not_game" && p.game) {
+        const { data: snap, error: snapErr } = await supabase
+          .from("stream_snapshots")
+          .insert({
+            streamer_login: String(streamer_login || "ai_playground"),
+            is_live: false,
+            viewer_count: 0,
+            game_name: p.game,
+            ai_confidence: typeof p.confidence === "number" ? p.confidence / 100 : null,
+            ai_evidence: p.evidence || null,
+            is_ai_verified: true,
+            stream_title: `[playground] ${p.provider || "Unknown"} • ${p.game}`,
+          })
+          .select("id")
+          .single();
+        if (snapErr) console.error("[ai-vision-test] persist snapshot error", snapErr);
+        else snapshot_id = snap?.id || null;
+      }
+
       return json({
         ok: true,
         elapsed_ms: Date.now() - t0,
+        snapshot_id,
         ...result,
       });
     }
