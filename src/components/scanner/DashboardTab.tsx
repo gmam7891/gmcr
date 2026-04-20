@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { MetricCard } from "@/components/MetricCard";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 
 interface Props {
   data: any;
@@ -81,6 +81,30 @@ export function DashboardTab({ data, providers, games }: Props) {
           ) : <p className="text-xs text-muted-foreground text-center py-8">{t("scan.no_data")}</p>}
         </Card>
       </div>
+
+      {/* IA vs Categoria Oficial Twitch */}
+      {Array.isArray(data.ai_vs_twitch) && data.ai_vs_twitch.length > 0 && (
+        <Card className="p-4">
+          <h3 className="text-sm font-semibold mb-1">IA vs Categoria oficial da Twitch</h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            Tempo detectado pela IA visual comparado ao que a Twitch declara (chapters do VOD).
+          </p>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={data.ai_vs_twitch.map((d: any) => ({
+              name: d.name,
+              IA: Math.round((d.ai_seconds || 0) / 60),
+              Twitch: Math.round((d.twitch_seconds || 0) / 60),
+            }))} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+              <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-15} textAnchor="end" height={60} interval={0} />
+              <YAxis tickFormatter={(v) => `${v}m`} tick={{ fontSize: 10 }} />
+              <Tooltip formatter={(v: number) => `${v} min`} />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="IA" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Twitch" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
 
       {sentimentData.length > 0 && (
         <Card className="p-4">

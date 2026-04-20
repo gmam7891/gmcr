@@ -736,6 +736,7 @@ export type Database = {
           confidence_score: number
           created_at: string
           discard_reason: string | null
+          extra_metadata: Json | null
           frame_index: number | null
           game_detected: string | null
           game_id: string | null
@@ -757,6 +758,7 @@ export type Database = {
           confidence_score?: number
           created_at?: string
           discard_reason?: string | null
+          extra_metadata?: Json | null
           frame_index?: number | null
           game_detected?: string | null
           game_id?: string | null
@@ -778,6 +780,7 @@ export type Database = {
           confidence_score?: number
           created_at?: string
           discard_reason?: string | null
+          extra_metadata?: Json | null
           frame_index?: number | null
           game_detected?: string | null
           game_id?: string | null
@@ -1031,7 +1034,20 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      provider_real_time: {
+        Row: {
+          avg_confidence: number | null
+          distinct_streamers: number | null
+          distinct_vods: number | null
+          frame_count: number | null
+          last_detected_at: string | null
+          provider_name: string | null
+          total_hours: number | null
+          total_minutes: number | null
+          total_seconds: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       has_role: {

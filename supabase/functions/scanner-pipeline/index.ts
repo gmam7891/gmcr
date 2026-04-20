@@ -388,10 +388,35 @@ Deno.serve(async (req) => {
       }
 
       // Get avg coverage from vod_audits
-      const { data: audits } = await supabase.from("vod_audits").select("coverage_percent").limit(100);
+      const { data: audits } = await supabase
+        .from("vod_audits")
+        .select("coverage_percent, pending_audit_segments, vod_duration_seconds")
+        .limit(100);
       const avgCoverage = audits?.length
         ? audits.reduce((s, a) => s + (a.coverage_percent || 0), 0) / audits.length
         : 0;
+
+      // ─── IA vs Twitch (categoria oficial declarada vs detecção visual) ─────
+      // Twitch categories: somar duração dos chapters declarados pela Twitch (em vod_audits.pending_audit_segments.plan.chapters)
+      const twitchCategoryShare: Record<string, number> = {};
+      for (const a of audits || []) {
+        const segs: any = a.pending_audit_segments;
+        const chapters = segs?.plan?.chapters;
+        if (Array.isArray(chapters)) {
+          for (const ch of chapters) {
+            const name = (ch.game || "Unknown").trim();
+            twitchCategoryShare[name] = (twitchCategoryShare[name] || 0) + (ch.durationSeconds || 0);
+          }
+        }
+      }
+
+      // Build comparative array — IA é gameShare (por jogo detectado), Twitch é twitchCategoryShare (declarado)
+      const allKeys = new Set([...Object.keys(gameShare), ...Object.keys(twitchCategoryShare)]);
+      const aiVsTwitch = Array.from(allKeys).map((name) => ({
+        name,
+        ai_seconds: gameShare[name] || 0,
+        twitch_seconds: twitchCategoryShare[name] || 0,
+      })).sort((a, b) => (b.ai_seconds + b.twitch_seconds) - (a.ai_seconds + a.twitch_seconds)).slice(0, 10);
 
       return json({
         total_exposure_seconds: totalExposure,
@@ -401,6 +426,8 @@ Deno.serve(async (req) => {
         avg_vod_coverage: avgCoverage,
         provider_share: providerShare,
         game_share: gameShare,
+        twitch_category_share: twitchCategoryShare,
+        ai_vs_twitch: aiVsTwitch,
         chat_sentiment: {},
       });
     }
