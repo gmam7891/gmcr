@@ -84,7 +84,14 @@ export function BaseInfluencerFields({ values, onChange, username, setUsername }
         {profile && (
           <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/50 border border-border mt-2">
             {profile.profilePicUrl && (
-              <img src={profile.profilePicUrl} alt={profile.username} className="w-10 h-10 rounded-full" />
+              <img
+                src={`https://couivtyswlgvyyqiueap.supabase.co/functions/v1/instagram-image-proxy?url=${encodeURIComponent(profile.profilePicUrl)}`}
+                alt={profile.username}
+                className="w-10 h-10 rounded-full object-cover bg-secondary"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).style.display = "none";
+                }}
+              />
             )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5">
