@@ -5,7 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck, Search, Activity, BookOpen, BarChart3 } from "lucide-react";
+import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck, Search, Activity, BarChart3 } from "lucide-react";
 import { StatusHeader } from "@/components/scanner/StatusHeader";
 import { GlobalFilters, defaultFilters } from "@/components/scanner/GlobalFilters";
 import type { ScannerFilters } from "@/components/scanner/GlobalFilters";
@@ -21,7 +21,6 @@ import { QualityTab } from "@/components/scanner/QualityTab";
 import { ScanStartPanel } from "@/components/scanner/ScanStartPanel";
 import { getDashboardData, getProviders, getGames } from "@/lib/scanner-api";
 import { Badge } from "@/components/ui/badge";
-import { GameLibraryTab } from "@/components/scanner/GameLibraryTab";
 import { SullyGnomeTab } from "@/components/scanner/SullyGnomeTab";
 
 const Scanner = () => {
@@ -77,7 +76,6 @@ const Scanner = () => {
     { id: "quality", label: t("scan.quality_tab"), icon: Activity },
     { id: "vod_quality", label: t("scan.vod_quality"), icon: FileCheck },
     { id: "queue", label: t("scan.queue_tab"), icon: ListChecks },
-    { id: "game_library", label: t("scan.lib_tab"), icon: BookOpen },
     { id: "sullygnome", label: t("sully.tab"), icon: BarChart3 },
   ];
 
@@ -206,12 +204,6 @@ const Scanner = () => {
           <TabsContent value="queue">
             <FeatureGate requiredPlan="Pro" isLocked={!canAccessQueue}>
               <QueueTab />
-            </FeatureGate>
-          </TabsContent>
-
-          <TabsContent value="game_library">
-            <FeatureGate requiredPlan="Admin" isLocked={!isAdmin}>
-              <GameLibraryTab />
             </FeatureGate>
           </TabsContent>
 
