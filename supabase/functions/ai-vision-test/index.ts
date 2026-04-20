@@ -122,15 +122,38 @@ Deno.serve(async (req) => {
     const action = body.action || "test";
 
     if (action === "test") {
-      const { image_data_url } = body;
+      const { image_data_url, persist_snapshot, streamer_login } = body;
       if (!image_data_url || typeof image_data_url !== "string") {
         return json({ error: "image_data_url obrigatório (data URL base64)" }, 400);
       }
       const t0 = Date.now();
       const result = await callVision(image_data_url);
+
+      let snapshot_id: string | null = null;
+      const p: any = result.parsed;
+      if (persist_snapshot && p && !p.parse_error && p.category !== "not_game" && p.game) {
+        const { data: snap, error: snapErr } = await supabase
+          .from("stream_snapshots")
+          .insert({
+            streamer_login: String(streamer_login || "ai_playground"),
+            is_live: false,
+            viewer_count: 0,
+            game_name: p.game,
+            ai_confidence: typeof p.confidence === "number" ? p.confidence / 100 : null,
+            ai_evidence: p.evidence || null,
+            is_ai_verified: true,
+            stream_title: `[playground] ${p.provider || "Unknown"} • ${p.game}`,
+          })
+          .select("id")
+          .single();
+        if (snapErr) console.error("[ai-vision-test] persist snapshot error", snapErr);
+        else snapshot_id = snap?.id || null;
+      }
+
       return json({
         ok: true,
         elapsed_ms: Date.now() - t0,
+        snapshot_id,
         ...result,
       });
     }
