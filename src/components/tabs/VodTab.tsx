@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +54,33 @@ export function VodTab() {
   const [aiProgress, setAiProgress] = useState<string | null>(null);
   const [activeAuditId, setActiveAuditId] = useState<string | null>(null);
   const auditProgress = useVodAuditProgress(activeAuditId);
+  // Map vod_id -> existing completed audit_id (loaded from DB so the report shows even after reload)
+  const [existingAudits, setExistingAudits] = useState<Record<string, string>>({});
+
+  const fetchExistingAudit = async (vodId: string) => {
+    if (existingAudits[vodId]) return;
+    const { data } = await supabase
+      .from("vod_audits")
+      .select("id, status")
+      .eq("vod_id", vodId)
+      .in("status", ["completed", "partial", "needs_review", "reprocessed"])
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data?.id) setExistingAudits((prev) => ({ ...prev, [vodId]: data.id }));
+  };
+
+  // When a single VOD is loaded, look up any prior audit
+  useEffect(() => {
+    if (singleVod?.id) void fetchExistingAudit(singleVod.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [singleVod?.id]);
+
+  // When a VOD is expanded in the list, look up its prior audit
+  useEffect(() => {
+    if (expandedVod) void fetchExistingAudit(expandedVod);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedVod]);
 
   const analyze = async () => {
     if (!vodUrl.trim()) return;
@@ -292,7 +319,10 @@ export function VodTab() {
             <VodAuditProgressBar progress={auditProgress} />
           )}
           {activeAuditId && auditProgress?.progress_phase === "completed" && (
-            <AuditReportCard auditId={activeAuditId} />
+            <AuditReportCard auditId={activeAuditId} autoLoad />
+          )}
+          {!activeAuditId && existingAudits[singleVod.id] && (
+            <AuditReportCard auditId={existingAudits[singleVod.id]} autoLoad />
           )}
           {aiResults[singleVod.id] && (
             <AiResultsDisplay analysis={aiResults[singleVod.id]} vodDurationSecs={parseDuration(singleVod.duration) * 60} />
@@ -395,8 +425,11 @@ export function VodTab() {
                             {hasChapters && hasChapters.length > 0 && (
                               <ChapterDisplay chapters={hasChapters} compact />
                             )}
+                            {existingAudits[vod.id] && (
+                              <AuditReportCard auditId={existingAudits[vod.id]} autoLoad />
+                            )}
                             {hasAiResult && <AiResultsDisplay analysis={hasAiResult} vodDurationSecs={mins * 60} compact />}
-                            {!hasAiResult && (
+                            {!hasAiResult && !existingAudits[vod.id] && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -458,8 +491,11 @@ export function VodTab() {
                   {isExpanded && (
                     <div className="pt-2 space-y-2 border-t border-border">
                       {hasChapters && hasChapters.length > 0 && <ChapterDisplay chapters={hasChapters} compact />}
+                      {existingAudits[vod.id] && (
+                        <AuditReportCard auditId={existingAudits[vod.id]} autoLoad />
+                      )}
                       {hasAiResult && <AiResultsDisplay analysis={hasAiResult} vodDurationSecs={mins * 60} compact />}
-                      {!hasAiResult && (
+                      {!hasAiResult && !existingAudits[vod.id] && (
                         <Button variant="outline" size="sm" onClick={() => analyzeWithAI(vod)} disabled={!!aiLoading}>
                           {aiLoading === vod.id ? `🤖 ${aiProgress || t("vod.analyzing")}` : t("vod.ai_deep_scan")}
                         </Button>

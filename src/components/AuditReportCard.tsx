@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getAuditReport, type AuditReport } from "@/lib/vod-watcher";
@@ -28,7 +28,7 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
   };
 
   // Auto-load on mount if requested
-  useState(() => { if (autoLoad) void load(); });
+  useEffect(() => { if (autoLoad) void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [auditId]);
 
   if (!report) {
     return (
