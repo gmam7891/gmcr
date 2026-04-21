@@ -491,8 +491,11 @@ export function VodTab() {
                   {isExpanded && (
                     <div className="pt-2 space-y-2 border-t border-border">
                       {hasChapters && hasChapters.length > 0 && <ChapterDisplay chapters={hasChapters} compact />}
+                      {existingAudits[vod.id] && (
+                        <AuditReportCard auditId={existingAudits[vod.id]} autoLoad />
+                      )}
                       {hasAiResult && <AiResultsDisplay analysis={hasAiResult} vodDurationSecs={mins * 60} compact />}
-                      {!hasAiResult && (
+                      {!hasAiResult && !existingAudits[vod.id] && (
                         <Button variant="outline" size="sm" onClick={() => analyzeWithAI(vod)} disabled={!!aiLoading}>
                           {aiLoading === vod.id ? `🤖 ${aiProgress || t("vod.analyzing")}` : t("vod.ai_deep_scan")}
                         </Button>
