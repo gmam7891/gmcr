@@ -5,7 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck, Search, Activity, BarChart3, FlaskConical } from "lucide-react";
+import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck, Search, Activity, BarChart3, FlaskConical, Trophy } from "lucide-react";
 import { StatusHeader } from "@/components/scanner/StatusHeader";
 import { GlobalFilters, defaultFilters } from "@/components/scanner/GlobalFilters";
 import type { ScannerFilters } from "@/components/scanner/GlobalFilters";
@@ -23,6 +23,7 @@ import { getDashboardData, getProviders, getGames } from "@/lib/scanner-api";
 import { Badge } from "@/components/ui/badge";
 import { SullyGnomeTab } from "@/components/scanner/SullyGnomeTab";
 import { AiLabTab } from "@/components/scanner/AiLabTab";
+import { ResultsTab } from "@/components/scanner/ResultsTab";
 
 const Scanner = () => {
   const { isAdmin, userAccess, signOut } = useAuth();
@@ -79,6 +80,7 @@ const Scanner = () => {
     { id: "queue", label: t("scan.queue_tab"), icon: ListChecks },
     { id: "sullygnome", label: t("sully.tab"), icon: BarChart3 },
     { id: "ai_lab", label: "AI Lab", icon: FlaskConical },
+    { id: "results", label: "Resultados", icon: Trophy },
   ];
 
   return (
@@ -219,6 +221,10 @@ const Scanner = () => {
             <FeatureGate requiredPlan="Pro" isLocked={!canAccessAudit}>
               <AiLabTab />
             </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="results">
+            <ResultsTab filters={filters} />
           </TabsContent>
         </Tabs>
       </main>
