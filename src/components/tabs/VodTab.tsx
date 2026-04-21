@@ -425,8 +425,11 @@ export function VodTab() {
                             {hasChapters && hasChapters.length > 0 && (
                               <ChapterDisplay chapters={hasChapters} compact />
                             )}
+                            {existingAudits[vod.id] && (
+                              <AuditReportCard auditId={existingAudits[vod.id]} autoLoad />
+                            )}
                             {hasAiResult && <AiResultsDisplay analysis={hasAiResult} vodDurationSecs={mins * 60} compact />}
-                            {!hasAiResult && (
+                            {!hasAiResult && !existingAudits[vod.id] && (
                               <Button
                                 variant="outline"
                                 size="sm"
