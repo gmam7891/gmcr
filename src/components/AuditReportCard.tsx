@@ -97,12 +97,9 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
         </div>
       )}
 
-      {report.sullygnome?.summary && (
-        <div className="text-[11px] text-muted-foreground border-t border-border pt-2 space-y-0.5">
-          <p className="uppercase tracking-wider">SullyGnome (gabarito 30d):</p>
-          <p>Cassino oficial: {report.sullygnome.summary.casinoPercentage}% · Total: {Math.round(report.sullygnome.summary.totalStreamMinutes / 60)}h</p>
-        </div>
-      )}
+      <p className="text-[10px] text-muted-foreground font-mono pt-2 border-t border-border">
+        Fonte: varredura visual interna (raw_evidences) · sem dependência externa
+      </p>
     </div>
   );
 }
