@@ -319,7 +319,10 @@ export function VodTab() {
             <VodAuditProgressBar progress={auditProgress} />
           )}
           {activeAuditId && auditProgress?.progress_phase === "completed" && (
-            <AuditReportCard auditId={activeAuditId} />
+            <AuditReportCard auditId={activeAuditId} autoLoad />
+          )}
+          {!activeAuditId && existingAudits[singleVod.id] && (
+            <AuditReportCard auditId={existingAudits[singleVod.id]} autoLoad />
           )}
           {aiResults[singleVod.id] && (
             <AiResultsDisplay analysis={aiResults[singleVod.id]} vodDurationSecs={parseDuration(singleVod.duration) * 60} />
