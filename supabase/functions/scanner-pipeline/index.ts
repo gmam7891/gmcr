@@ -461,6 +461,74 @@ Deno.serve(async (req) => {
       return json({ rankings });
     }
 
+    // ─── Get Aggregated Results (jogos × tempo por VOD/streamer) ──────────────────
+    if (action === "get_results_aggregated") {
+      const { date_from, date_to, streamer, block_status_filter, group_by } = body;
+      // group_by: "game" (default) | "vod" | "streamer_game"
+      let query = supabase.from("gameplay_blocks").select("*");
+      if (block_status_filter && block_status_filter !== "all") {
+        query = query.eq("status", block_status_filter);
+      } else if (!block_status_filter) {
+        query = query.eq("status", "confirmed");
+      }
+      if (date_from) query = query.gte("created_at", date_from);
+      if (date_to) query = query.lte("created_at", date_to);
+      if (streamer) query = query.eq("streamer_login", streamer);
+
+      const { data: blocks } = await query.order("created_at", { ascending: false }).limit(2000);
+      if (!blocks?.length) return json({ aggregated: [], totals: { games: 0, blocks: 0, exposure_seconds: 0, vods: 0, streamers: 0 }, blocks: [] });
+
+      const agg: Record<string, { key: string; game: string; provider: string; exposure_seconds: number; sessions: number; avg_confidence: number; vods: Set<string>; streamers: Set<string> }> = {};
+      for (const b of blocks) {
+        const game = b.game_name || "Unknown";
+        const provider = b.provider_name || "Unknown";
+        const key = group_by === "vod" ? `${b.vod_id}::${game}`
+          : group_by === "streamer_game" ? `${b.streamer_login}::${game}`
+          : game;
+        if (!agg[key]) agg[key] = { key, game, provider, exposure_seconds: 0, sessions: 0, avg_confidence: 0, vods: new Set(), streamers: new Set() };
+        agg[key].exposure_seconds += b.duration_seconds || 0;
+        agg[key].sessions++;
+        agg[key].avg_confidence += Number(b.confidence_avg) || 0;
+        agg[key].vods.add(b.vod_id);
+        agg[key].streamers.add(b.streamer_login);
+      }
+
+      const aggregated = Object.values(agg).map(a => ({
+        key: a.key,
+        game: a.game,
+        provider: a.provider,
+        exposure_seconds: a.exposure_seconds,
+        exposure_minutes: Math.round(a.exposure_seconds / 60),
+        sessions: a.sessions,
+        avg_confidence: a.sessions > 0 ? a.avg_confidence / a.sessions : 0,
+        vods_count: a.vods.size,
+        streamers_count: a.streamers.size,
+      })).sort((a, b) => b.exposure_seconds - a.exposure_seconds);
+
+      const allVods = new Set(blocks.map(b => b.vod_id));
+      const allStreamers = new Set(blocks.map(b => b.streamer_login));
+      const totalExposure = blocks.reduce((s, b) => s + (b.duration_seconds || 0), 0);
+
+      return json({
+        aggregated,
+        totals: {
+          games: new Set(blocks.map(b => b.game_name || "Unknown")).size,
+          blocks: blocks.length,
+          exposure_seconds: totalExposure,
+          exposure_minutes: Math.round(totalExposure / 60),
+          vods: allVods.size,
+          streamers: allStreamers.size,
+        },
+        blocks: blocks.slice(0, 500).map(b => ({
+          id: b.id, vod_id: b.vod_id, streamer_login: b.streamer_login,
+          game_name: b.game_name, provider_name: b.provider_name,
+          start_seconds: b.start_seconds, end_seconds: b.end_seconds,
+          duration_seconds: b.duration_seconds, confidence_avg: b.confidence_avg,
+          status: b.status, created_at: b.created_at,
+        })),
+      });
+    }
+
     // ─── Get Review Queue ──────────────────
     if (action === "get_review_queue") {
       const { data } = await supabase.from("gameplay_blocks")

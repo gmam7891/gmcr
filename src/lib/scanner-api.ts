@@ -50,6 +50,16 @@ export async function getQualityMetrics() {
   return callScanner({ action: "get_quality_metrics" });
 }
 
+export async function getResultsAggregated(params: {
+  date_from?: string;
+  date_to?: string;
+  streamer?: string;
+  block_status_filter?: string;
+  group_by?: "game" | "vod" | "streamer_game";
+}) {
+  return callScanner({ action: "get_results_aggregated", ...params });
+}
+
 // ─── Config ──────────────────
 export async function getPipelineConfig() {
   return callScanner({ action: "get_pipeline_config" });
