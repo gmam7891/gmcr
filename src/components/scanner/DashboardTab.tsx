@@ -34,26 +34,23 @@ export function DashboardTab({ data, providers, games }: Props) {
       .finally(() => setTrendLoading(false));
   }, [filters.date_to, filters.streamers, filters.provider_ids, filters.platform]);
 
-  if (!data) return <p className="text-xs text-muted-foreground text-center py-12">{t("scan.no_data")}</p>;
-
-  const exposureSec = data.total_exposure_seconds || 0;
+  const exposureSec = data?.total_exposure_seconds || 0;
   const exposureHours = Math.round(exposureSec / 3600 * 10) / 10;
-  const viewerMinK = Math.round((data.total_viewer_minutes || 0) / 1000);
+  const viewerMinK = Math.round((data?.total_viewer_minutes || 0) / 1000);
 
-  // Provider/game lookups (kept for chart labels even when API already returns names)
   const providerLookup: Record<string, string> = {};
   providers.forEach((p: any) => { providerLookup[p.id] = p.name; });
   const gameLookup: Record<string, string> = {};
   games.forEach((g: any) => { gameLookup[g.id] = g.name; });
 
-  const providerEntries = Object.entries(data.provider_share || {})
+  const providerEntries = Object.entries(data?.provider_share || {})
     .map(([id, val]) => ({ name: providerLookup[id] || id, value: val as number }))
     .sort((a, b) => b.value - a.value);
-  const gameEntries = Object.entries(data.game_share || {})
+  const gameEntries = Object.entries(data?.game_share || {})
     .map(([id, val]) => ({ name: gameLookup[id] || id, value: val as number }))
     .sort((a, b) => b.value - a.value);
 
-  // ───── Veredito Dinâmico ─────
+  // ───── Veredito Dinâmico (must be before any early return) ─────
   const verdict = useMemo(() => {
     if (!exposureSec) return null;
     const topProv = providerEntries[0];
@@ -63,20 +60,19 @@ export function DashboardTab({ data, providers, games }: Props) {
 
     const subject = filters.streamers?.length === 1
       ? filters.streamers[0]
-      : (filters.streamer || (data.unique_streamers > 1 ? `${data.unique_streamers} streamers` : "o painel"));
+      : (filters.streamer || ((data?.unique_streamers || 0) > 1 ? `${data?.unique_streamers} streamers` : "o painel"));
 
     const periodo = `${filters.date_from} → ${filters.date_to}`;
 
     return {
-      subject,
-      periodo,
-      topProv: topProv?.name,
-      provPct,
-      topGame: topGame?.name,
-      gamePct,
+      subject, periodo,
+      topProv: topProv?.name, provPct,
+      topGame: topGame?.name, gamePct,
       hours: exposureHours,
     };
-  }, [exposureSec, providerEntries, gameEntries, filters, data.unique_streamers, exposureHours]);
+  }, [exposureSec, providerEntries, gameEntries, filters, data?.unique_streamers, exposureHours]);
+
+  if (!data) return <p className="text-xs text-muted-foreground text-center py-12">{t("scan.no_data")}</p>;
 
   const sentimentData = [
     { name: t("scan.positive"), value: data.chat_sentiment?.positive || 0, color: "hsl(var(--chart-2))" },
