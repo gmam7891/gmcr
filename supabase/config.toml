@@ -7,7 +7,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.scanner-pipeline]
-verify_jwt = true
+verify_jwt = false
 
 [functions.influencer-discovery]
 verify_jwt = false
