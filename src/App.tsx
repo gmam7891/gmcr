@@ -7,6 +7,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { LoginGate } from "@/components/LoginGate";
+import { ScannerFiltersProvider } from "@/contexts/ScannerFiltersContext";
 import Home from "./pages/Home.tsx";
 import Index from "./pages/Index.tsx";
 import Admin from "./pages/Admin.tsx";
@@ -29,7 +30,7 @@ const App = () => (
               <Route path="/" element={<Home />} />
               <Route path="/app" element={<Index />} />
               <Route path="/admin" element={<Admin />} />
-              <Route path="/scanner" element={<Scanner />} />
+              <Route path="/scanner" element={<ScannerFiltersProvider><Scanner /></ScannerFiltersProvider>} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

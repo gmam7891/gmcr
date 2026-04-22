@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck, Search, Activity, BarChart3, FlaskConical, Trophy } from "lucide-react";
 import { StatusHeader } from "@/components/scanner/StatusHeader";
-import { GlobalFilters, defaultFilters } from "@/components/scanner/GlobalFilters";
-import type { ScannerFilters } from "@/components/scanner/GlobalFilters";
+import { GlobalFilters } from "@/components/scanner/GlobalFilters";
+import { useScannerFilters } from "@/contexts/ScannerFiltersContext";
+import type { ScannerFilters } from "@/contexts/ScannerFiltersContext";
 import { DashboardTab } from "@/components/scanner/DashboardTab";
 import { RankingsTab } from "@/components/scanner/RankingsTab";
 import { VodQualityTab } from "@/components/scanner/VodQualityTab";
@@ -29,7 +30,7 @@ const Scanner = () => {
   const { isAdmin, userAccess, signOut } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<ScannerFilters>(defaultFilters);
+  const { filters } = useScannerFilters();
   const [dashData, setDashData] = useState<any>(null);
   const [providers, setProviders] = useState<any[]>([]);
   const [games, setGames] = useState<any[]>([]);
@@ -127,7 +128,7 @@ const Scanner = () => {
       <main className="p-6 space-y-4">
         <StatusHeader />
         <ScanStartPanel onComplete={refreshData} />
-        <GlobalFilters filters={filters} onChange={setFilters} />
+        <GlobalFilters />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
           <TabsList className="bg-secondary/50 border border-border p-1 h-auto gap-1 flex-wrap">
