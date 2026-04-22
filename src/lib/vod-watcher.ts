@@ -27,6 +27,8 @@ export interface AuditReport {
   summary: string;
   sullygnome: any;
   pending_audits: number;
+  audit_status?: string;
+  error_message?: string | null;
 }
 
 /** Start the autonomous VOD Watcher Agent. Returns immediately; agent runs in background. */

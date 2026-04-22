@@ -54,6 +54,18 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
         </Button>
       </div>
 
+      {report.audit_status === "failed" && report.error_message && (
+        <div className="text-xs text-destructive border border-destructive/30 rounded p-2">
+          ⚠ {report.error_message}
+        </div>
+      )}
+
+      {report.audit_status !== "failed" && report.games.length === 0 && (
+        <div className="text-xs text-muted-foreground border border-border rounded p-2 bg-secondary/30">
+          Auditoria finalizada sem detectar conteúdo de cassino neste VOD. Se você esperava ver jogos, considere reprocessar (a IA pode ter sido conservadora demais nas thumbs).
+        </div>
+      )}
+
       <p className="text-sm text-foreground leading-relaxed">{report.summary}</p>
 
       <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border">
