@@ -9,6 +9,12 @@ verify_jwt = false
 [functions.scanner-pipeline]
 verify_jwt = false
 
+[functions.scanner-read]
+verify_jwt = false
+
+[functions.scanner-write]
+verify_jwt = false
+
 [functions.influencer-discovery]
 verify_jwt = false
 
