@@ -2,9 +2,10 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getAuditReport, type AuditReport } from "@/lib/vod-watcher";
-import { FileText, RefreshCw, Download, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { FileText, RefreshCw, Download, Loader2, Link2, Copy } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
 function fmt(sec: number): string {
   const h = Math.floor(sec / 3600);
@@ -38,6 +39,8 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
   const [report, setReport] = useState<AuditReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareExpiresAt, setShareExpiresAt] = useState<string | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
@@ -74,59 +77,44 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
   }, [report]);
 
   const exportPdf = async () => {
-    if (!reportRef.current || !report) return;
+    if (!report) return;
     setExporting(true);
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ]);
-      // Resolve theme background to avoid transparent canvas
-      const bg = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
-      const bgColor = bg ? `hsl(${bg})` : "#ffffff";
-
-      const canvas = await html2canvas(reportRef.current, {
-        backgroundColor: bgColor,
-        scale: 2,
-        useCORS: true,
-        logging: false,
+      const { data, error } = await supabase.functions.invoke("generate-audit-report-pdf", {
+        body: { audit_id: auditId, ttl_seconds: 60 * 60 * 24 * 7 },
       });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const margin = 24;
-      const usableW = pageW - margin * 2;
-      const ratio = canvas.height / canvas.width;
-      const imgH = usableW * ratio;
-      // If taller than one page, paginate by clipping
-      if (imgH <= pageH - margin * 2) {
-        pdf.addImage(imgData, "PNG", margin, margin, usableW, imgH);
-      } else {
-        let position = 0;
-        const pageContentH = pageH - margin * 2;
-        const pxPerPt = canvas.width / usableW;
-        const sliceHpx = pageContentH * pxPerPt;
-        while (position < canvas.height) {
-          const c = document.createElement("canvas");
-          c.width = canvas.width;
-          c.height = Math.min(sliceHpx, canvas.height - position);
-          const ctx = c.getContext("2d")!;
-          ctx.fillStyle = bgColor;
-          ctx.fillRect(0, 0, c.width, c.height);
-          ctx.drawImage(canvas, 0, position, canvas.width, c.height, 0, 0, canvas.width, c.height);
-          const slice = c.toDataURL("image/png");
-          if (position > 0) pdf.addPage();
-          pdf.addImage(slice, "PNG", margin, margin, usableW, (c.height / canvas.width) * usableW);
-          position += sliceHpx;
-        }
-      }
-      pdf.save(`relatorio-${report.streamer_login}-${report.vod_id}.pdf`);
-      toast({ title: "PDF gerado", description: "Relatório exportado com sucesso." });
+      if (error) throw new Error(error.message);
+      if ((data as any)?.error) throw new Error((data as any).error);
+      const url = (data as any)?.url as string;
+      const expires = (data as any)?.expires_at as string;
+      if (!url) throw new Error("URL não retornada pelo servidor.");
+      setShareUrl(url);
+      setShareExpiresAt(expires);
+      // Trigger immediate download
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (data as any)?.filename || `relatorio-${report.streamer_login}-${report.vod_id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast({
+        title: "PDF gerado",
+        description: "Download iniciado. Link público válido por 7 dias.",
+      });
     } catch (e: any) {
       toast({ title: "Falha ao exportar", description: e.message, variant: "destructive" });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const copyShareLink = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast({ title: "Link copiado", description: "Cole no e-mail para a marca." });
+    } catch {
+      toast({ title: "Falha ao copiar", variant: "destructive" });
     }
   };
 
@@ -146,17 +134,44 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
 
   return (
     <div className="space-y-3">
-      {/* Toolbar (excluded from PDF capture) */}
-      <div className="flex items-center justify-end gap-2">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={load} disabled={loading} className="gap-1.5">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           Atualizar
         </Button>
-        <Button variant="outline" size="sm" onClick={exportPdf} disabled={exporting} className="gap-1.5">
+        <Button variant="default" size="sm" onClick={exportPdf} disabled={exporting} className="gap-1.5">
           {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {exporting ? "Gerando PDF..." : "Exportar PDF"}
+          {exporting ? "Gerando PDF..." : "Gerar PDF + Link"}
         </Button>
       </div>
+
+      {/* Public share link panel */}
+      {shareUrl && (
+        <div className="card-surface p-3 border border-primary/40 bg-primary/5 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary">
+            <Link2 className="h-3.5 w-3.5" />
+            Link público para compartilhar com a marca
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={shareUrl}
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+              className="flex-1 text-[11px] font-mono px-2 py-1.5 rounded border border-border bg-background text-foreground truncate"
+            />
+            <Button size="sm" variant="outline" onClick={copyShareLink} className="gap-1.5 shrink-0">
+              <Copy className="h-3.5 w-3.5" />
+              Copiar
+            </Button>
+          </div>
+          {shareExpiresAt && (
+            <p className="text-[10px] text-muted-foreground">
+              Expira em {new Date(shareExpiresAt).toLocaleString("pt-BR")} · download direto, sem login.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Capture area */}
       <div ref={reportRef} className="card-surface p-5 space-y-4 bg-background">
