@@ -1,14 +1,26 @@
 // ============================================================================
-// VOD Watcher AI — Autonomous Background Agent
+// VOD Watcher AI — Autonomous Background Agent (storyboards edition)
 // ----------------------------------------------------------------------------
-// Runs the surgical audit asynchronously. The user can close the page and the
-// agent keeps processing. Self-invokes in chunks so each HTTP call stays
-// inside the edge function timeout.
+// IMPORTANT 2026-04: Twitch deprecated `thumb<ts>-WxH.jpg` per-timestamp URLs
+// (all 404). We now use the official storyboard mosaics returned by the
+// `seekPreviewsURL` GraphQL field. Each storyboard image is a JPEG grid of
+// (cols × rows) tiles, one tile every `interval` seconds.
 //
-// Actions:
-//   - start(vod_id, streamer_login, vod_duration_seconds, thumbnail_url, vod_title)
-//   - resume(audit_id) — internal self-invoke
-//   - report(audit_id) — generate consolidated audit report
+// Strategy:
+//   - On `start`, fetch storyboard info.json (high quality preferred).
+//   - Pre-compute storyboard image URLs and their (mosaic, row, col, ts) for
+//     every tile. This is our "frames plan".
+//   - On each `resume` chunk we send entire mosaic images to Gemini with an
+//     instruction explaining the grid layout. The model returns which tiles
+//     contain casino content (by row/col index). One API call covers up to
+//     50 frames at a time, so we burn through long VODs quickly.
+//   - Persist detections to raw_evidences (vod_id-keyed) so the existing
+//     report builder keeps working unchanged.
+//
+// Fallback: if storyboards are unavailable for a VOD, mark audit failed with
+// a clear error_message so the UI can explain it.
+//
+// Actions: start | resume | report
 // ============================================================================
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
@@ -23,34 +35,34 @@ const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const GQL_URL = "https://gql.twitch.tv/gql";
 const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 
-const SAMPLE_INTERVAL = 15;            // seconds — 4 frames/min (rigorous)
-const FRAMES_PER_CHUNK = 60;           // 60 frames per HTTP invocation = 15 min of VOD
-const BATCH_SIZE = 5;                  // images per AI call
+const MOSAICS_PER_CHUNK = 4;          // process up to 4 storyboard mosaics per HTTP chunk
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || "";
 
-const FORENSIC_PROMPT = `Você é um auditor forense de iGaming/Casino em VODs de streaming.
+// Forensic prompt tailored for mosaic analysis. The model receives ONE image
+// (the storyboard) and must return per-tile detections referenced by row/col.
+const MOSAIC_PROMPT = `Você é um auditor forense de iGaming/Casino analisando mosaicos de thumbnails de VODs Twitch.
 
-REGRAS:
-1. Analise CADA imagem individualmente. Identifique TODO jogo de cassino visível (slot, mesa, crash, live).
-2. IGNORE título e categoria da Twitch — analise APENAS a tela.
-3. SOBERANIA DA IA: Se o streamer está em "Just Chatting" mas a tela mostra um slot, REGISTRE o jogo (não diga not_game).
-4. Se o streamer estiver assistindo conteúdo (player de vídeo), classifique "not_game".
-5. Se houver navegador, leia URL e título da aba para identificar o jogo.
+A IMAGEM enviada é um STORYBOARD: um grid de THUMBNAILS pequenos (tiles) extraídos do VOD.
+Você receberá GRID_COLS, GRID_ROWS, TILE_COUNT e o TIMESTAMP de cada tile.
+Ordem dos tiles: linha por linha, da esquerda para a direita, de cima para baixo.
+Tile (row=0, col=0) é o canto superior esquerdo. Tile (row=R-1, col=C-1) é o canto inferior direito.
 
-PROVEDORAS (lista parcial — identifique TODAS): Pragmatic Play, Relax Gaming, PG Soft, Hacksaw, Push Gaming, NetEnt, Play'n GO, Nolimit City, Red Tiger, Yggdrasil, Evolution, Playtech, BGaming, Spribe, Turbo Games, ELK, Big Time Gaming, Wazdan, Booongo, Habanero, Quickspin, Thunderkick, Fantasma, Avatar UX, Spinomenal, 3 Oaks Gaming, Ezugi, Atmosfera.
+PARA CADA tile que mostre conteúdo de cassino (slot, mesa, crash, live casino, navegador em site de aposta), retorne uma entrada.
+IGNORE tiles com Just Chatting puro, gameplay tradicional (FPS, MMO, etc), tela preta, intro/outro.
+SEJA AGRESSIVO: thumbs são pequenos (220×124). Se vê reels coloridos, símbolos de fruta/diamante/coroa, layout 5×3 típico de slot, HUD com R$/$/€ — É CASSINO.
 
-EXTRAÇÃO VISUAL EXTRA (somente quando category != "not_game"):
-- balance: saldo visível na tela (ex: "R$ 1.234,56", "$500", null se não visível)
-- bet_amount: valor da aposta atual (ex: "R$ 5,00", null)
-- bonus_hud: true se HUD de bônus/free spins/multiplicador estiver visível
-- free_spins_active: true se rodadas grátis ativas
-- big_win_banner: true se animação/banner de big win/mega win visível
+PROVEDORAS (lista parcial — identifique quando reconhecer): Pragmatic Play, PG Soft, Hacksaw, Push Gaming, Relax Gaming, NetEnt, Play'n GO, Nolimit City, Red Tiger, Yggdrasil, Evolution, BGaming, Spribe (Aviator), Turbo Games, ELK, Big Time Gaming, 3 Oaks Gaming.
 
-RESPONDA APENAS JSON ARRAY:
-[{"game":"nome","provider":"provedora_ou_Unknown","category":"slots|live_casino|table_game|crash_game|not_game","confidence":"high|medium|low","evidence":"o que viu","image_index":0,"balance":null,"bet_amount":null,"bonus_hud":false,"free_spins_active":false,"big_win_banner":false}]`;
+JOGOS COMUNS: Sweet Bonanza, Gates of Olympus, Sugar Rush, Fortune Tiger (Jogo do Tigrinho), Aviator, Mines, Crazy Time, Monopoly Live.
+
+RESPONDA APENAS JSON ARRAY — uma entrada por TILE que tem cassino:
+[{"row":0,"col":2,"game":"Gates of Olympus","provider":"Pragmatic Play","category":"slots","confidence":"high","evidence":"reels com símbolos coloridos, HUD de aposta visível"}]
+
+Se NENHUM tile tem cassino, responda exatamente: []
+`;
 
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -74,7 +86,7 @@ function parseAIBatch(content: string): any[] {
   } catch { return []; }
 }
 
-async function callAI(messages: any[]): Promise<any[]> {
+async function callAI(messages: any[]): Promise<{ items: any[]; ok: boolean; status: number; raw: string }> {
   const res = await fetch(AI_GATEWAY, {
     method: "POST",
     headers: { "Authorization": `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
@@ -83,10 +95,11 @@ async function callAI(messages: any[]): Promise<any[]> {
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     console.warn(`[Watcher] AI call failed [${res.status}]: ${txt.slice(0, 200)}`);
-    return [];
+    return { items: [], ok: false, status: res.status, raw: txt };
   }
   const data = await res.json();
-  return parseAIBatch(data?.choices?.[0]?.message?.content ?? "[]");
+  const raw = data?.choices?.[0]?.message?.content ?? "[]";
+  return { items: parseAIBatch(raw), ok: true, status: 200, raw };
 }
 
 async function fetchChapters(vodId: string): Promise<any[]> {
@@ -113,12 +126,62 @@ async function fetchChapters(vodId: string): Promise<any[]> {
   }
 }
 
-function buildThumbUrl(baseThumb: string, ts: number): string {
-  return baseThumb.replace(/thumb\d*-\d+x\d+/, `thumb${ts}-1280x720`);
+// Fetch the storyboard descriptor + URLs.
+// Returns null when storyboards are unavailable (very fresh VOD, deleted, etc).
+async function fetchStoryboardPlan(vodId: string): Promise<
+  | {
+      mosaics: Array<{ url: string; cols: number; rows: number; tile_w: number; tile_h: number; tiles: Array<{ row: number; col: number; ts: number }> }>;
+      interval: number;
+      total_tiles: number;
+    }
+  | null
+> {
+  // 1. Get seekPreviewsURL via GraphQL
+  const gqlRes = await fetch(GQL_URL, {
+    method: "POST",
+    headers: { "Client-ID": GQL_CLIENT_ID, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query: `query{video(id:"${vodId}"){seekPreviewsURL}}`,
+    }),
+  });
+  const gqlBody = await gqlRes.json().catch(() => null);
+  const infoUrl: string | undefined = gqlBody?.data?.video?.seekPreviewsURL;
+  if (!infoUrl) return null;
+
+  // 2. Fetch the info.json (array of quality variants)
+  const infoRes = await fetch(infoUrl);
+  if (!infoRes.ok) return null;
+  const variants: any[] = await infoRes.json().catch(() => []);
+  if (!Array.isArray(variants) || variants.length === 0) return null;
+
+  // Prefer "high" quality, fall back to anything available
+  const variant = variants.find((v) => v.quality === "high") ?? variants[variants.length - 1];
+  const { count, cols, rows, width, height, interval, images } = variant;
+  if (!count || !cols || !rows || !width || !height || !interval || !Array.isArray(images)) return null;
+
+  // 3. Compute base URL (info.json sits next to the storyboard images)
+  const baseUrl = infoUrl.substring(0, infoUrl.lastIndexOf("/") + 1);
+  const tilesPerImage = cols * rows;
+
+  const mosaics = images.map((imgName: string, mosaicIdx: number) => {
+    const tiles: Array<{ row: number; col: number; ts: number }> = [];
+    const startGlobal = mosaicIdx * tilesPerImage;
+    const endGlobal = Math.min(startGlobal + tilesPerImage, count);
+    for (let g = startGlobal; g < endGlobal; g++) {
+      const localIdx = g - startGlobal;
+      tiles.push({
+        row: Math.floor(localIdx / cols),
+        col: localIdx % cols,
+        ts: Math.round(g * interval + interval / 2), // midpoint timestamp
+      });
+    }
+    return { url: baseUrl + imgName, cols, rows, tile_w: width, tile_h: height, tiles };
+  });
+
+  return { mosaics, interval, total_tiles: count };
 }
 
 async function selfInvokeResume(auditId: string) {
-  // Fire-and-forget HTTP call back to ourselves to process the next chunk
   const url = `${SUPABASE_URL}/functions/v1/vod-watcher-agent`;
   fetch(url, {
     method: "POST",
@@ -143,36 +206,65 @@ Deno.serve(async (req) => {
   const { action } = body;
 
   // ─────────────────────────────────────────────────────────────────────────
-  // ACTION: start — create audit row and kick off background processing
+  // ACTION: start
   // ─────────────────────────────────────────────────────────────────────────
   if (action === "start") {
     const { vod_id, streamer_login, vod_duration_seconds, thumbnail_url, vod_title } = body;
-    if (!vod_id || !streamer_login || !vod_duration_seconds || !thumbnail_url) {
-      return jsonResponse({ error: "vod_id, streamer_login, vod_duration_seconds, thumbnail_url required" }, 400);
+    if (!vod_id || !streamer_login || !vod_duration_seconds) {
+      return jsonResponse({ error: "vod_id, streamer_login, vod_duration_seconds required" }, 400);
     }
 
-    // Build full timestamp plan (rigorous: every 15s)
     const totalMinutes = Math.round(vod_duration_seconds / 60);
-    const timestamps: number[] = [];
-    for (let t = 30; t < vod_duration_seconds; t += SAMPLE_INTERVAL) timestamps.push(t);
 
-    // Fetch chapters quickly (cheap GraphQL call, ~1s). SullyGnome is deferred to background.
-    let chapters: any[] = [];
-    try {
-      chapters = await Promise.race([
+    // Fetch storyboard plan + chapters in parallel
+    const [storyboard, chapters] = await Promise.all([
+      Promise.race([
+        fetchStoryboardPlan(vod_id),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+      ]),
+      Promise.race([
         fetchChapters(vod_id),
         new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 8000)),
-      ]);
-    } catch (e) { console.warn("[Watcher] chapters fetch error:", e); }
+      ]),
+    ]);
 
-    // Upsert audit row IMMEDIATELY (idempotent: re-runs on same VOD reset progress)
+    if (!storyboard || storyboard.mosaics.length === 0) {
+      // Hard fail with clear message — UI can explain
+      const auditPayload = {
+        vod_id,
+        streamer_login,
+        platform: "twitch",
+        status: "failed" as const,
+        vod_duration_seconds: Math.round(vod_duration_seconds),
+        expected_frames: 0,
+        processed_frames: 0,
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: "Storyboards indisponíveis para este VOD (Twitch removeu thumbs por timestamp). Tente um VOD mais recente.",
+        progress_phase: "failed",
+        progress_message: "Sem fonte de imagens — Twitch não expôs storyboards para este VOD.",
+        sullygnome_snapshot: {},
+        pending_audit_segments: { plan: null, flagged: [] } as any,
+      };
+      const { data: row } = await sb.from("vod_audits").upsert(auditPayload, { onConflict: "vod_id,platform" }).select("id").single();
+      return jsonResponse({
+        audit_id: row?.id,
+        total_frames: 0,
+        total_minutes: totalMinutes,
+        chapters: chapters?.length ?? 0,
+        message: "Storyboards indisponíveis — auditoria não pôde iniciar.",
+      });
+    }
+
+    const totalFrames = storyboard.total_tiles;
+
     const auditPayload = {
       vod_id,
       streamer_login,
       platform: "twitch",
       status: "processing" as const,
       vod_duration_seconds: Math.round(vod_duration_seconds),
-      expected_frames: timestamps.length,
+      expected_frames: totalFrames,
       processed_frames: 0,
       started_at: new Date().toISOString(),
       completed_at: null,
@@ -181,15 +273,15 @@ Deno.serve(async (req) => {
       progress_total_minutes: totalMinutes,
       progress_current_minute: 0,
       progress_games_found: 0,
-      progress_message: `Plano: ${timestamps.length} frames | ${chapters.length} capítulos`,
+      progress_message: `Plano: ${storyboard.mosaics.length} mosaicos | ${totalFrames} frames | ${chapters.length} capítulos`,
       sullygnome_snapshot: {},
       pending_audit_segments: {
         plan: {
-          timestamps,
+          mosaics: storyboard.mosaics,
+          interval: storyboard.interval,
           chapters,
-          thumbnail_url,
           vod_title: vod_title || "",
-          processed_until: 0,
+          processed_mosaic: 0,
         },
         flagged: [],
       } as any,
@@ -206,7 +298,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: `Failed to create audit: ${auditErr?.message}` }, 500);
     }
 
-    // Defer SullyGnome scraping to background (don't block start response)
+    // SullyGnome enrichment (background)
     EdgeRuntime.waitUntil((async () => {
       try {
         const sully = await sb.functions.invoke("sullygnome-scraper", {
@@ -219,12 +311,11 @@ Deno.serve(async (req) => {
       } catch (e) { console.warn("[Watcher] SullyGnome background fetch failed:", e); }
     })());
 
-    // Kick off background processing
     selfInvokeResume(auditRow.id);
 
     return jsonResponse({
       audit_id: auditRow.id,
-      total_frames: timestamps.length,
+      total_frames: totalFrames,
       total_minutes: totalMinutes,
       chapters: chapters.length,
       message: "Agente iniciado em background — feche a página, ele continua processando.",
@@ -232,7 +323,7 @@ Deno.serve(async (req) => {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // ACTION: resume — process next chunk and self-invoke if more remains
+  // ACTION: resume — process next mosaics chunk
   // ─────────────────────────────────────────────────────────────────────────
   if (action === "resume") {
     const { audit_id } = body;
@@ -252,168 +343,154 @@ Deno.serve(async (req) => {
     const segments = (audit.pending_audit_segments as any) || {};
     const plan = segments.plan;
     const flagged: any[] = segments.flagged || [];
-    if (!plan) {
+    if (!plan || !Array.isArray(plan.mosaics)) {
       await sb.from("vod_audits").update({
         status: "failed",
-        error_message: "Plano de execução não encontrado",
+        error_message: "Plano de execução inválido",
         completed_at: new Date().toISOString(),
       }).eq("id", audit_id);
       return jsonResponse({ error: "no plan" }, 500);
     }
 
-    const { timestamps, chapters, thumbnail_url, vod_title, processed_until } = plan;
     const totalMinutes = Math.round(audit.vod_duration_seconds / 60);
-    const baseThumb = thumbnail_url.replace("%{width}", "1280").replace("%{height}", "720");
+    const startIdx = plan.processed_mosaic || 0;
+    const endIdx = Math.min(startIdx + MOSAICS_PER_CHUNK, plan.mosaics.length);
 
-    const startIdx = processed_until || 0;
-    const endIdx = Math.min(startIdx + FRAMES_PER_CHUNK, timestamps.length);
-
-    if (startIdx >= timestamps.length) {
-      // Already done — mark complete
+    if (startIdx >= plan.mosaics.length) {
       await finalizeAudit(sb, audit, flagged);
       return jsonResponse({ status: "completed" });
     }
 
-    console.log(`[Watcher ${audit_id}] processing frames ${startIdx}-${endIdx} of ${timestamps.length}`);
+    console.log(`[Watcher ${audit_id}] processing mosaics ${startIdx}-${endIdx} of ${plan.mosaics.length}`);
 
-    // Process this chunk in BATCH_SIZE batches
-    for (let i = startIdx; i < endIdx; i += BATCH_SIZE) {
-      const batchTs = timestamps.slice(i, Math.min(i + BATCH_SIZE, endIdx));
-      const batchUrls = batchTs.map((ts: number) => buildThumbUrl(baseThumb, ts));
-      const currentMinute = Math.round(batchTs[0] / 60);
+    let totalDetectionsThisChunk = 0;
 
-      // Identify if in known-casino chapter (gabarito)
-      const chapterAtBatch = chapters.find((ch: any) =>
-        batchTs[0] >= ch.positionSeconds && batchTs[0] < (ch.positionSeconds + ch.durationSeconds),
+    for (let mIdx = startIdx; mIdx < endIdx; mIdx++) {
+      const mosaic = plan.mosaics[mIdx];
+      if (!mosaic?.url || !Array.isArray(mosaic.tiles)) continue;
+
+      // Identify dominant chapter category for the time window covered by this mosaic
+      const firstTs = mosaic.tiles[0]?.ts ?? 0;
+      const lastTs = mosaic.tiles[mosaic.tiles.length - 1]?.ts ?? firstTs;
+      const chapterAt = (plan.chapters || []).find((ch: any) =>
+        firstTs >= ch.positionSeconds && firstTs < (ch.positionSeconds + ch.durationSeconds),
       );
-      const chapterCategory = chapterAtBatch?.game || "Unknown";
+      const chapterCategory = chapterAt?.game || "Unknown";
 
-      const imageContent = batchUrls.map((url: string) => ({ type: "image_url", image_url: { url, detail: "high" } }));
-      const tsHint = batchTs.map((t: number, ix: number) => `Image ${ix + 1}: ${Math.floor(t / 60)}min`).join(", ");
+      const tileLabel = mosaic.tiles
+        .map((t: any) => `(r${t.row},c${t.col})=${Math.floor(t.ts / 60)}min`)
+        .join(", ");
 
-      let detections = await callAI([
-        { role: "system", content: FORENSIC_PROMPT },
+      const userText = `MOSAICO ${mIdx + 1}/${plan.mosaics.length} do VOD "${plan.vod_title}".
+GRID_COLS=${mosaic.cols}, GRID_ROWS=${mosaic.rows}, TILE_COUNT=${mosaic.tiles.length}.
+Tile size: ${mosaic.tile_w}×${mosaic.tile_h} px.
+Categoria Twitch: ${chapterCategory}.
+Timestamps por tile: ${tileLabel}.
+Identifique cada tile que mostre conteúdo de cassino.`;
+
+      const ai = await callAI([
+        { role: "system", content: MOSAIC_PROMPT },
         { role: "user", content: [
-          { type: "text", text: `VOD: "${vod_title}". Categoria Twitch: ${chapterCategory}. ${tsHint}` },
-          ...imageContent,
+          { type: "text", text: userText },
+          { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
         ] },
       ]);
 
-      // SOVEREIGNTY: if in known casino chapter and AI says all not_game, retry aggressive
+      let detections = ai.items;
+
+      // Sovereignty retry: if Twitch chapter is known casino but AI returned 0
       const casinoHints = ["virtual casino", "slots", "casino", "gambling"];
       const isCasinoChapter = casinoHints.some((k) => chapterCategory.toLowerCase().includes(k));
-      const allNotGame = detections.length > 0 && detections.every((d: any) => d.category === "not_game");
-
-      if (isCasinoChapter && (detections.length === 0 || allNotGame)) {
+      if (isCasinoChapter && detections.length === 0) {
         const retry = await callAI([
-          { role: "system", content: FORENSIC_PROMPT + "\n\nESTAS IMAGENS SÃO DE PERÍODO CONFIRMADO COMO CASSINO. NÃO USE not_game. IDENTIFIQUE O JOGO." },
+          { role: "system", content: MOSAIC_PROMPT + "\n\nESTE MOSAICO COBRE PERÍODO CONFIRMADO COMO CASSINO. Identifique TODOS os tiles que tenham slot/cassino visível, mesmo se a thumb for baixa resolução." },
           { role: "user", content: [
-            { type: "text", text: `Período confirmado: ${chapterCategory}. Identifique o jogo.` },
-            ...imageContent,
+            { type: "text", text: userText },
+            { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
           ] },
         ]);
-        if (retry.length > 0 && !retry.every((d: any) => d.category === "not_game")) {
-          detections = retry;
+        if (retry.items.length > 0) {
+          detections = retry.items;
         } else {
           flagged.push({
-            start_minute: currentMinute,
+            mosaic_index: mIdx,
             chapter_category: chapterCategory,
-            frames: batchUrls,
-            timestamps: batchTs,
+            mosaic_url: mosaic.url,
+            ts_window: [firstTs, lastTs],
             reason: "AI_could_not_identify_in_known_casino_window",
           });
         }
       }
 
-      // Persist each detection as a stream_snapshot (ai_evidence enrichment)
-      const snapshotRows: any[] = [];
+      // Map detections (row/col) -> raw_evidences rows
+      const evidenceRows: any[] = [];
       for (const det of detections) {
-        const imgIdx = det.image_index ?? 0;
-        const ts = batchTs[imgIdx] ?? batchTs[0];
-        snapshotRows.push({
+        const row = Number(det.row);
+        const col = Number(det.col);
+        if (!Number.isInteger(row) || !Number.isInteger(col)) continue;
+        const tile = mosaic.tiles.find((t: any) => t.row === row && t.col === col);
+        if (!tile) continue;
+        const conf = det.confidence === "high" ? 0.95 : det.confidence === "medium" ? 0.7 : 0.4;
+        evidenceRows.push({
+          vod_id: audit.vod_id,
           streamer_login: audit.streamer_login,
-          captured_at: new Date(Date.now()).toISOString(),
-          is_live: false,
-          stream_title: vod_title || null,
-          game_name: det.game || null,
-          viewer_count: 0,
-          ai_evidence: det.evidence ? `[${ts}s] ${det.evidence} (provider=${det.provider || "?"})` : null,
-          ai_confidence: det.confidence === "high" ? 0.95 : det.confidence === "medium" ? 0.7 : 0.4,
-          is_ai_verified: det.category !== "not_game",
+          platform: "twitch",
+          source_type: "vod",
+          timestamp_seconds: tile.ts,
+          frame_index: mIdx * (mosaic.cols * mosaic.rows) + (row * mosaic.cols + col),
+          game_detected: det.game || null,
+          provider_detected: det.provider || null,
+          confidence_score: conf,
+          is_valid: true,
+          validation_status: "ai_detected",
+          extra_metadata: {
+            category: det.category || null,
+            evidence_text: det.evidence || null,
+            chapter_category: chapterCategory,
+            mosaic_url: mosaic.url,
+            tile_row: row,
+            tile_col: col,
+          },
         });
       }
-      if (snapshotRows.length > 0) {
-        const { error: snapErr } = await sb.from("stream_snapshots").insert(snapshotRows);
-        if (snapErr) console.warn("[Watcher] snapshot insert failed:", snapErr.message);
-      }
-
-      // Persist as raw_evidences (for the existing pipeline + reports)
-      const evidenceRows = detections
-        .filter((d: any) => d.category !== "not_game")
-        .map((det: any) => {
-          const imgIdx = det.image_index ?? 0;
-          const ts = batchTs[imgIdx] ?? batchTs[0];
-          return {
-            vod_id: audit.vod_id,
-            streamer_login: audit.streamer_login,
-            platform: "twitch",
-            source_type: "vod",
-            timestamp_seconds: ts,
-            game_detected: det.game || null,
-            provider_detected: det.provider || null,
-            confidence_score: det.confidence === "high" ? 0.95 : det.confidence === "medium" ? 0.7 : 0.4,
-            is_valid: true,
-            validation_status: "ai_detected",
-            extra_metadata: {
-              category: det.category || null,
-              balance: det.balance ?? null,
-              bet_amount: det.bet_amount ?? null,
-              bonus_hud: det.bonus_hud === true,
-              free_spins_active: det.free_spins_active === true,
-              big_win_banner: det.big_win_banner === true,
-              evidence_text: det.evidence || null,
-              chapter_category: chapterCategory,
-            },
-          };
-        });
       if (evidenceRows.length > 0) {
-        await sb.from("raw_evidences").insert(evidenceRows);
+        const { error: evErr } = await sb.from("raw_evidences").insert(evidenceRows);
+        if (evErr) console.warn("[Watcher] evidences insert failed:", evErr.message);
+        else totalDetectionsThisChunk += evidenceRows.length;
       }
     }
 
     // Update progress + plan
-    const newProcessed = endIdx;
-    const currentMin = Math.round((timestamps[Math.min(endIdx, timestamps.length - 1)] || 0) / 60);
+    plan.processed_mosaic = endIdx;
+    const processedFrames = endIdx * (plan.mosaics[0]?.cols || 5) * (plan.mosaics[0]?.rows || 10);
+    const cappedProcessed = Math.min(processedFrames, audit.expected_frames || processedFrames);
+    const currentMin = Math.round(((endIdx / plan.mosaics.length) * (audit.vod_duration_seconds || 0)) / 60);
 
-    // Count games detected so far
     const { data: gamesCount } = await sb
       .from("raw_evidences")
-      .select("game_detected", { count: "exact", head: false })
+      .select("game_detected")
       .eq("vod_id", audit.vod_id)
       .not("game_detected", "is", null);
     const uniqueGames = new Set((gamesCount || []).map((r: any) => r.game_detected)).size;
 
-    plan.processed_until = newProcessed;
     await sb.from("vod_audits").update({
       progress_phase: "analyzing",
       progress_current_minute: currentMin,
       progress_games_found: uniqueGames,
-      progress_message: `Agente assistindo... minuto ${currentMin}/${totalMinutes} | ${uniqueGames} jogos detectados`,
-      processed_frames: newProcessed,
+      progress_message: `Agente assistindo... mosaico ${endIdx}/${plan.mosaics.length} | ${uniqueGames} jogos detectados (+${totalDetectionsThisChunk} frames)`,
+      processed_frames: cappedProcessed,
       pending_audit_segments: { plan, flagged } as any,
     }).eq("id", audit_id);
 
-    // If more remains, self-invoke
-    if (newProcessed < timestamps.length) {
+    if (endIdx < plan.mosaics.length) {
       selfInvokeResume(audit_id);
       return jsonResponse({
         status: "chunk_done",
-        processed: newProcessed,
-        total: timestamps.length,
+        processed_mosaic: endIdx,
+        total_mosaics: plan.mosaics.length,
       });
     }
 
-    // Otherwise finalize
     await finalizeAudit(sb, audit, flagged);
     return jsonResponse({ status: "completed" });
   }
@@ -434,21 +511,28 @@ Deno.serve(async (req) => {
       .eq("vod_id", audit.vod_id)
       .not("game_detected", "is", null);
 
-    // Group by game
+    // The interval between consecutive frames depends on the storyboard.
+    // We persisted plan.interval, but plan is wiped after finalize. Compute
+    // it on the fly from audit metadata: vod_duration / expected_frames.
+    const interval =
+      audit.expected_frames && audit.vod_duration_seconds
+        ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
+        : 39;
+
     const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; }>();
     for (const ev of evidences || []) {
       const key = `${ev.game_detected}|${ev.provider_detected || "Unknown"}`;
       const existing = byGame.get(key);
       if (existing) {
         existing.frames += 1;
-        existing.seconds += SAMPLE_INTERVAL;
+        existing.seconds += interval;
         existing.avgConfidence = (existing.avgConfidence * (existing.frames - 1) + (ev.confidence_score || 0)) / existing.frames;
       } else {
         byGame.set(key, {
           game: ev.game_detected!,
           provider: ev.provider_detected || "Unknown",
           frames: 1,
-          seconds: SAMPLE_INTERVAL,
+          seconds: interval,
           avgConfidence: ev.confidence_score || 0,
         });
       }
@@ -466,11 +550,13 @@ Deno.serve(async (req) => {
     };
 
     const summaryLines = games
-      .filter((g) => g.frames >= 2) // only show games with at least 30s
+      .filter((g) => g.frames >= 2)
       .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" ? ` (${g.provider})` : ""}`)
       .slice(0, 10);
 
-    const summary = `O streamer "${audit.streamer_login}" jogou ${fmt(vodDuration)}, sendo ${fmt(totalCasinoSeconds)} de jogos de cassino e ${fmt(otherSeconds)} de Conteúdo Geral. Detalhe: ${summaryLines.join(", ")}.`;
+    const summary = games.length === 0
+      ? `Auditoria do VOD de "${audit.streamer_login}" (${fmt(vodDuration)}) concluída sem detectar conteúdo de cassino.`
+      : `O streamer "${audit.streamer_login}" jogou ${fmt(vodDuration)}, sendo ${fmt(totalCasinoSeconds)} de jogos de cassino e ${fmt(otherSeconds)} de Conteúdo Geral. Detalhe: ${summaryLines.join(", ")}.`;
 
     return jsonResponse({
       audit_id,
@@ -483,6 +569,8 @@ Deno.serve(async (req) => {
       summary,
       sullygnome: audit.sullygnome_snapshot,
       pending_audits: ((audit.pending_audit_segments as any)?.flagged || []).length,
+      audit_status: audit.status,
+      error_message: audit.error_message,
     });
   }
 
@@ -493,7 +581,7 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
   const totalMin = Math.round((audit.vod_duration_seconds || 0) / 60);
   const { data: evs } = await sb
     .from("raw_evidences")
-    .select("game_detected", { count: "exact" })
+    .select("game_detected")
     .eq("vod_id", audit.vod_id)
     .not("game_detected", "is", null);
 
@@ -501,8 +589,14 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
 
   const segments = (audit.pending_audit_segments as any) || {};
   segments.flagged = flagged;
-  // Clear plan after completion to save space
-  delete segments.plan;
+  // Preserve mosaics list (without per-tile details to save space) for traceability
+  if (segments.plan) {
+    segments.plan = {
+      processed_mosaic: segments.plan.processed_mosaic,
+      mosaic_count: Array.isArray(segments.plan.mosaics) ? segments.plan.mosaics.length : 0,
+      interval: segments.plan.interval,
+    };
+  }
 
   await sb.from("vod_audits").update({
     status: flagged.length > 0 ? "needs_review" : "completed",
@@ -512,8 +606,11 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
     progress_message: `Auditoria concluída: ${uniqueGames} jogos | ${flagged.length} segmentos pendentes`,
     completed_at: new Date().toISOString(),
     coverage_percent: 100,
+    total_evidences: (evs || []).length,
+    valid_evidences: (evs || []).length,
+    confirmed_blocks: uniqueGames,
     pending_audit_segments: segments as any,
   }).eq("id", audit.id);
 
-  console.log(`[Watcher ${audit.id}] FINALIZED: ${uniqueGames} games, ${flagged.length} flagged`);
+  console.log(`[Watcher ${audit.id}] FINALIZED: ${uniqueGames} games, ${(evs || []).length} evidences, ${flagged.length} flagged`);
 }
