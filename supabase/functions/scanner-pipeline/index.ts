@@ -13,16 +13,56 @@ function json(data: unknown, status = 200) {
   });
 }
 
+// Actions that mutate data or expose admin-level controls — require admin role.
+const ADMIN_ACTIONS = new Set([
+  "save_raw_evidences",
+  "validate_vod",
+  "consolidate_vod",
+  "review_block",
+  "request_reprocess",
+  "update_pipeline_config",
+  "enqueue_job",
+]);
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  // ─── AUTH GATE ───────────────────────────────────────────────
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return json({ error: "Unauthorized: missing bearer token" }, 401);
+  }
+  const userClient = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const token = authHeader.replace("Bearer ", "");
+  const { data: claimsData, error: claimsErr } = await userClient.auth.getClaims(token);
+  if (claimsErr || !claimsData?.claims?.sub) {
+    return json({ error: "Unauthorized: invalid token" }, 401);
+  }
+  const userId = claimsData.claims.sub as string;
+
+  // service-role client used for privileged DB writes/reads after auth check
   const supabase = createClient(supabaseUrl, serviceKey);
 
   try {
     const body = await req.json();
     const { action } = body;
+
+    // ─── ROLE GATE for mutating / admin actions ───────────────
+    if (ADMIN_ACTIONS.has(action)) {
+      const { data: isAdmin } = await supabase.rpc("has_role", {
+        _user_id: userId,
+        _role: "admin",
+      });
+      if (!isAdmin) {
+        return json({ error: "Forbidden: admin role required" }, 403);
+      }
+    }
 
     // ─── Save Raw Evidences ──────────────────
     if (action === "save_raw_evidences") {
