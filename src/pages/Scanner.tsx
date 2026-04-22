@@ -145,19 +145,7 @@ const Scanner = () => {
           </TabsList>
 
           <TabsContent value="dashboard">
-            {loading ? (
-              <p className="text-sm text-muted-foreground text-center py-12">{t("app.loading")}</p>
-            ) : (
-              <>
-                {dashData?._meta && !dashData._meta.consistency_check && (
-                  <div className="bg-destructive/10 border border-destructive/30 rounded-md p-3 text-xs text-destructive flex items-center gap-2 mb-4">
-                    <span>⚠️</span>
-                    <span>Consistency warning: provider/game totals don't match exposure total. This may indicate data issues.</span>
-                  </div>
-                )}
-                <DashboardTab data={dashData} providers={providers} games={games} />
-              </>
-            )}
+            <DashboardTab dataFilter={dataFilter} />
           </TabsContent>
 
           <TabsContent value="streamers">
