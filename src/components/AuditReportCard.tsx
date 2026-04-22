@@ -77,59 +77,44 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
   }, [report]);
 
   const exportPdf = async () => {
-    if (!reportRef.current || !report) return;
+    if (!report) return;
     setExporting(true);
     try {
-      const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-      ]);
-      // Resolve theme background to avoid transparent canvas
-      const bg = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
-      const bgColor = bg ? `hsl(${bg})` : "#ffffff";
-
-      const canvas = await html2canvas(reportRef.current, {
-        backgroundColor: bgColor,
-        scale: 2,
-        useCORS: true,
-        logging: false,
+      const { data, error } = await supabase.functions.invoke("generate-audit-report-pdf", {
+        body: { audit_id: auditId, ttl_seconds: 60 * 60 * 24 * 7 },
       });
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
-      const pageW = pdf.internal.pageSize.getWidth();
-      const pageH = pdf.internal.pageSize.getHeight();
-      const margin = 24;
-      const usableW = pageW - margin * 2;
-      const ratio = canvas.height / canvas.width;
-      const imgH = usableW * ratio;
-      // If taller than one page, paginate by clipping
-      if (imgH <= pageH - margin * 2) {
-        pdf.addImage(imgData, "PNG", margin, margin, usableW, imgH);
-      } else {
-        let position = 0;
-        const pageContentH = pageH - margin * 2;
-        const pxPerPt = canvas.width / usableW;
-        const sliceHpx = pageContentH * pxPerPt;
-        while (position < canvas.height) {
-          const c = document.createElement("canvas");
-          c.width = canvas.width;
-          c.height = Math.min(sliceHpx, canvas.height - position);
-          const ctx = c.getContext("2d")!;
-          ctx.fillStyle = bgColor;
-          ctx.fillRect(0, 0, c.width, c.height);
-          ctx.drawImage(canvas, 0, position, canvas.width, c.height, 0, 0, canvas.width, c.height);
-          const slice = c.toDataURL("image/png");
-          if (position > 0) pdf.addPage();
-          pdf.addImage(slice, "PNG", margin, margin, usableW, (c.height / canvas.width) * usableW);
-          position += sliceHpx;
-        }
-      }
-      pdf.save(`relatorio-${report.streamer_login}-${report.vod_id}.pdf`);
-      toast({ title: "PDF gerado", description: "Relatório exportado com sucesso." });
+      if (error) throw new Error(error.message);
+      if ((data as any)?.error) throw new Error((data as any).error);
+      const url = (data as any)?.url as string;
+      const expires = (data as any)?.expires_at as string;
+      if (!url) throw new Error("URL não retornada pelo servidor.");
+      setShareUrl(url);
+      setShareExpiresAt(expires);
+      // Trigger immediate download
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (data as any)?.filename || `relatorio-${report.streamer_login}-${report.vod_id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      toast({
+        title: "PDF gerado",
+        description: "Download iniciado. Link público válido por 7 dias.",
+      });
     } catch (e: any) {
       toast({ title: "Falha ao exportar", description: e.message, variant: "destructive" });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const copyShareLink = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      toast({ title: "Link copiado", description: "Cole no e-mail para a marca." });
+    } catch {
+      toast({ title: "Falha ao copiar", variant: "destructive" });
     }
   };
 
