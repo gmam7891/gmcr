@@ -4,7 +4,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const APIFY_API_KEY = Deno.env.get("APIFY_API_KEY") || "";
+const APIFY_API_KEY = Deno.env.get("APIFY_API_KEY") || Deno.env.get("APIFY_API_TOKEN") || "";
 
 function calculateMedian(arr: number[]): number {
   if (arr.length === 0) return 0;
