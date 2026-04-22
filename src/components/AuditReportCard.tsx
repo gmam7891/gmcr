@@ -2,9 +2,10 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getAuditReport, type AuditReport } from "@/lib/vod-watcher";
-import { FileText, RefreshCw, Download, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { FileText, RefreshCw, Download, Loader2, Link2, Copy } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
 function fmt(sec: number): string {
   const h = Math.floor(sec / 3600);
