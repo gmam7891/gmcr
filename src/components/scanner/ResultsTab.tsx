@@ -1,15 +1,16 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { getResultsAggregated } from "@/lib/scanner-api";
+import { useScannerResults } from "@/hooks/useScannerQueries";
 import { MetricCard } from "@/components/MetricCard";
 import { Download, FileText } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import type { ScannerFilters } from "./GlobalFilters";
+import { TableSkeleton, MetricGridSkeleton, ChartSkeleton } from "./skeletons";
+import type { ScannerFilters } from "@/contexts/ScannerFiltersContext";
 
 interface Props { filters: ScannerFilters; }
 
@@ -33,22 +34,7 @@ function formatTimestamp(s: number): string {
 export function ResultsTab({ filters }: Props) {
   const { t } = useLanguage();
   const [groupBy, setGroupBy] = useState<"game" | "vod" | "streamer_game">("game");
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setLoading(true);
-    getResultsAggregated({
-      streamer: filters.streamer || undefined,
-      date_from: filters.date_from || undefined,
-      date_to: filters.date_to || undefined,
-      group_by: groupBy,
-      block_status_filter: "confirmed",
-    })
-      .then(setData)
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
-  }, [filters.streamer, filters.date_from, filters.date_to, groupBy]);
+  const { data, isLoading } = useScannerResults(filters, groupBy);
 
   const aggregated = data?.aggregated || [];
   const totals = data?.totals || {};
@@ -81,8 +67,7 @@ export function ResultsTab({ filters }: Props) {
     const rows = blocks.map((b: any) => [
       b.vod_id, b.streamer_login, b.game_name || "—", b.provider_name || "—",
       formatTimestamp(b.start_seconds), formatTimestamp(b.end_seconds), b.duration_seconds,
-      ((b.confidence_avg <= 1 ? b.confidence_avg * 100 : b.confidence_avg)).toFixed(0) + "%",
-      b.status,
+      ((b.confidence_avg <= 1 ? b.confidence_avg * 100 : b.confidence_avg)).toFixed(0) + "%", b.status,
     ]);
     const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -92,13 +77,18 @@ export function ResultsTab({ filters }: Props) {
     a.click(); URL.revokeObjectURL(url);
   };
 
-  if (loading) return <p className="text-sm text-muted-foreground text-center py-8">{t("app.loading")}</p>;
-  if (!aggregated.length) return <p className="text-sm text-muted-foreground text-center py-8">{t("scan.no_data")}</p>;
+  if (isLoading) return (
+    <div className="space-y-2.5">
+      <MetricGridSkeleton count={5} />
+      <ChartSkeleton height={260} />
+      <TableSkeleton rows={10} cols={7} />
+    </div>
+  );
+  if (!aggregated.length) return <p className="text-[11px] text-muted-foreground text-center py-8 leading-tight">{t("scan.no_data")}</p>;
 
   return (
-    <div className="space-y-4">
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div className="space-y-2.5">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
         <MetricCard label="Jogos únicos" value={totals.games || 0} />
         <MetricCard label="Blocos detectados" value={totals.blocks || 0} />
         <MetricCard label="Tempo total" value={formatDuration(totals.exposure_seconds || 0)} />
@@ -106,46 +96,44 @@ export function ResultsTab({ filters }: Props) {
         <MetricCard label="Streamers" value={totals.streamers || 0} />
       </div>
 
-      {/* Top 10 chart */}
-      <Card className="p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold">Top 10 jogos por tempo de exposição</h3>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={exportCSV}>
-              <Download className="h-3 w-3 mr-1" /> Agregado CSV
+      <Card className="p-2.5">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider leading-tight">Top 10 jogos por tempo de exposição</h3>
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={exportCSV}>
+              <Download className="h-3 w-3 mr-1" /> Agregado
             </Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={exportBlocksCSV}>
-              <FileText className="h-3 w-3 mr-1" /> Blocos CSV
+            <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={exportBlocksCSV}>
+              <FileText className="h-3 w-3 mr-1" /> Blocos
             </Button>
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={260}>
+        <ResponsiveContainer width="100%" height={240}>
           <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-            <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} label={{ value: "min", angle: -90, position: "insideLeft", fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-            <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", fontSize: 12 }} />
+            <XAxis dataKey="name" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+            <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} label={{ value: "min", angle: -90, position: "insideLeft", fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+            <Tooltip contentStyle={{ background: "hsl(var(--popover))", border: "1px solid hsl(var(--border))", fontSize: 11 }} />
             <Bar dataKey="minutes" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </Card>
 
-      {/* Tabs: agrupamento + detalhe */}
-      <Tabs defaultValue="aggregated" className="space-y-3">
-        <TabsList className="bg-secondary/50 border border-border">
-          <TabsTrigger value="aggregated" className="text-xs font-mono uppercase tracking-wider">Agregado</TabsTrigger>
-          <TabsTrigger value="blocks" className="text-xs font-mono uppercase tracking-wider">Blocos detalhados</TabsTrigger>
+      <Tabs defaultValue="aggregated" className="space-y-2">
+        <TabsList className="bg-secondary/50 border border-border h-7">
+          <TabsTrigger value="aggregated" className="text-[10px] font-mono uppercase tracking-wider px-2 h-6">Agregado</TabsTrigger>
+          <TabsTrigger value="blocks" className="text-[10px] font-mono uppercase tracking-wider px-2 h-6">Blocos detalhados</TabsTrigger>
         </TabsList>
 
         <TabsContent value="aggregated">
-          <Card className="p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">Agrupar por:</span>
+          <Card className="p-2.5 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Agrupar por:</span>
               {([["game", "Jogo"], ["streamer_game", "Streamer × Jogo"], ["vod", "VOD × Jogo"]] as const).map(([v, label]) => (
                 <button
                   key={v}
                   onClick={() => setGroupBy(v)}
-                  className={`text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded transition-colors ${
+                  className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded transition-colors ${
                     groupBy === v ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -157,27 +145,27 @@ export function ResultsTab({ filters }: Props) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Jogo</TableHead>
-                  <TableHead>Provedora</TableHead>
-                  <TableHead className="text-right">Tempo total</TableHead>
-                  <TableHead className="text-right">Sessões</TableHead>
-                  <TableHead className="text-right">VODs</TableHead>
-                  <TableHead className="text-right">Streamers</TableHead>
-                  <TableHead className="text-right">Confiança</TableHead>
+                  <TableHead className="text-[11px] h-7">Jogo</TableHead>
+                  <TableHead className="text-[11px] h-7">Provedora</TableHead>
+                  <TableHead className="text-right text-[11px] h-7">Tempo</TableHead>
+                  <TableHead className="text-right text-[11px] h-7">Sessões</TableHead>
+                  <TableHead className="text-right text-[11px] h-7">VODs</TableHead>
+                  <TableHead className="text-right text-[11px] h-7">Streamers</TableHead>
+                  <TableHead className="text-right text-[11px] h-7">Confiança</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {aggregated.map((a: any) => {
                   const conf = a.avg_confidence <= 1 ? a.avg_confidence * 100 : a.avg_confidence;
                   return (
-                    <TableRow key={a.key}>
-                      <TableCell className="text-sm font-medium">{a.game}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{a.provider}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">{formatDuration(a.exposure_seconds)}</TableCell>
-                      <TableCell className="text-right text-xs">{a.sessions}</TableCell>
-                      <TableCell className="text-right text-xs">{a.vods_count}</TableCell>
-                      <TableCell className="text-right text-xs">{a.streamers_count}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">
+                    <TableRow key={a.key} className="leading-tight">
+                      <TableCell className="text-[12px] font-medium py-1.5">{a.game}</TableCell>
+                      <TableCell className="text-[11px] text-muted-foreground py-1.5">{a.provider}</TableCell>
+                      <TableCell className="text-right font-mono text-[11px] py-1.5">{formatDuration(a.exposure_seconds)}</TableCell>
+                      <TableCell className="text-right text-[11px] py-1.5">{a.sessions}</TableCell>
+                      <TableCell className="text-right text-[11px] py-1.5">{a.vods_count}</TableCell>
+                      <TableCell className="text-right text-[11px] py-1.5">{a.streamers_count}</TableCell>
+                      <TableCell className="text-right font-mono text-[11px] py-1.5">
                         <span className={conf < 60 ? "text-destructive" : conf < 80 ? "text-yellow-600" : "text-green-600"}>
                           {Math.round(conf)}%
                         </span>
@@ -191,36 +179,36 @@ export function ResultsTab({ filters }: Props) {
         </TabsContent>
 
         <TabsContent value="blocks">
-          <Card className="p-4">
+          <Card className="p-2.5">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>VOD</TableHead>
-                  <TableHead>Streamer</TableHead>
-                  <TableHead>Jogo</TableHead>
-                  <TableHead>Provedora</TableHead>
-                  <TableHead className="text-right">Início</TableHead>
-                  <TableHead className="text-right">Fim</TableHead>
-                  <TableHead className="text-right">Duração</TableHead>
-                  <TableHead className="text-right">Confiança</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead className="text-[11px] h-7">VOD</TableHead>
+                  <TableHead className="text-[11px] h-7">Streamer</TableHead>
+                  <TableHead className="text-[11px] h-7">Jogo</TableHead>
+                  <TableHead className="text-[11px] h-7">Provedora</TableHead>
+                  <TableHead className="text-right text-[11px] h-7">Início</TableHead>
+                  <TableHead className="text-right text-[11px] h-7">Fim</TableHead>
+                  <TableHead className="text-right text-[11px] h-7">Duração</TableHead>
+                  <TableHead className="text-right text-[11px] h-7">Confiança</TableHead>
+                  <TableHead className="text-[11px] h-7">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {blocks.map((b: any) => {
                   const conf = b.confidence_avg <= 1 ? b.confidence_avg * 100 : b.confidence_avg;
                   return (
-                    <TableRow key={b.id}>
-                      <TableCell className="font-mono text-[10px]">{b.vod_id}</TableCell>
-                      <TableCell className="text-xs">{b.streamer_login}</TableCell>
-                      <TableCell className="text-sm font-medium">{b.game_name || "—"}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{b.provider_name || "—"}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">{formatTimestamp(b.start_seconds)}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">{formatTimestamp(b.end_seconds)}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">{formatDuration(b.duration_seconds)}</TableCell>
-                      <TableCell className="text-right font-mono text-xs">{Math.round(conf)}%</TableCell>
-                      <TableCell>
-                        <Badge className="text-[10px] bg-green-500/20 text-green-600">{b.status}</Badge>
+                    <TableRow key={b.id} className="leading-tight">
+                      <TableCell className="font-mono text-[10px] py-1.5">{b.vod_id}</TableCell>
+                      <TableCell className="text-[11px] py-1.5">{b.streamer_login}</TableCell>
+                      <TableCell className="text-[12px] font-medium py-1.5">{b.game_name || "—"}</TableCell>
+                      <TableCell className="text-[11px] text-muted-foreground py-1.5">{b.provider_name || "—"}</TableCell>
+                      <TableCell className="text-right font-mono text-[11px] py-1.5">{formatTimestamp(b.start_seconds)}</TableCell>
+                      <TableCell className="text-right font-mono text-[11px] py-1.5">{formatTimestamp(b.end_seconds)}</TableCell>
+                      <TableCell className="text-right font-mono text-[11px] py-1.5">{formatDuration(b.duration_seconds)}</TableCell>
+                      <TableCell className="text-right font-mono text-[11px] py-1.5">{Math.round(conf)}%</TableCell>
+                      <TableCell className="py-1.5">
+                        <Badge className="text-[10px] bg-green-500/20 text-green-600 px-1.5 py-0">{b.status}</Badge>
                       </TableCell>
                     </TableRow>
                   );
