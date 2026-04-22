@@ -39,6 +39,8 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
   const [report, setReport] = useState<AuditReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareExpiresAt, setShareExpiresAt] = useState<string | null>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
   const load = async () => {
