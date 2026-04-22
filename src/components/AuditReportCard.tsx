@@ -134,17 +134,44 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
 
   return (
     <div className="space-y-3">
-      {/* Toolbar (excluded from PDF capture) */}
-      <div className="flex items-center justify-end gap-2">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={load} disabled={loading} className="gap-1.5">
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
           Atualizar
         </Button>
-        <Button variant="outline" size="sm" onClick={exportPdf} disabled={exporting} className="gap-1.5">
+        <Button variant="default" size="sm" onClick={exportPdf} disabled={exporting} className="gap-1.5">
           {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-          {exporting ? "Gerando PDF..." : "Exportar PDF"}
+          {exporting ? "Gerando PDF..." : "Gerar PDF + Link"}
         </Button>
       </div>
+
+      {/* Public share link panel */}
+      {shareUrl && (
+        <div className="card-surface p-3 border border-primary/40 bg-primary/5 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary">
+            <Link2 className="h-3.5 w-3.5" />
+            Link público para compartilhar com a marca
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={shareUrl}
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+              className="flex-1 text-[11px] font-mono px-2 py-1.5 rounded border border-border bg-background text-foreground truncate"
+            />
+            <Button size="sm" variant="outline" onClick={copyShareLink} className="gap-1.5 shrink-0">
+              <Copy className="h-3.5 w-3.5" />
+              Copiar
+            </Button>
+          </div>
+          {shareExpiresAt && (
+            <p className="text-[10px] text-muted-foreground">
+              Expira em {new Date(shareExpiresAt).toLocaleString("pt-BR")} · download direto, sem login.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Capture area */}
       <div ref={reportRef} className="card-surface p-5 space-y-4 bg-background">
