@@ -624,6 +624,46 @@ Deno.serve(async (req) => {
       return json({ sentiment, total: data?.length || 0 });
     }
 
+    // ─── Weekly Trend (current week vs previous week, by provider) ──────
+    if (action === "get_trend_weekly") {
+      const { date_to, streamers, provider_ids, platform } = body;
+      const refTo = date_to ? new Date(date_to) : new Date();
+      const endCur = new Date(refTo);
+      const startCur = new Date(endCur.getTime() - 7 * 86400000);
+      const startPrev = new Date(startCur.getTime() - 7 * 86400000);
+
+      async function fetchRange(from: Date, to: Date) {
+        let q = supabase.from("gameplay_blocks").select("provider_name,duration_seconds,streamer_login,platform,created_at,status")
+          .eq("status", "confirmed")
+          .gte("created_at", from.toISOString())
+          .lte("created_at", to.toISOString());
+        if (platform) q = q.eq("platform", platform);
+        if (Array.isArray(streamers) && streamers.length) q = q.in("streamer_login", streamers);
+        const { data } = await q.limit(5000);
+        const share: Record<string, number> = {};
+        for (const b of data || []) {
+          const k = b.provider_name || "Unknown";
+          share[k] = (share[k] || 0) + (b.duration_seconds || 0);
+        }
+        return share;
+      }
+
+      const [cur, prev] = await Promise.all([fetchRange(startCur, endCur), fetchRange(startPrev, startCur)]);
+      const keys = new Set([...Object.keys(cur), ...Object.keys(prev)]);
+      const trend = Array.from(keys).map((name) => {
+        const c = cur[name] || 0;
+        const p = prev[name] || 0;
+        const delta = c - p;
+        const deltaPct = p > 0 ? (delta / p) * 100 : (c > 0 ? 100 : 0);
+        return { name, current: c, previous: p, delta, delta_pct: deltaPct };
+      }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 12);
+
+      return json({
+        range: { current: { from: startCur.toISOString(), to: endCur.toISOString() }, previous: { from: startPrev.toISOString(), to: startCur.toISOString() } },
+        trend,
+      });
+    }
+
     return json({ error: "Unknown action: " + action }, 400);
   } catch (error: unknown) {
     console.error("Scanner pipeline error:", error);

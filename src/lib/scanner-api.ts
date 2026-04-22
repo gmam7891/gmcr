@@ -96,6 +96,15 @@ export async function getRankings(params: {
   return callScanner({ action: "get_rankings", ...params });
 }
 
+export async function getTrendWeekly(params: {
+  date_to?: string;
+  streamers?: string[];
+  provider_ids?: string[];
+  platform?: string;
+}) {
+  return callScanner({ action: "get_trend_weekly", ...params });
+}
+
 export async function enqueueJob(params: {
   job_type: string;
   streamer_login: string;
