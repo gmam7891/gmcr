@@ -29,9 +29,13 @@ export interface AuditReport {
   pending_audits: number;
   audit_status?: string;
   error_message?: string | null;
-  data_source?: "raw_evidences" | "stream_snapshots";
+  data_source?: "stream_snapshots:storyboard" | "stream_snapshots:live" | "none";
   snapshots_found?: number;
   diagnostic_log?: string | null;
+  pending_review_frames?: number;
+  reconciliation_status?: "ok" | "mismatch" | "pending";
+  reconciliation_notes?: string | null;
+  last_checkpoint_at?: string | null;
 }
 
 /** Start the autonomous VOD Watcher Agent. Returns immediately; agent runs in background. */
