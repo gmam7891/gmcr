@@ -195,7 +195,7 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
 
         {/* Diagnostic log: shown when fallback couldn't recover data */}
         {report.diagnostic_log && (
-          <div className="text-[11px] text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded p-2 bg-amber-500/5 font-mono">
+          <div className="text-[11px] text-accent border border-accent/30 rounded p-2 bg-accent/5 font-mono">
             🔧 {report.diagnostic_log}
           </div>
         )}
