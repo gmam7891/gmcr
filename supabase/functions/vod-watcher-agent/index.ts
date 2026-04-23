@@ -690,7 +690,38 @@ Identifique cada tile que mostre conteúdo de cassino.`;
     });
   }
 
-  return jsonResponse({ error: "Unknown action. Use start | resume | report." }, 400);
+  // ─────────────────────────────────────────────────────────────────────────
+  // ACTION: watchdog — find stalled audits and re-invoke them
+  // ─────────────────────────────────────────────────────────────────────────
+  if (action === "watchdog") {
+    const stallThresholdMs = 2 * 60 * 1000; // 2 minutes without checkpoint = stalled
+    const cutoff = new Date(Date.now() - stallThresholdMs).toISOString();
+
+    const { data: stalled } = await sb
+      .from("vod_audits")
+      .select("id, vod_id, last_checkpoint_at, started_at, status")
+      .eq("status", "processing")
+      .or(`last_checkpoint_at.lt.${cutoff},last_checkpoint_at.is.null`)
+      .limit(10);
+
+    const revived: string[] = [];
+    for (const a of stalled || []) {
+      // Skip very recently started audits (give them >30s to write first checkpoint)
+      const startedAt = a.started_at ? new Date(a.started_at).getTime() : 0;
+      if (Date.now() - startedAt < 30_000) continue;
+      console.log(`[Watcher] watchdog reviving audit ${a.id} (vod ${a.vod_id})`);
+      selfInvokeResume(a.id);
+      revived.push(a.id);
+    }
+
+    return jsonResponse({
+      checked: (stalled || []).length,
+      revived: revived.length,
+      revived_ids: revived,
+    });
+  }
+
+  return jsonResponse({ error: "Unknown action. Use start | resume | report | watchdog." }, 400);
 });
 
 async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
