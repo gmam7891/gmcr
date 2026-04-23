@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { Search, Sparkles, MapPin, Users, Activity, Gamepad2, AlertTriangle, Download, ExternalLink } from "lucide-react";
+import { Search, Sparkles, MapPin, Users, Activity, Gamepad2, AlertTriangle, Download, ExternalLink, X, Plus, Wand2 } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface Prospect {
@@ -48,12 +49,31 @@ export function DiscoveryTab() {
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [step, setStep] = useState<"input" | "expanding" | "scraping" | "scoring" | "done">("input");
 
+  // Editable keyword state
+  const [customKeywords, setCustomKeywords] = useState<string[]>([]);
+  const [newKeyword, setNewKeyword] = useState("");
+
+  // Score / qualification filter for results
+  const [scoreFilter, setScoreFilter] = useState<"all" | "qualified" | "low">("all");
+
   const togglePlatform = (p: string) => {
     setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   };
 
+  const addKeyword = () => {
+    const k = newKeyword.trim();
+    if (!k) return;
+    if (customKeywords.includes(k)) return;
+    setCustomKeywords([...customKeywords, k]);
+    setNewKeyword("");
+  };
+
+  const removeKeyword = (kw: string) => {
+    setCustomKeywords(customKeywords.filter((k) => k !== kw));
+  };
+
   const handleDiscover = async () => {
-    if (!briefing.trim()) {
+    if (!briefing.trim() && customKeywords.length === 0) {
       toast({ title: t("disc.error"), description: t("disc.briefing_required"), variant: "destructive" });
       return;
     }
@@ -66,16 +86,25 @@ export function DiscoveryTab() {
     setStep("expanding");
 
     try {
-      // Simulate step progress
       setTimeout(() => setStep("scraping"), 3000);
       setTimeout(() => setStep("scoring"), 8000);
 
       const { data, error } = await supabase.functions.invoke("influencer-discovery", {
-        body: { action: "discover", briefing, platforms, limit: 50 },
+        body: {
+          action: "discover",
+          briefing: briefing || "Busca personalizada",
+          platforms,
+          limit: 50,
+          custom_keywords: customKeywords.length > 0 ? customKeywords : undefined,
+        },
       });
 
       if (error) throw error;
       setResult(data);
+      // Sync chips with the keywords actually used (so user can edit & re-run)
+      if (data?.keywords?.length) {
+        setCustomKeywords(data.keywords);
+      }
       setStep("done");
       toast({ title: t("disc.success"), description: `${data.total_qualified} ${t("disc.profiles_found")}` });
     } catch (e: any) {
@@ -86,6 +115,13 @@ export function DiscoveryTab() {
       setLoading(false);
     }
   };
+
+  const filteredProspects = useMemo(() => {
+    if (!result?.prospects) return [];
+    if (scoreFilter === "qualified") return result.prospects.filter((p) => p.match_score >= 70);
+    if (scoreFilter === "low") return result.prospects.filter((p) => p.match_score < 70);
+    return result.prospects;
+  }, [result, scoreFilter]);
 
   const exportExcel = () => {
     if (!result?.prospects?.length) return;
@@ -136,6 +172,66 @@ export function DiscoveryTab() {
           disabled={loading}
         />
 
+        {/* Editable Keywords */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Wand2 className="h-3 w-3" />
+              {t("disc.ai_keywords") || "Termos de busca"}
+              <span className="text-[10px] normal-case tracking-normal text-muted-foreground/60">
+                — {customKeywords.length > 0 ? "edite ou adicione termos" : "deixe vazio para a IA gerar"}
+              </span>
+            </span>
+            {customKeywords.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setCustomKeywords([])}
+                disabled={loading}
+                className="text-[10px] text-muted-foreground hover:text-destructive uppercase tracking-wider"
+              >
+                Limpar
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+            {customKeywords.map((kw) => (
+              <Badge key={kw} variant="secondary" className="text-[10px] font-mono gap-1 pr-1">
+                {kw}
+                <button
+                  type="button"
+                  onClick={() => removeKeyword(kw)}
+                  disabled={loading}
+                  className="hover:text-destructive transition-colors"
+                  aria-label={`Remover ${kw}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder='ex: "fortune tiger", #betano, slots'
+              value={newKeyword}
+              onChange={(e) => setNewKeyword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addKeyword();
+                }
+              }}
+              disabled={loading}
+              className="h-8 text-xs flex-1"
+            />
+            <Button type="button" size="sm" variant="outline" onClick={addKeyword} disabled={loading || !newKeyword.trim()} className="h-8 gap-1">
+              <Plus className="h-3 w-3" /> Adicionar
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground/70">
+            Use <code className="font-mono">#hashtag</code> para Instagram e termos sem # para Twitch.
+          </p>
+        </div>
+
         <div className="flex items-center gap-4">
           <span className="text-xs text-muted-foreground uppercase tracking-wider">{t("disc.platforms")}:</span>
           {["twitch", "instagram"].map((p) => (
@@ -155,7 +251,7 @@ export function DiscoveryTab() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Button onClick={handleDiscover} disabled={loading || !briefing.trim()} className="gap-2">
+          <Button onClick={handleDiscover} disabled={loading || (!briefing.trim() && customKeywords.length === 0)} className="gap-2">
             <Search className="h-4 w-4" />
             {loading ? t("disc.searching") : t("disc.search_btn")}
           </Button>
@@ -179,28 +275,42 @@ export function DiscoveryTab() {
         )}
       </div>
 
-      {/* AI Keywords */}
+      {/* Result stats + filter */}
       {result && (
-        <div className="card-surface p-4 space-y-2">
-          <h3 className="text-xs uppercase tracking-wider text-muted-foreground">{t("disc.ai_keywords")}</h3>
-          <div className="flex flex-wrap gap-1.5">
-            {result.keywords.map((kw, i) => (
-              <Badge key={i} variant="secondary" className="text-[10px] font-mono">{kw}</Badge>
-            ))}
-          </div>
-          <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+        <div className="card-surface p-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
             <span>{t("disc.total_scraped")}: <strong className="text-foreground">{result.total_scraped}</strong></span>
             <span>{t("disc.qualified")}: <strong className="text-accent">{result.total_qualified}</strong></span>
             <span>{t("disc.spam_filtered")}: <strong className="text-destructive">{result.total_spam}</strong></span>
             <span>{t("disc.low_score")}: <strong className="text-warning">{result.total_low_score}</strong></span>
           </div>
+          <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Mostrar:</span>
+            {([
+              { key: "all", label: `Todos (${result.prospects.length})` },
+              { key: "qualified", label: `Qualificados (${result.total_qualified})` },
+              { key: "low", label: `Score baixo (${result.total_low_score})` },
+            ] as const).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setScoreFilter(opt.key)}
+                className={`text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded border transition-colors ${
+                  scoreFilter === opt.key
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-secondary/50 text-muted-foreground border-border hover:text-foreground"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Results Grid */}
-      {result && result.prospects.length > 0 && (
+      {result && filteredProspects.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {result.prospects.map((p, i) => (
+          {filteredProspects.map((p, i) => (
             <div key={i} className="card-surface p-4 space-y-3 hover:border-primary/50 transition-colors">
               {/* Header */}
               <div className="flex items-start gap-3">
