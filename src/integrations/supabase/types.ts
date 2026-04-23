@@ -805,40 +805,67 @@ export type Database = {
           ai_confidence: number | null
           ai_evidence: string | null
           captured_at: string
+          confidence_score: number | null
+          extra_metadata: Json | null
+          frame_index: number | null
+          game_detected: string | null
           game_id: string | null
           game_name: string | null
           id: string
           is_ai_verified: boolean | null
           is_live: boolean
+          processing_batch_id: string | null
+          provider_detected: string | null
+          source: string
           stream_title: string | null
           streamer_login: string
+          timestamp_seconds: number | null
           viewer_count: number
+          vod_id: string | null
         }
         Insert: {
           ai_confidence?: number | null
           ai_evidence?: string | null
           captured_at?: string
+          confidence_score?: number | null
+          extra_metadata?: Json | null
+          frame_index?: number | null
+          game_detected?: string | null
           game_id?: string | null
           game_name?: string | null
           id?: string
           is_ai_verified?: boolean | null
           is_live?: boolean
+          processing_batch_id?: string | null
+          provider_detected?: string | null
+          source?: string
           stream_title?: string | null
           streamer_login: string
+          timestamp_seconds?: number | null
           viewer_count?: number
+          vod_id?: string | null
         }
         Update: {
           ai_confidence?: number | null
           ai_evidence?: string | null
           captured_at?: string
+          confidence_score?: number | null
+          extra_metadata?: Json | null
+          frame_index?: number | null
+          game_detected?: string | null
           game_id?: string | null
           game_name?: string | null
           id?: string
           is_ai_verified?: boolean | null
           is_live?: boolean
+          processing_batch_id?: string | null
+          provider_detected?: string | null
+          source?: string
           stream_title?: string | null
           streamer_login?: string
+          timestamp_seconds?: number | null
           viewer_count?: number
+          vod_id?: string | null
         }
         Relationships: [
           {
@@ -933,6 +960,7 @@ export type Database = {
           failed_frames: number | null
           gap_seconds: number | null
           id: string
+          last_checkpoint_at: string | null
           model_version: string | null
           pending_audit_segments: Json | null
           platform: string
@@ -944,6 +972,8 @@ export type Database = {
           progress_message: string | null
           progress_phase: string | null
           progress_total_minutes: number | null
+          reconciliation_notes: string | null
+          reconciliation_status: string | null
           rules_version: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["vod_status"]
@@ -970,6 +1000,7 @@ export type Database = {
           failed_frames?: number | null
           gap_seconds?: number | null
           id?: string
+          last_checkpoint_at?: string | null
           model_version?: string | null
           pending_audit_segments?: Json | null
           platform?: string
@@ -981,6 +1012,8 @@ export type Database = {
           progress_message?: string | null
           progress_phase?: string | null
           progress_total_minutes?: number | null
+          reconciliation_notes?: string | null
+          reconciliation_status?: string | null
           rules_version?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["vod_status"]
@@ -1007,6 +1040,7 @@ export type Database = {
           failed_frames?: number | null
           gap_seconds?: number | null
           id?: string
+          last_checkpoint_at?: string | null
           model_version?: string | null
           pending_audit_segments?: Json | null
           platform?: string
@@ -1018,6 +1052,8 @@ export type Database = {
           progress_message?: string | null
           progress_phase?: string | null
           progress_total_minutes?: number | null
+          reconciliation_notes?: string | null
+          reconciliation_status?: string | null
           rules_version?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["vod_status"]
