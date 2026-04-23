@@ -321,26 +321,24 @@ Deno.serve(async (req) => {
         };
       });
 
-      // Filter: score > 70 and not spam
-      let qualified = scored
-        .filter((p) => p.match_score >= 70 && !p.is_spam)
+      // Sort all profiles by score, mark qualified vs low score
+      let allScored = scored
+        .filter((p) => !p.is_spam)
         .sort((a, b) => b.match_score - a.match_score);
 
-      // SullyGnome validation for Twitch prospects
-      const twitchProspects = qualified.filter((p) => p.platform === "twitch");
+      // SullyGnome validation for top Twitch prospects (regardless of qualification)
+      const twitchProspects = allScored.filter((p) => p.platform === "twitch").slice(0, 5);
       if (twitchProspects.length > 0 && APIFY_API_KEY) {
         console.log(`[Discovery] Validating ${twitchProspects.length} Twitch prospects via SullyGnome...`);
-        for (const prospect of twitchProspects.slice(0, 5)) {
+        for (const prospect of twitchProspects) {
           try {
             const sullyData = await fetchSullyGnomeQuick(prospect.username);
             if (sullyData) {
               prospect.sullygnome_data = sullyData;
-              // Boost score if SullyGnome confirms casino content
               if (sullyData.casinoPercentage > 10) {
                 prospect.match_score = Math.min(100, prospect.match_score + 5);
                 prospect.score_breakdown.content = Math.min(20, (prospect.score_breakdown.content || 0) + 5);
               }
-              // Penalize if SullyGnome shows very low hours (< 10h in 30d)
               if (sullyData.totalStreamMinutes < 600) {
                 prospect.match_score = Math.max(0, prospect.match_score - 10);
                 prospect.score_breakdown.frequency = Math.max(0, (prospect.score_breakdown.frequency || 0) - 5);
@@ -350,16 +348,16 @@ Deno.serve(async (req) => {
             console.warn(`[Discovery] SullyGnome validation failed for ${prospect.username}:`, e.message);
           }
         }
-        // Re-filter after score adjustments
-        qualified = qualified
-          .filter((p) => p.match_score >= 70)
-          .sort((a, b) => b.match_score - a.match_score);
+        // Re-sort after score adjustments
+        allScored = allScored.sort((a, b) => b.match_score - a.match_score);
       }
 
-      // Save to database
-      if (qualified.length > 0) {
+      const qualified = allScored.filter((p) => p.match_score >= 70);
+
+      // Save ALL non-spam profiles to database (with qualification status implicit in score)
+      if (allScored.length > 0) {
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const dbRecords = qualified.map(({ sullygnome_data, ...rest }) => rest);
+        const dbRecords = allScored.map(({ sullygnome_data, ...rest }) => rest);
         const { error } = await supabase.from("discovery_prospects").insert(dbRecords);
         if (error) console.error("[Discovery] DB insert error:", error.message);
       }
@@ -372,8 +370,8 @@ Deno.serve(async (req) => {
           total_scraped: allProfiles.length,
           total_qualified: qualified.length,
           total_spam: scored.filter((p) => p.is_spam).length,
-          total_low_score: scored.filter((p) => p.match_score < 70 && !p.is_spam).length,
-          prospects: qualified,
+          total_low_score: allScored.filter((p) => p.match_score < 70).length,
+          prospects: allScored, // return ALL non-spam profiles
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
