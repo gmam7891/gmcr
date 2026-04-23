@@ -36,6 +36,8 @@ const GQL_URL = "https://gql.twitch.tv/gql";
 const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 
 const MOSAICS_PER_CHUNK = 4;          // process up to 4 storyboard mosaics per HTTP chunk
+const CHECKPOINT_FRAMES = 50;         // persist progress every N frames within a chunk
+const MAX_RETRIES = 3;                // exponential backoff retries for AI / Twitch
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
@@ -86,20 +88,46 @@ function parseAIBatch(content: string): any[] {
   } catch { return []; }
 }
 
-async function callAI(messages: any[]): Promise<{ items: any[]; ok: boolean; status: number; raw: string }> {
-  const res = await fetch(AI_GATEWAY, {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "google/gemini-2.5-flash", messages, max_tokens: 8192 }),
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    console.warn(`[Watcher] AI call failed [${res.status}]: ${txt.slice(0, 200)}`);
-    return { items: [], ok: false, status: res.status, raw: txt };
+async function withRetry<T>(label: string, fn: () => Promise<T>, maxAttempts = MAX_RETRIES): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const delay = Math.min(8000, 500 * Math.pow(2, attempt - 1)) + Math.random() * 250;
+      console.warn(`[Watcher] ${label} attempt ${attempt}/${maxAttempts} failed: ${(e as Error).message}. Retrying in ${Math.round(delay)}ms`);
+      if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, delay));
+    }
   }
-  const data = await res.json();
-  const raw = data?.choices?.[0]?.message?.content ?? "[]";
-  return { items: parseAIBatch(raw), ok: true, status: 200, raw };
+  throw lastErr;
+}
+
+async function callAI(messages: any[]): Promise<{ items: any[]; ok: boolean; status: number; raw: string }> {
+  try {
+    return await withRetry("ai-gateway", async () => {
+      const res = await fetch(AI_GATEWAY, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "google/gemini-2.5-flash", messages, max_tokens: 8192 }),
+      });
+      // Don't retry 4xx — they won't fix themselves
+      if (res.status === 429 || res.status === 402 || res.status >= 500) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`gateway ${res.status}: ${txt.slice(0, 120)}`);
+      }
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        return { items: [], ok: false, status: res.status, raw: txt };
+      }
+      const data = await res.json();
+      const raw = data?.choices?.[0]?.message?.content ?? "[]";
+      return { items: parseAIBatch(raw), ok: true, status: 200, raw };
+    });
+  } catch (e) {
+    console.warn(`[Watcher] AI call exhausted retries: ${(e as Error).message}`);
+    return { items: [], ok: false, status: 0, raw: String(e) };
+  }
 }
 
 async function fetchChapters(vodId: string): Promise<any[]> {
@@ -136,22 +164,25 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     }
   | null
 > {
-  // 1. Get seekPreviewsURL via GraphQL
-  const gqlRes = await fetch(GQL_URL, {
-    method: "POST",
-    headers: { "Client-ID": GQL_CLIENT_ID, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: `query{video(id:"${vodId}"){seekPreviewsURL}}`,
-    }),
-  });
-  const gqlBody = await gqlRes.json().catch(() => null);
+  // 1. Get seekPreviewsURL via GraphQL (with retry — Twitch GQL flakes)
+  const gqlBody = await withRetry("twitch-gql-storyboard", async () => {
+    const r = await fetch(GQL_URL, {
+      method: "POST",
+      headers: { "Client-ID": GQL_CLIENT_ID, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: `query{video(id:"${vodId}"){seekPreviewsURL}}` }),
+    });
+    if (!r.ok) throw new Error(`gql ${r.status}`);
+    return await r.json();
+  }).catch((e) => { console.warn(`[Watcher] storyboard gql exhausted: ${e.message}`); return null; });
   const infoUrl: string | undefined = gqlBody?.data?.video?.seekPreviewsURL;
   if (!infoUrl) return null;
 
-  // 2. Fetch the info.json (array of quality variants)
-  const infoRes = await fetch(infoUrl);
-  if (!infoRes.ok) return null;
-  const variants: any[] = await infoRes.json().catch(() => []);
+  // 2. Fetch the info.json (with retry)
+  const variants: any[] = await withRetry("storyboard-info-json", async () => {
+    const r = await fetch(infoUrl);
+    if (!r.ok) throw new Error(`info ${r.status}`);
+    return await r.json();
+  }).catch(() => []);
   if (!Array.isArray(variants) || variants.length === 0) return null;
 
   // Prefer "high" quality, fall back to anything available
@@ -364,12 +395,23 @@ Deno.serve(async (req) => {
     console.log(`[Watcher ${audit_id}] processing mosaics ${startIdx}-${endIdx} of ${plan.mosaics.length}`);
 
     let totalDetectionsThisChunk = 0;
+    let framesSinceCheckpoint = 0;
+    const batchId = `${audit_id}-${Date.now()}`;
+
+    // Helper to persist a checkpoint (so a timeout mid-chunk doesn't lose state)
+    const checkpoint = async (currentMosaic: number, label: string) => {
+      plan.processed_mosaic = currentMosaic;
+      await sb.from("vod_audits").update({
+        progress_message: label,
+        last_checkpoint_at: new Date().toISOString(),
+        pending_audit_segments: { plan, flagged } as any,
+      }).eq("id", audit_id);
+    };
 
     for (let mIdx = startIdx; mIdx < endIdx; mIdx++) {
       const mosaic = plan.mosaics[mIdx];
       if (!mosaic?.url || !Array.isArray(mosaic.tiles)) continue;
 
-      // Identify dominant chapter category for the time window covered by this mosaic
       const firstTs = mosaic.tiles[0]?.ts ?? 0;
       const lastTs = mosaic.tiles[mosaic.tiles.length - 1]?.ts ?? firstTs;
       const chapterAt = (plan.chapters || []).find((ch: any) =>
@@ -398,7 +440,6 @@ Identifique cada tile que mostre conteúdo de cassino.`;
 
       let detections = ai.items;
 
-      // Sovereignty retry: if Twitch chapter is known casino but AI returned 0
       const casinoHints = ["virtual casino", "slots", "casino", "gambling"];
       const isCasinoChapter = casinoHints.some((k) => chapterCategory.toLowerCase().includes(k));
       if (isCasinoChapter && detections.length === 0) {
@@ -422,8 +463,8 @@ Identifique cada tile que mostre conteúdo de cassino.`;
         }
       }
 
-      // Map detections (row/col) -> raw_evidences rows
-      const evidenceRows: any[] = [];
+      // ── SSoT: write detections into stream_snapshots ──────────────────────
+      const snapshotRows: any[] = [];
       for (const det of detections) {
         const row = Number(det.row);
         const col = Number(det.col);
@@ -431,21 +472,25 @@ Identifique cada tile que mostre conteúdo de cassino.`;
         const tile = mosaic.tiles.find((t: any) => t.row === row && t.col === col);
         if (!tile) continue;
         const conf = det.confidence === "high" ? 0.95 : det.confidence === "medium" ? 0.7 : 0.4;
-        evidenceRows.push({
-          vod_id: audit.vod_id,
+        snapshotRows.push({
           streamer_login: audit.streamer_login,
-          platform: "twitch",
-          source_type: "vod",
-          timestamp_seconds: tile.ts,
-          frame_index: mIdx * (mosaic.cols * mosaic.rows) + (row * mosaic.cols + col),
+          vod_id: audit.vod_id,
+          source: "storyboard",
+          captured_at: new Date(Date.now() - (audit.vod_duration_seconds - tile.ts) * 1000).toISOString(),
+          is_live: false,
+          game_name: det.game || chapterCategory,
           game_detected: det.game || null,
           provider_detected: det.provider || null,
           confidence_score: conf,
-          is_valid: true,
-          validation_status: "ai_detected",
+          ai_confidence: conf,
+          ai_evidence: det.evidence || null,
+          is_ai_verified: conf >= 0.85,
+          frame_index: mIdx * (mosaic.cols * mosaic.rows) + (row * mosaic.cols + col),
+          timestamp_seconds: tile.ts,
+          processing_batch_id: batchId,
+          viewer_count: 0,
           extra_metadata: {
             category: det.category || null,
-            evidence_text: det.evidence || null,
             chapter_category: chapterCategory,
             mosaic_url: mosaic.url,
             tile_row: row,
@@ -453,23 +498,33 @@ Identifique cada tile que mostre conteúdo de cassino.`;
           },
         });
       }
-      if (evidenceRows.length > 0) {
-        const { error: evErr } = await sb.from("raw_evidences").insert(evidenceRows);
-        if (evErr) console.warn("[Watcher] evidences insert failed:", evErr.message);
-        else totalDetectionsThisChunk += evidenceRows.length;
+      if (snapshotRows.length > 0) {
+        const { error: snapErr } = await sb.from("stream_snapshots").insert(snapshotRows);
+        if (snapErr) console.warn("[Watcher] snapshot insert failed:", snapErr.message);
+        else {
+          totalDetectionsThisChunk += snapshotRows.length;
+          framesSinceCheckpoint += snapshotRows.length;
+        }
+      }
+
+      // ── Checkpoint every CHECKPOINT_FRAMES detected frames ────────────────
+      if (framesSinceCheckpoint >= CHECKPOINT_FRAMES) {
+        await checkpoint(mIdx + 1, `Checkpoint: mosaico ${mIdx + 1}/${plan.mosaics.length} (+${framesSinceCheckpoint} frames)`);
+        framesSinceCheckpoint = 0;
       }
     }
 
-    // Update progress + plan
+    // Update progress + plan (final state for this chunk)
     plan.processed_mosaic = endIdx;
     const processedFrames = endIdx * (plan.mosaics[0]?.cols || 5) * (plan.mosaics[0]?.rows || 10);
     const cappedProcessed = Math.min(processedFrames, audit.expected_frames || processedFrames);
     const currentMin = Math.round(((endIdx / plan.mosaics.length) * (audit.vod_duration_seconds || 0)) / 60);
 
     const { data: gamesCount } = await sb
-      .from("raw_evidences")
+      .from("stream_snapshots")
       .select("game_detected")
       .eq("vod_id", audit.vod_id)
+      .eq("source", "storyboard")
       .not("game_detected", "is", null);
     const uniqueGames = new Set((gamesCount || []).map((r: any) => r.game_detected)).size;
 
@@ -479,6 +534,7 @@ Identifique cada tile que mostre conteúdo de cassino.`;
       progress_games_found: uniqueGames,
       progress_message: `Agente assistindo... mosaico ${endIdx}/${plan.mosaics.length} | ${uniqueGames} jogos detectados (+${totalDetectionsThisChunk} frames)`,
       processed_frames: cappedProcessed,
+      last_checkpoint_at: new Date().toISOString(),
       pending_audit_segments: { plan, flagged } as any,
     }).eq("id", audit_id);
 
@@ -505,11 +561,13 @@ Identifique cada tile que mostre conteúdo de cassino.`;
     const { data: audit } = await sb.from("vod_audits").select("*").eq("id", audit_id).single();
     if (!audit) return jsonResponse({ error: "audit not found" }, 404);
 
-    // ── PRIMARY SOURCE: raw_evidences (storyboard audit) ────────────────────
-    const { data: evidences } = await sb
-      .from("raw_evidences")
-      .select("game_detected, provider_detected, timestamp_seconds, confidence_score")
+    // ── SSoT: stream_snapshots is the single source of truth ────────────────
+    // 1) Try storyboard-source detections first (vod_id-bound, AI-verified).
+    const { data: storyboardSnaps } = await sb
+      .from("stream_snapshots")
+      .select("game_detected, provider_detected, confidence_score, ai_confidence, timestamp_seconds, is_ai_verified")
       .eq("vod_id", audit.vod_id)
+      .eq("source", "storyboard")
       .not("game_detected", "is", null);
 
     const interval =
@@ -517,83 +575,76 @@ Identifique cada tile que mostre conteúdo de cassino.`;
         ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
         : 39;
 
-    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; }>();
-    for (const ev of evidences || []) {
-      const key = `${ev.game_detected}|${ev.provider_detected || "Unknown"}`;
+    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; pendingFrames: number; }>();
+
+    const pushDetection = (game: string, provider: string, conf: number, secs: number) => {
+      const key = `${game}|${provider}`;
       const existing = byGame.get(key);
       if (existing) {
         existing.frames += 1;
-        existing.seconds += interval;
-        existing.avgConfidence = (existing.avgConfidence * (existing.frames - 1) + (ev.confidence_score || 0)) / existing.frames;
+        existing.seconds += secs;
+        existing.avgConfidence = (existing.avgConfidence * (existing.frames - 1) + conf) / existing.frames;
+        if (conf < 0.85) existing.pendingFrames += 1;
       } else {
         byGame.set(key, {
-          game: ev.game_detected!,
-          provider: ev.provider_detected || "Unknown",
-          frames: 1,
-          seconds: interval,
-          avgConfidence: ev.confidence_score || 0,
+          game, provider,
+          frames: 1, seconds: secs,
+          avgConfidence: conf,
+          pendingFrames: conf < 0.85 ? 1 : 0,
         });
       }
+    };
+
+    for (const s of storyboardSnaps || []) {
+      pushDetection(
+        s.game_detected!,
+        s.provider_detected || "Unknown",
+        Number(s.ai_confidence ?? s.confidence_score ?? 0),
+        interval,
+      );
     }
 
-    let dataSource = "raw_evidences";
+    let dataSource: "stream_snapshots:storyboard" | "stream_snapshots:live" | "none" =
+      byGame.size > 0 ? "stream_snapshots:storyboard" : "none";
     let diagnosticLog: string | null = null;
-    let snapshotsFound = 0;
+    let snapshotsFound = (storyboardSnaps || []).length;
 
-    // ── FALLBACK: stream_snapshots (live monitor source / Storyboards) ──────
-    // When the storyboard visual audit produces zero evidences, use live-monitor
-    // snapshots captured for this streamer. Each snapshot ≈ 15s of activity.
-    // Casino time is force-recalculated as (snapshots * 0.25 min).
+    // ── 2) Fallback: live monitor snapshots (Twitch category-based) ─────────
     if (byGame.size === 0) {
       const lookbackDays = 30;
       const since = new Date(Date.now() - lookbackDays * 24 * 3600 * 1000).toISOString();
 
-      const { data: snaps } = await sb
+      const { data: liveSnaps } = await sb
         .from("stream_snapshots")
-        .select("game_name, captured_at, viewer_count")
+        .select("game_name, captured_at")
         .eq("streamer_login", audit.streamer_login)
         .eq("is_live", true)
+        .eq("source", "live")
         .gte("captured_at", since)
         .not("game_name", "is", null);
 
-      snapshotsFound = (snaps || []).length;
+      snapshotsFound = (liveSnaps || []).length;
 
       if (snapshotsFound > 0) {
-        dataSource = "stream_snapshots";
-        const CASINO_CATEGORIES = new Set([
-          "Virtual Casino", "Slots", "Casino", "Poker",
-        ]);
-        const SECONDS_PER_SNAPSHOT = 15; // 0.25 min per snapshot
+        const CASINO_CATEGORIES = new Set(["Virtual Casino", "Slots", "Casino", "Poker"]);
+        const SECONDS_PER_SNAPSHOT = 15; // 0.25 min / snapshot
 
-        for (const s of snaps || []) {
+        for (const s of liveSnaps || []) {
           const cat = (s.game_name || "").trim();
           if (!CASINO_CATEGORIES.has(cat)) continue;
-          const key = `${cat}|Twitch Category`;
-          const existing = byGame.get(key);
-          if (existing) {
-            existing.frames += 1;
-            existing.seconds += SECONDS_PER_SNAPSHOT;
-          } else {
-            byGame.set(key, {
-              game: cat,
-              provider: "Twitch Category",
-              frames: 1,
-              seconds: SECONDS_PER_SNAPSHOT,
-              avgConfidence: 1.0,
-            });
-          }
+          pushDetection(cat, "Twitch Category", 1.0, SECONDS_PER_SNAPSHOT);
         }
 
-        if (byGame.size === 0) {
-          diagnosticLog = `Encontrados ${snapshotsFound} snapshots, mas 0 blocos de gameplay. Erro na função de consolidação (nenhuma categoria de cassino reconhecida).`;
-        }
+        if (byGame.size > 0) dataSource = "stream_snapshots:live";
+        else diagnosticLog = `Encontrados ${snapshotsFound} snapshots, mas 0 blocos de gameplay. Erro na função de consolidação (nenhuma categoria de cassino reconhecida).`;
       } else {
-        diagnosticLog = `Storyboard audit retornou 0 evidences e nenhum snapshot encontrado para @${audit.streamer_login} nos últimos ${lookbackDays} dias.`;
+        diagnosticLog = `Nenhum snapshot (storyboard ou live) encontrado para @${audit.streamer_login}.`;
       }
     }
 
     const games = Array.from(byGame.values()).sort((a, b) => b.seconds - a.seconds);
     const totalCasinoSeconds = games.reduce((s, g) => s + g.seconds, 0);
+    const totalPendingFrames = games.reduce((s, g) => s + g.pendingFrames, 0);
     const vodDuration = audit.vod_duration_seconds || 0;
     const otherSeconds = Math.max(0, vodDuration - totalCasinoSeconds);
 
@@ -608,7 +659,7 @@ Identifique cada tile que mostre conteúdo de cassino.`;
       .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" && g.provider !== "Twitch Category" ? ` (${g.provider})` : ""}`)
       .slice(0, 10);
 
-    const sourceNote = dataSource === "stream_snapshots"
+    const sourceNote = dataSource === "stream_snapshots:live"
       ? " (fonte: monitor live — categorias Twitch)"
       : "";
 
@@ -632,25 +683,80 @@ Identifique cada tile que mostre conteúdo de cassino.`;
       data_source: dataSource,
       snapshots_found: snapshotsFound,
       diagnostic_log: diagnosticLog,
+      pending_review_frames: totalPendingFrames,
+      reconciliation_status: audit.reconciliation_status || "pending",
+      reconciliation_notes: audit.reconciliation_notes || null,
+      last_checkpoint_at: audit.last_checkpoint_at || null,
     });
   }
 
-  return jsonResponse({ error: "Unknown action. Use start | resume | report." }, 400);
+  // ─────────────────────────────────────────────────────────────────────────
+  // ACTION: watchdog — find stalled audits and re-invoke them
+  // ─────────────────────────────────────────────────────────────────────────
+  if (action === "watchdog") {
+    const stallThresholdMs = 2 * 60 * 1000; // 2 minutes without checkpoint = stalled
+    const cutoff = new Date(Date.now() - stallThresholdMs).toISOString();
+
+    const { data: stalled } = await sb
+      .from("vod_audits")
+      .select("id, vod_id, last_checkpoint_at, started_at, status")
+      .eq("status", "processing")
+      .or(`last_checkpoint_at.lt.${cutoff},last_checkpoint_at.is.null`)
+      .limit(10);
+
+    const revived: string[] = [];
+    for (const a of stalled || []) {
+      // Skip very recently started audits (give them >30s to write first checkpoint)
+      const startedAt = a.started_at ? new Date(a.started_at).getTime() : 0;
+      if (Date.now() - startedAt < 30_000) continue;
+      console.log(`[Watcher] watchdog reviving audit ${a.id} (vod ${a.vod_id})`);
+      selfInvokeResume(a.id);
+      revived.push(a.id);
+    }
+
+    return jsonResponse({
+      checked: (stalled || []).length,
+      revived: revived.length,
+      revived_ids: revived,
+    });
+  }
+
+  return jsonResponse({ error: "Unknown action. Use start | resume | report | watchdog." }, 400);
 });
 
 async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
   const totalMin = Math.round((audit.vod_duration_seconds || 0) / 60);
-  const { data: evs } = await sb
-    .from("raw_evidences")
-    .select("game_detected")
+
+  // SSoT: count from stream_snapshots (storyboard source)
+  const { data: snaps } = await sb
+    .from("stream_snapshots")
+    .select("game_detected, ai_confidence, confidence_score")
     .eq("vod_id", audit.vod_id)
+    .eq("source", "storyboard")
     .not("game_detected", "is", null);
 
-  const uniqueGames = new Set((evs || []).map((r: any) => r.game_detected)).size;
+  const validRows = (snaps || []);
+  const uniqueGames = new Set(validRows.map((r: any) => r.game_detected)).size;
+
+  // ── Reconciliation: detected_seconds vs vod_duration ──────────────────────
+  const interval = audit.expected_frames && audit.vod_duration_seconds
+    ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
+    : 39;
+  const detectedSeconds = validRows.length * interval;
+  const vodDuration = audit.vod_duration_seconds || 0;
+
+  let reconciliationStatus = "ok";
+  let reconciliationNotes = `${validRows.length} frames × ${interval}s = ${detectedSeconds}s detectados em ${vodDuration}s totais.`;
+  if (vodDuration === 0) {
+    reconciliationStatus = "mismatch";
+    reconciliationNotes = "VOD duration desconhecido — não é possível reconciliar.";
+  } else if (detectedSeconds > vodDuration * 1.05) {
+    reconciliationStatus = "mismatch";
+    reconciliationNotes += " ⚠ Soma de frames excede duração do VOD (>105%).";
+  }
 
   const segments = (audit.pending_audit_segments as any) || {};
   segments.flagged = flagged;
-  // Preserve mosaics list (without per-tile details to save space) for traceability
   if (segments.plan) {
     segments.plan = {
       processed_mosaic: segments.plan.processed_mosaic,
@@ -664,14 +770,17 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
     progress_phase: "completed",
     progress_current_minute: totalMin,
     progress_games_found: uniqueGames,
-    progress_message: `Auditoria concluída: ${uniqueGames} jogos | ${flagged.length} segmentos pendentes`,
+    progress_message: `Auditoria concluída: ${uniqueGames} jogos | ${flagged.length} segmentos pendentes | reconcile: ${reconciliationStatus}`,
     completed_at: new Date().toISOString(),
     coverage_percent: 100,
-    total_evidences: (evs || []).length,
-    valid_evidences: (evs || []).length,
+    total_evidences: validRows.length,
+    valid_evidences: validRows.length,
     confirmed_blocks: uniqueGames,
     pending_audit_segments: segments as any,
+    reconciliation_status: reconciliationStatus,
+    reconciliation_notes: reconciliationNotes,
+    last_checkpoint_at: new Date().toISOString(),
   }).eq("id", audit.id);
 
-  console.log(`[Watcher ${audit.id}] FINALIZED: ${uniqueGames} games, ${(evs || []).length} evidences, ${flagged.length} flagged`);
+  console.log(`[Watcher ${audit.id}] FINALIZED: ${uniqueGames} games, ${validRows.length} snapshots, ${flagged.length} flagged, reconcile=${reconciliationStatus}`);
 }
