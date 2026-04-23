@@ -43,7 +43,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (roleData) {
       // Admin has full access
       setUserAccess({
-        allowed_tabs: ["simulator", "monitor", "authenticity", "instagram", "twitch", "youtube", "kick", "icp", "vod", "discovery", "scanner", "scanner_dashboard", "scanner_streamers", "scanner_games", "scanner_providers", "scanner_chat", "scanner_vod_quality", "scanner_queue"],
+        allowed_tabs: [
+          "simulator", "monitor", "authenticity", "instagram", "twitch",
+          "youtube", "kick", "icp", "vod", "discovery", "scanner",
+          "scanner_dashboard", "scanner_streamers", "scanner_games",
+          "scanner_providers", "scanner_chat", "scanner_vod_quality",
+          "scanner_queue", "scanner_audit", "scanner_review",
+          "scanner_quality", "scanner_ai_lab", "scanner_results",
+        ],
         expires_at: null,
         is_active: true,
         package_name: "Admin",
@@ -89,8 +96,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // IMPORTANT: Do NOT await inside onAuthStateChange — it causes a deadlock.
-    // Use "fire and forget" for side effects.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (!mounted) return;
@@ -107,19 +112,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!mounted) return;
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchAccess(session.user.id)
-          .catch((e) => console.error("fetchAccess error:", e))
-          .finally(() => { if (mounted) setLoading(false); });
-      } else {
-        setLoading(false);
-      }
-    });
 
     return () => {
       mounted = false;
