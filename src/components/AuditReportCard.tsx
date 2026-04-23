@@ -193,7 +193,21 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
           </div>
         )}
 
-        {report.audit_status !== "failed" && report.games.length === 0 && (
+        {/* Diagnostic log: shown when fallback couldn't recover data */}
+        {report.diagnostic_log && (
+          <div className="text-[11px] text-amber-600 dark:text-amber-400 border border-amber-500/30 rounded p-2 bg-amber-500/5 font-mono">
+            🔧 {report.diagnostic_log}
+          </div>
+        )}
+
+        {/* Data source indicator when fallback was triggered */}
+        {report.data_source === "stream_snapshots" && report.games.length > 0 && (
+          <div className="text-[11px] text-primary border border-primary/30 rounded p-2 bg-primary/5">
+            ℹ Storyboard audit retornou 0 evidences. Relatório reconstruído a partir de {report.snapshots_found} snapshots do monitor live (categoria Twitch).
+          </div>
+        )}
+
+        {report.audit_status !== "failed" && report.games.length === 0 && !report.diagnostic_log && (
           <div className="text-xs text-muted-foreground border border-border rounded p-2 bg-secondary/30">
             Auditoria finalizada sem detectar conteúdo de cassino neste VOD.
           </div>
@@ -308,7 +322,7 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
         )}
 
         <p className="text-[10px] text-muted-foreground font-mono pt-2 border-t border-border">
-          Fonte: varredura visual interna (raw_evidences) · Auditoria autônoma Starklytic
+          Fonte: {report.data_source === "stream_snapshots" ? "monitor live (stream_snapshots)" : "varredura visual interna (raw_evidences)"} · Auditoria autônoma Starklytic
         </p>
       </div>
     </div>
