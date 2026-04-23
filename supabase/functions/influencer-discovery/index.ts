@@ -233,7 +233,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { action, briefing, platforms, limit } = await req.json();
+    const { action, briefing, platforms, limit, custom_keywords } = await req.json();
     const maxResults = Math.min(limit || 50, 100);
 
     if (action === "discover") {
@@ -244,10 +244,31 @@ Deno.serve(async (req) => {
         });
       }
 
-      console.log("[Discovery] Expanding briefing with AI...");
-      const { keywords, filters } = await expandBriefing(briefing);
-      console.log("[Discovery] Keywords:", keywords);
-      console.log("[Discovery] Filters:", JSON.stringify(filters));
+      let keywords: string[];
+      let filters: any;
+
+      if (Array.isArray(custom_keywords) && custom_keywords.length > 0) {
+        // User provided custom keywords — skip AI expansion
+        const kws = custom_keywords.map((k: string) => String(k).trim()).filter(Boolean);
+        const twitchKws = kws.filter((k) => !k.startsWith("#"));
+        const igKws = kws.filter((k) => k.startsWith("#"));
+        keywords = kws;
+        filters = {
+          keywords_twitch: twitchKws.length > 0 ? twitchKws : kws,
+          keywords_instagram: igKws.length > 0 ? igKws : kws.map((k) => `#${k.replace(/\s+/g, "")}`),
+          target_regions: ["SP", "RJ", "MG", "ES"],
+          min_followers: 10000,
+          content_indicators: kws,
+        };
+        console.log("[Discovery] Using custom keywords:", keywords);
+      } else {
+        console.log("[Discovery] Expanding briefing with AI...");
+        const expanded = await expandBriefing(briefing);
+        keywords = expanded.keywords;
+        filters = expanded.filters;
+        console.log("[Discovery] Keywords:", keywords);
+        console.log("[Discovery] Filters:", JSON.stringify(filters));
+      }
 
       const selectedPlatforms = platforms || ["twitch", "instagram"];
       const allProfiles: any[] = [];
