@@ -395,12 +395,23 @@ Deno.serve(async (req) => {
     console.log(`[Watcher ${audit_id}] processing mosaics ${startIdx}-${endIdx} of ${plan.mosaics.length}`);
 
     let totalDetectionsThisChunk = 0;
+    let framesSinceCheckpoint = 0;
+    const batchId = `${audit_id}-${Date.now()}`;
+
+    // Helper to persist a checkpoint (so a timeout mid-chunk doesn't lose state)
+    const checkpoint = async (currentMosaic: number, label: string) => {
+      plan.processed_mosaic = currentMosaic;
+      await sb.from("vod_audits").update({
+        progress_message: label,
+        last_checkpoint_at: new Date().toISOString(),
+        pending_audit_segments: { plan, flagged } as any,
+      }).eq("id", audit_id);
+    };
 
     for (let mIdx = startIdx; mIdx < endIdx; mIdx++) {
       const mosaic = plan.mosaics[mIdx];
       if (!mosaic?.url || !Array.isArray(mosaic.tiles)) continue;
 
-      // Identify dominant chapter category for the time window covered by this mosaic
       const firstTs = mosaic.tiles[0]?.ts ?? 0;
       const lastTs = mosaic.tiles[mosaic.tiles.length - 1]?.ts ?? firstTs;
       const chapterAt = (plan.chapters || []).find((ch: any) =>
@@ -429,7 +440,6 @@ Identifique cada tile que mostre conteúdo de cassino.`;
 
       let detections = ai.items;
 
-      // Sovereignty retry: if Twitch chapter is known casino but AI returned 0
       const casinoHints = ["virtual casino", "slots", "casino", "gambling"];
       const isCasinoChapter = casinoHints.some((k) => chapterCategory.toLowerCase().includes(k));
       if (isCasinoChapter && detections.length === 0) {
@@ -453,8 +463,8 @@ Identifique cada tile que mostre conteúdo de cassino.`;
         }
       }
 
-      // Map detections (row/col) -> raw_evidences rows
-      const evidenceRows: any[] = [];
+      // ── SSoT: write detections into stream_snapshots ──────────────────────
+      const snapshotRows: any[] = [];
       for (const det of detections) {
         const row = Number(det.row);
         const col = Number(det.col);
@@ -462,21 +472,25 @@ Identifique cada tile que mostre conteúdo de cassino.`;
         const tile = mosaic.tiles.find((t: any) => t.row === row && t.col === col);
         if (!tile) continue;
         const conf = det.confidence === "high" ? 0.95 : det.confidence === "medium" ? 0.7 : 0.4;
-        evidenceRows.push({
-          vod_id: audit.vod_id,
+        snapshotRows.push({
           streamer_login: audit.streamer_login,
-          platform: "twitch",
-          source_type: "vod",
-          timestamp_seconds: tile.ts,
-          frame_index: mIdx * (mosaic.cols * mosaic.rows) + (row * mosaic.cols + col),
+          vod_id: audit.vod_id,
+          source: "storyboard",
+          captured_at: new Date(Date.now() - (audit.vod_duration_seconds - tile.ts) * 1000).toISOString(),
+          is_live: false,
+          game_name: det.game || chapterCategory,
           game_detected: det.game || null,
           provider_detected: det.provider || null,
           confidence_score: conf,
-          is_valid: true,
-          validation_status: "ai_detected",
+          ai_confidence: conf,
+          ai_evidence: det.evidence || null,
+          is_ai_verified: conf >= 0.85,
+          frame_index: mIdx * (mosaic.cols * mosaic.rows) + (row * mosaic.cols + col),
+          timestamp_seconds: tile.ts,
+          processing_batch_id: batchId,
+          viewer_count: 0,
           extra_metadata: {
             category: det.category || null,
-            evidence_text: det.evidence || null,
             chapter_category: chapterCategory,
             mosaic_url: mosaic.url,
             tile_row: row,
@@ -484,23 +498,33 @@ Identifique cada tile que mostre conteúdo de cassino.`;
           },
         });
       }
-      if (evidenceRows.length > 0) {
-        const { error: evErr } = await sb.from("raw_evidences").insert(evidenceRows);
-        if (evErr) console.warn("[Watcher] evidences insert failed:", evErr.message);
-        else totalDetectionsThisChunk += evidenceRows.length;
+      if (snapshotRows.length > 0) {
+        const { error: snapErr } = await sb.from("stream_snapshots").insert(snapshotRows);
+        if (snapErr) console.warn("[Watcher] snapshot insert failed:", snapErr.message);
+        else {
+          totalDetectionsThisChunk += snapshotRows.length;
+          framesSinceCheckpoint += snapshotRows.length;
+        }
+      }
+
+      // ── Checkpoint every CHECKPOINT_FRAMES detected frames ────────────────
+      if (framesSinceCheckpoint >= CHECKPOINT_FRAMES) {
+        await checkpoint(mIdx + 1, `Checkpoint: mosaico ${mIdx + 1}/${plan.mosaics.length} (+${framesSinceCheckpoint} frames)`);
+        framesSinceCheckpoint = 0;
       }
     }
 
-    // Update progress + plan
+    // Update progress + plan (final state for this chunk)
     plan.processed_mosaic = endIdx;
     const processedFrames = endIdx * (plan.mosaics[0]?.cols || 5) * (plan.mosaics[0]?.rows || 10);
     const cappedProcessed = Math.min(processedFrames, audit.expected_frames || processedFrames);
     const currentMin = Math.round(((endIdx / plan.mosaics.length) * (audit.vod_duration_seconds || 0)) / 60);
 
     const { data: gamesCount } = await sb
-      .from("raw_evidences")
+      .from("stream_snapshots")
       .select("game_detected")
       .eq("vod_id", audit.vod_id)
+      .eq("source", "storyboard")
       .not("game_detected", "is", null);
     const uniqueGames = new Set((gamesCount || []).map((r: any) => r.game_detected)).size;
 
@@ -510,6 +534,7 @@ Identifique cada tile que mostre conteúdo de cassino.`;
       progress_games_found: uniqueGames,
       progress_message: `Agente assistindo... mosaico ${endIdx}/${plan.mosaics.length} | ${uniqueGames} jogos detectados (+${totalDetectionsThisChunk} frames)`,
       processed_frames: cappedProcessed,
+      last_checkpoint_at: new Date().toISOString(),
       pending_audit_segments: { plan, flagged } as any,
     }).eq("id", audit_id);
 
