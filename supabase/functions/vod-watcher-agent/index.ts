@@ -561,11 +561,13 @@ Identifique cada tile que mostre conteúdo de cassino.`;
     const { data: audit } = await sb.from("vod_audits").select("*").eq("id", audit_id).single();
     if (!audit) return jsonResponse({ error: "audit not found" }, 404);
 
-    // ── PRIMARY SOURCE: raw_evidences (storyboard audit) ────────────────────
-    const { data: evidences } = await sb
-      .from("raw_evidences")
-      .select("game_detected, provider_detected, timestamp_seconds, confidence_score")
+    // ── SSoT: stream_snapshots is the single source of truth ────────────────
+    // 1) Try storyboard-source detections first (vod_id-bound, AI-verified).
+    const { data: storyboardSnaps } = await sb
+      .from("stream_snapshots")
+      .select("game_detected, provider_detected, confidence_score, ai_confidence, timestamp_seconds, is_ai_verified")
       .eq("vod_id", audit.vod_id)
+      .eq("source", "storyboard")
       .not("game_detected", "is", null);
 
     const interval =
@@ -573,83 +575,76 @@ Identifique cada tile que mostre conteúdo de cassino.`;
         ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
         : 39;
 
-    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; }>();
-    for (const ev of evidences || []) {
-      const key = `${ev.game_detected}|${ev.provider_detected || "Unknown"}`;
+    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; pendingFrames: number; }>();
+
+    const pushDetection = (game: string, provider: string, conf: number, secs: number) => {
+      const key = `${game}|${provider}`;
       const existing = byGame.get(key);
       if (existing) {
         existing.frames += 1;
-        existing.seconds += interval;
-        existing.avgConfidence = (existing.avgConfidence * (existing.frames - 1) + (ev.confidence_score || 0)) / existing.frames;
+        existing.seconds += secs;
+        existing.avgConfidence = (existing.avgConfidence * (existing.frames - 1) + conf) / existing.frames;
+        if (conf < 0.85) existing.pendingFrames += 1;
       } else {
         byGame.set(key, {
-          game: ev.game_detected!,
-          provider: ev.provider_detected || "Unknown",
-          frames: 1,
-          seconds: interval,
-          avgConfidence: ev.confidence_score || 0,
+          game, provider,
+          frames: 1, seconds: secs,
+          avgConfidence: conf,
+          pendingFrames: conf < 0.85 ? 1 : 0,
         });
       }
+    };
+
+    for (const s of storyboardSnaps || []) {
+      pushDetection(
+        s.game_detected!,
+        s.provider_detected || "Unknown",
+        Number(s.ai_confidence ?? s.confidence_score ?? 0),
+        interval,
+      );
     }
 
-    let dataSource = "raw_evidences";
+    let dataSource: "stream_snapshots:storyboard" | "stream_snapshots:live" | "none" =
+      byGame.size > 0 ? "stream_snapshots:storyboard" : "none";
     let diagnosticLog: string | null = null;
-    let snapshotsFound = 0;
+    let snapshotsFound = (storyboardSnaps || []).length;
 
-    // ── FALLBACK: stream_snapshots (live monitor source / Storyboards) ──────
-    // When the storyboard visual audit produces zero evidences, use live-monitor
-    // snapshots captured for this streamer. Each snapshot ≈ 15s of activity.
-    // Casino time is force-recalculated as (snapshots * 0.25 min).
+    // ── 2) Fallback: live monitor snapshots (Twitch category-based) ─────────
     if (byGame.size === 0) {
       const lookbackDays = 30;
       const since = new Date(Date.now() - lookbackDays * 24 * 3600 * 1000).toISOString();
 
-      const { data: snaps } = await sb
+      const { data: liveSnaps } = await sb
         .from("stream_snapshots")
-        .select("game_name, captured_at, viewer_count")
+        .select("game_name, captured_at")
         .eq("streamer_login", audit.streamer_login)
         .eq("is_live", true)
+        .eq("source", "live")
         .gte("captured_at", since)
         .not("game_name", "is", null);
 
-      snapshotsFound = (snaps || []).length;
+      snapshotsFound = (liveSnaps || []).length;
 
       if (snapshotsFound > 0) {
-        dataSource = "stream_snapshots";
-        const CASINO_CATEGORIES = new Set([
-          "Virtual Casino", "Slots", "Casino", "Poker",
-        ]);
-        const SECONDS_PER_SNAPSHOT = 15; // 0.25 min per snapshot
+        const CASINO_CATEGORIES = new Set(["Virtual Casino", "Slots", "Casino", "Poker"]);
+        const SECONDS_PER_SNAPSHOT = 15; // 0.25 min / snapshot
 
-        for (const s of snaps || []) {
+        for (const s of liveSnaps || []) {
           const cat = (s.game_name || "").trim();
           if (!CASINO_CATEGORIES.has(cat)) continue;
-          const key = `${cat}|Twitch Category`;
-          const existing = byGame.get(key);
-          if (existing) {
-            existing.frames += 1;
-            existing.seconds += SECONDS_PER_SNAPSHOT;
-          } else {
-            byGame.set(key, {
-              game: cat,
-              provider: "Twitch Category",
-              frames: 1,
-              seconds: SECONDS_PER_SNAPSHOT,
-              avgConfidence: 1.0,
-            });
-          }
+          pushDetection(cat, "Twitch Category", 1.0, SECONDS_PER_SNAPSHOT);
         }
 
-        if (byGame.size === 0) {
-          diagnosticLog = `Encontrados ${snapshotsFound} snapshots, mas 0 blocos de gameplay. Erro na função de consolidação (nenhuma categoria de cassino reconhecida).`;
-        }
+        if (byGame.size > 0) dataSource = "stream_snapshots:live";
+        else diagnosticLog = `Encontrados ${snapshotsFound} snapshots, mas 0 blocos de gameplay. Erro na função de consolidação (nenhuma categoria de cassino reconhecida).`;
       } else {
-        diagnosticLog = `Storyboard audit retornou 0 evidences e nenhum snapshot encontrado para @${audit.streamer_login} nos últimos ${lookbackDays} dias.`;
+        diagnosticLog = `Nenhum snapshot (storyboard ou live) encontrado para @${audit.streamer_login}.`;
       }
     }
 
     const games = Array.from(byGame.values()).sort((a, b) => b.seconds - a.seconds);
     const totalCasinoSeconds = games.reduce((s, g) => s + g.seconds, 0);
+    const totalPendingFrames = games.reduce((s, g) => s + g.pendingFrames, 0);
     const vodDuration = audit.vod_duration_seconds || 0;
     const otherSeconds = Math.max(0, vodDuration - totalCasinoSeconds);
 
@@ -664,7 +659,7 @@ Identifique cada tile que mostre conteúdo de cassino.`;
       .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" && g.provider !== "Twitch Category" ? ` (${g.provider})` : ""}`)
       .slice(0, 10);
 
-    const sourceNote = dataSource === "stream_snapshots"
+    const sourceNote = dataSource === "stream_snapshots:live"
       ? " (fonte: monitor live — categorias Twitch)"
       : "";
 
@@ -688,6 +683,10 @@ Identifique cada tile que mostre conteúdo de cassino.`;
       data_source: dataSource,
       snapshots_found: snapshotsFound,
       diagnostic_log: diagnosticLog,
+      pending_review_frames: totalPendingFrames,
+      reconciliation_status: audit.reconciliation_status || "pending",
+      reconciliation_notes: audit.reconciliation_notes || null,
+      last_checkpoint_at: audit.last_checkpoint_at || null,
     });
   }
 
@@ -696,17 +695,37 @@ Identifique cada tile que mostre conteúdo de cassino.`;
 
 async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
   const totalMin = Math.round((audit.vod_duration_seconds || 0) / 60);
-  const { data: evs } = await sb
-    .from("raw_evidences")
-    .select("game_detected")
+
+  // SSoT: count from stream_snapshots (storyboard source)
+  const { data: snaps } = await sb
+    .from("stream_snapshots")
+    .select("game_detected, ai_confidence, confidence_score")
     .eq("vod_id", audit.vod_id)
+    .eq("source", "storyboard")
     .not("game_detected", "is", null);
 
-  const uniqueGames = new Set((evs || []).map((r: any) => r.game_detected)).size;
+  const validRows = (snaps || []);
+  const uniqueGames = new Set(validRows.map((r: any) => r.game_detected)).size;
+
+  // ── Reconciliation: detected_seconds vs vod_duration ──────────────────────
+  const interval = audit.expected_frames && audit.vod_duration_seconds
+    ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
+    : 39;
+  const detectedSeconds = validRows.length * interval;
+  const vodDuration = audit.vod_duration_seconds || 0;
+
+  let reconciliationStatus = "ok";
+  let reconciliationNotes = `${validRows.length} frames × ${interval}s = ${detectedSeconds}s detectados em ${vodDuration}s totais.`;
+  if (vodDuration === 0) {
+    reconciliationStatus = "mismatch";
+    reconciliationNotes = "VOD duration desconhecido — não é possível reconciliar.";
+  } else if (detectedSeconds > vodDuration * 1.05) {
+    reconciliationStatus = "mismatch";
+    reconciliationNotes += " ⚠ Soma de frames excede duração do VOD (>105%).";
+  }
 
   const segments = (audit.pending_audit_segments as any) || {};
   segments.flagged = flagged;
-  // Preserve mosaics list (without per-tile details to save space) for traceability
   if (segments.plan) {
     segments.plan = {
       processed_mosaic: segments.plan.processed_mosaic,
@@ -720,14 +739,17 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
     progress_phase: "completed",
     progress_current_minute: totalMin,
     progress_games_found: uniqueGames,
-    progress_message: `Auditoria concluída: ${uniqueGames} jogos | ${flagged.length} segmentos pendentes`,
+    progress_message: `Auditoria concluída: ${uniqueGames} jogos | ${flagged.length} segmentos pendentes | reconcile: ${reconciliationStatus}`,
     completed_at: new Date().toISOString(),
     coverage_percent: 100,
-    total_evidences: (evs || []).length,
-    valid_evidences: (evs || []).length,
+    total_evidences: validRows.length,
+    valid_evidences: validRows.length,
     confirmed_blocks: uniqueGames,
     pending_audit_segments: segments as any,
+    reconciliation_status: reconciliationStatus,
+    reconciliation_notes: reconciliationNotes,
+    last_checkpoint_at: new Date().toISOString(),
   }).eq("id", audit.id);
 
-  console.log(`[Watcher ${audit.id}] FINALIZED: ${uniqueGames} games, ${(evs || []).length} evidences, ${flagged.length} flagged`);
+  console.log(`[Watcher ${audit.id}] FINALIZED: ${uniqueGames} games, ${validRows.length} snapshots, ${flagged.length} flagged, reconcile=${reconciliationStatus}`);
 }
