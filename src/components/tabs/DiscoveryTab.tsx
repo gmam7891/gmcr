@@ -49,12 +49,31 @@ export function DiscoveryTab() {
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [step, setStep] = useState<"input" | "expanding" | "scraping" | "scoring" | "done">("input");
 
+  // Editable keyword state
+  const [customKeywords, setCustomKeywords] = useState<string[]>([]);
+  const [newKeyword, setNewKeyword] = useState("");
+
+  // Score / qualification filter for results
+  const [scoreFilter, setScoreFilter] = useState<"all" | "qualified" | "low">("all");
+
   const togglePlatform = (p: string) => {
     setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
   };
 
+  const addKeyword = () => {
+    const k = newKeyword.trim();
+    if (!k) return;
+    if (customKeywords.includes(k)) return;
+    setCustomKeywords([...customKeywords, k]);
+    setNewKeyword("");
+  };
+
+  const removeKeyword = (kw: string) => {
+    setCustomKeywords(customKeywords.filter((k) => k !== kw));
+  };
+
   const handleDiscover = async () => {
-    if (!briefing.trim()) {
+    if (!briefing.trim() && customKeywords.length === 0) {
       toast({ title: t("disc.error"), description: t("disc.briefing_required"), variant: "destructive" });
       return;
     }
@@ -67,16 +86,25 @@ export function DiscoveryTab() {
     setStep("expanding");
 
     try {
-      // Simulate step progress
       setTimeout(() => setStep("scraping"), 3000);
       setTimeout(() => setStep("scoring"), 8000);
 
       const { data, error } = await supabase.functions.invoke("influencer-discovery", {
-        body: { action: "discover", briefing, platforms, limit: 50 },
+        body: {
+          action: "discover",
+          briefing: briefing || "Busca personalizada",
+          platforms,
+          limit: 50,
+          custom_keywords: customKeywords.length > 0 ? customKeywords : undefined,
+        },
       });
 
       if (error) throw error;
       setResult(data);
+      // Sync chips with the keywords actually used (so user can edit & re-run)
+      if (data?.keywords?.length) {
+        setCustomKeywords(data.keywords);
+      }
       setStep("done");
       toast({ title: t("disc.success"), description: `${data.total_qualified} ${t("disc.profiles_found")}` });
     } catch (e: any) {
@@ -87,6 +115,13 @@ export function DiscoveryTab() {
       setLoading(false);
     }
   };
+
+  const filteredProspects = useMemo(() => {
+    if (!result?.prospects) return [];
+    if (scoreFilter === "qualified") return result.prospects.filter((p) => p.match_score >= 70);
+    if (scoreFilter === "low") return result.prospects.filter((p) => p.match_score < 70);
+    return result.prospects;
+  }, [result, scoreFilter]);
 
   const exportExcel = () => {
     if (!result?.prospects?.length) return;
