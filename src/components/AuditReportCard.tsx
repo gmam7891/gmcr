@@ -201,9 +201,21 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
         )}
 
         {/* Data source indicator when fallback was triggered */}
-        {report.data_source === "stream_snapshots" && report.games.length > 0 && (
+        {report.data_source === "stream_snapshots:live" && report.games.length > 0 && (
           <div className="text-[11px] text-primary border border-primary/30 rounded p-2 bg-primary/5">
             ℹ Storyboard audit retornou 0 evidences. Relatório reconstruído a partir de {report.snapshots_found} snapshots do monitor live (categoria Twitch).
+          </div>
+        )}
+
+        {/* Reconciliation status badge */}
+        {report.reconciliation_status === "mismatch" && report.reconciliation_notes && (
+          <div className="text-[11px] text-accent border border-accent/30 rounded p-2 bg-accent/5 font-mono">
+            ⚖ Reconciliação: {report.reconciliation_notes}
+          </div>
+        )}
+        {report.pending_review_frames !== undefined && report.pending_review_frames > 0 && (
+          <div className="text-[11px] text-muted-foreground border border-border rounded p-2 bg-secondary/30">
+            🔍 {report.pending_review_frames} frames com confiança &lt; 85% aguardam revisão humana para certificação.
           </div>
         )}
 
@@ -322,7 +334,7 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
         )}
 
         <p className="text-[10px] text-muted-foreground font-mono pt-2 border-t border-border">
-          Fonte: {report.data_source === "stream_snapshots" ? "monitor live (stream_snapshots)" : "varredura visual interna (raw_evidences)"} · Auditoria autônoma Starklytic
+          Fonte: {report.data_source === "stream_snapshots:live" ? "monitor live (categoria Twitch)" : report.data_source === "stream_snapshots:storyboard" ? "varredura visual (storyboards)" : "sem dados"} · SSoT: stream_snapshots · Starklytic
         </p>
       </div>
     </div>
