@@ -29,6 +29,9 @@ export interface AuditReport {
   pending_audits: number;
   audit_status?: string;
   error_message?: string | null;
+  data_source?: "raw_evidences" | "stream_snapshots";
+  snapshots_found?: number;
+  diagnostic_log?: string | null;
 }
 
 /** Start the autonomous VOD Watcher Agent. Returns immediately; agent runs in background. */

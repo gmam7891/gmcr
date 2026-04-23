@@ -505,15 +505,13 @@ Identifique cada tile que mostre conteúdo de cassino.`;
     const { data: audit } = await sb.from("vod_audits").select("*").eq("id", audit_id).single();
     if (!audit) return jsonResponse({ error: "audit not found" }, 404);
 
+    // ── PRIMARY SOURCE: raw_evidences (storyboard audit) ────────────────────
     const { data: evidences } = await sb
       .from("raw_evidences")
       .select("game_detected, provider_detected, timestamp_seconds, confidence_score")
       .eq("vod_id", audit.vod_id)
       .not("game_detected", "is", null);
 
-    // The interval between consecutive frames depends on the storyboard.
-    // We persisted plan.interval, but plan is wiped after finalize. Compute
-    // it on the fly from audit metadata: vod_duration / expected_frames.
     const interval =
       audit.expected_frames && audit.vod_duration_seconds
         ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
@@ -538,6 +536,62 @@ Identifique cada tile que mostre conteúdo de cassino.`;
       }
     }
 
+    let dataSource = "raw_evidences";
+    let diagnosticLog: string | null = null;
+    let snapshotsFound = 0;
+
+    // ── FALLBACK: stream_snapshots (live monitor source / Storyboards) ──────
+    // When the storyboard visual audit produces zero evidences, use live-monitor
+    // snapshots captured for this streamer. Each snapshot ≈ 15s of activity.
+    // Casino time is force-recalculated as (snapshots * 0.25 min).
+    if (byGame.size === 0) {
+      const lookbackDays = 30;
+      const since = new Date(Date.now() - lookbackDays * 24 * 3600 * 1000).toISOString();
+
+      const { data: snaps } = await sb
+        .from("stream_snapshots")
+        .select("game_name, captured_at, viewer_count")
+        .eq("streamer_login", audit.streamer_login)
+        .eq("is_live", true)
+        .gte("captured_at", since)
+        .not("game_name", "is", null);
+
+      snapshotsFound = (snaps || []).length;
+
+      if (snapshotsFound > 0) {
+        dataSource = "stream_snapshots";
+        const CASINO_CATEGORIES = new Set([
+          "Virtual Casino", "Slots", "Casino", "Poker",
+        ]);
+        const SECONDS_PER_SNAPSHOT = 15; // 0.25 min per snapshot
+
+        for (const s of snaps || []) {
+          const cat = (s.game_name || "").trim();
+          if (!CASINO_CATEGORIES.has(cat)) continue;
+          const key = `${cat}|Twitch Category`;
+          const existing = byGame.get(key);
+          if (existing) {
+            existing.frames += 1;
+            existing.seconds += SECONDS_PER_SNAPSHOT;
+          } else {
+            byGame.set(key, {
+              game: cat,
+              provider: "Twitch Category",
+              frames: 1,
+              seconds: SECONDS_PER_SNAPSHOT,
+              avgConfidence: 1.0,
+            });
+          }
+        }
+
+        if (byGame.size === 0) {
+          diagnosticLog = `Encontrados ${snapshotsFound} snapshots, mas 0 blocos de gameplay. Erro na função de consolidação (nenhuma categoria de cassino reconhecida).`;
+        }
+      } else {
+        diagnosticLog = `Storyboard audit retornou 0 evidences e nenhum snapshot encontrado para @${audit.streamer_login} nos últimos ${lookbackDays} dias.`;
+      }
+    }
+
     const games = Array.from(byGame.values()).sort((a, b) => b.seconds - a.seconds);
     const totalCasinoSeconds = games.reduce((s, g) => s + g.seconds, 0);
     const vodDuration = audit.vod_duration_seconds || 0;
@@ -551,12 +605,16 @@ Identifique cada tile que mostre conteúdo de cassino.`;
 
     const summaryLines = games
       .filter((g) => g.frames >= 2)
-      .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" ? ` (${g.provider})` : ""}`)
+      .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" && g.provider !== "Twitch Category" ? ` (${g.provider})` : ""}`)
       .slice(0, 10);
+
+    const sourceNote = dataSource === "stream_snapshots"
+      ? " (fonte: monitor live — categorias Twitch)"
+      : "";
 
     const summary = games.length === 0
       ? `Auditoria do VOD de "${audit.streamer_login}" (${fmt(vodDuration)}) concluída sem detectar conteúdo de cassino.`
-      : `O streamer "${audit.streamer_login}" jogou ${fmt(vodDuration)}, sendo ${fmt(totalCasinoSeconds)} de jogos de cassino e ${fmt(otherSeconds)} de Conteúdo Geral. Detalhe: ${summaryLines.join(", ")}.`;
+      : `O streamer "${audit.streamer_login}" jogou ${fmt(vodDuration)}, sendo ${fmt(totalCasinoSeconds)} de jogos de cassino e ${fmt(otherSeconds)} de Conteúdo Geral${sourceNote}. Detalhe: ${summaryLines.join(", ")}.`;
 
     return jsonResponse({
       audit_id,
@@ -571,6 +629,9 @@ Identifique cada tile que mostre conteúdo de cassino.`;
       pending_audits: ((audit.pending_audit_segments as any)?.flagged || []).length,
       audit_status: audit.status,
       error_message: audit.error_message,
+      data_source: dataSource,
+      snapshots_found: snapshotsFound,
+      diagnostic_log: diagnosticLog,
     });
   }
 
