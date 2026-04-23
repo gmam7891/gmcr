@@ -172,6 +172,66 @@ export function DiscoveryTab() {
           disabled={loading}
         />
 
+        {/* Editable Keywords */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Wand2 className="h-3 w-3" />
+              {t("disc.ai_keywords") || "Termos de busca"}
+              <span className="text-[10px] normal-case tracking-normal text-muted-foreground/60">
+                — {customKeywords.length > 0 ? "edite ou adicione termos" : "deixe vazio para a IA gerar"}
+              </span>
+            </span>
+            {customKeywords.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setCustomKeywords([])}
+                disabled={loading}
+                className="text-[10px] text-muted-foreground hover:text-destructive uppercase tracking-wider"
+              >
+                Limpar
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+            {customKeywords.map((kw) => (
+              <Badge key={kw} variant="secondary" className="text-[10px] font-mono gap-1 pr-1">
+                {kw}
+                <button
+                  type="button"
+                  onClick={() => removeKeyword(kw)}
+                  disabled={loading}
+                  className="hover:text-destructive transition-colors"
+                  aria-label={`Remover ${kw}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              placeholder='ex: "fortune tiger", #betano, slots'
+              value={newKeyword}
+              onChange={(e) => setNewKeyword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addKeyword();
+                }
+              }}
+              disabled={loading}
+              className="h-8 text-xs flex-1"
+            />
+            <Button type="button" size="sm" variant="outline" onClick={addKeyword} disabled={loading || !newKeyword.trim()} className="h-8 gap-1">
+              <Plus className="h-3 w-3" /> Adicionar
+            </Button>
+          </div>
+          <p className="text-[10px] text-muted-foreground/70">
+            Use <code className="font-mono">#hashtag</code> para Instagram e termos sem # para Twitch.
+          </p>
+        </div>
+
         <div className="flex items-center gap-4">
           <span className="text-xs text-muted-foreground uppercase tracking-wider">{t("disc.platforms")}:</span>
           {["twitch", "instagram"].map((p) => (
@@ -191,7 +251,7 @@ export function DiscoveryTab() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Button onClick={handleDiscover} disabled={loading || !briefing.trim()} className="gap-2">
+          <Button onClick={handleDiscover} disabled={loading || (!briefing.trim() && customKeywords.length === 0)} className="gap-2">
             <Search className="h-4 w-4" />
             {loading ? t("disc.searching") : t("disc.search_btn")}
           </Button>
