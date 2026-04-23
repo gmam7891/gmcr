@@ -443,12 +443,12 @@ export async function authenticate(req: Request): Promise<{ userId: string; supa
     global: { headers: { Authorization: authHeader } },
   });
   const token = authHeader.replace("Bearer ", "");
-  const { data: claimsData, error: claimsErr } = await userClient.auth.getClaims(token);
-  if (claimsErr || !claimsData?.claims?.sub) {
+  const { data: userData, error: userErr } = await userClient.auth.getUser(token);
+  if (userErr || !userData?.user?.id) {
     return jsonResponse({ error: "Unauthorized: invalid token" }, 401);
   }
   return {
-    userId: claimsData.claims.sub as string,
+    userId: userData.user.id,
     supabase: createClient(supabaseUrl, serviceKey),
   };
 }
