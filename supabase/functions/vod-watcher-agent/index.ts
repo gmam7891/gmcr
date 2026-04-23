@@ -164,22 +164,25 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     }
   | null
 > {
-  // 1. Get seekPreviewsURL via GraphQL
-  const gqlRes = await fetch(GQL_URL, {
-    method: "POST",
-    headers: { "Client-ID": GQL_CLIENT_ID, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: `query{video(id:"${vodId}"){seekPreviewsURL}}`,
-    }),
-  });
-  const gqlBody = await gqlRes.json().catch(() => null);
+  // 1. Get seekPreviewsURL via GraphQL (with retry — Twitch GQL flakes)
+  const gqlBody = await withRetry("twitch-gql-storyboard", async () => {
+    const r = await fetch(GQL_URL, {
+      method: "POST",
+      headers: { "Client-ID": GQL_CLIENT_ID, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: `query{video(id:"${vodId}"){seekPreviewsURL}}` }),
+    });
+    if (!r.ok) throw new Error(`gql ${r.status}`);
+    return await r.json();
+  }).catch((e) => { console.warn(`[Watcher] storyboard gql exhausted: ${e.message}`); return null; });
   const infoUrl: string | undefined = gqlBody?.data?.video?.seekPreviewsURL;
   if (!infoUrl) return null;
 
-  // 2. Fetch the info.json (array of quality variants)
-  const infoRes = await fetch(infoUrl);
-  if (!infoRes.ok) return null;
-  const variants: any[] = await infoRes.json().catch(() => []);
+  // 2. Fetch the info.json (with retry)
+  const variants: any[] = await withRetry("storyboard-info-json", async () => {
+    const r = await fetch(infoUrl);
+    if (!r.ok) throw new Error(`info ${r.status}`);
+    return await r.json();
+  }).catch(() => []);
   if (!Array.isArray(variants) || variants.length === 0) return null;
 
   // Prefer "high" quality, fall back to anything available
