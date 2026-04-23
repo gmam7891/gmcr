@@ -36,6 +36,8 @@ const GQL_URL = "https://gql.twitch.tv/gql";
 const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 
 const MOSAICS_PER_CHUNK = 4;          // process up to 4 storyboard mosaics per HTTP chunk
+const CHECKPOINT_FRAMES = 50;         // persist progress every N frames within a chunk
+const MAX_RETRIES = 3;                // exponential backoff retries for AI / Twitch
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
@@ -86,20 +88,46 @@ function parseAIBatch(content: string): any[] {
   } catch { return []; }
 }
 
-async function callAI(messages: any[]): Promise<{ items: any[]; ok: boolean; status: number; raw: string }> {
-  const res = await fetch(AI_GATEWAY, {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "google/gemini-2.5-flash", messages, max_tokens: 8192 }),
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    console.warn(`[Watcher] AI call failed [${res.status}]: ${txt.slice(0, 200)}`);
-    return { items: [], ok: false, status: res.status, raw: txt };
+async function withRetry<T>(label: string, fn: () => Promise<T>, maxAttempts = MAX_RETRIES): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const delay = Math.min(8000, 500 * Math.pow(2, attempt - 1)) + Math.random() * 250;
+      console.warn(`[Watcher] ${label} attempt ${attempt}/${maxAttempts} failed: ${(e as Error).message}. Retrying in ${Math.round(delay)}ms`);
+      if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, delay));
+    }
   }
-  const data = await res.json();
-  const raw = data?.choices?.[0]?.message?.content ?? "[]";
-  return { items: parseAIBatch(raw), ok: true, status: 200, raw };
+  throw lastErr;
+}
+
+async function callAI(messages: any[]): Promise<{ items: any[]; ok: boolean; status: number; raw: string }> {
+  try {
+    return await withRetry("ai-gateway", async () => {
+      const res = await fetch(AI_GATEWAY, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "google/gemini-2.5-flash", messages, max_tokens: 8192 }),
+      });
+      // Don't retry 4xx — they won't fix themselves
+      if (res.status === 429 || res.status === 402 || res.status >= 500) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`gateway ${res.status}: ${txt.slice(0, 120)}`);
+      }
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        return { items: [], ok: false, status: res.status, raw: txt };
+      }
+      const data = await res.json();
+      const raw = data?.choices?.[0]?.message?.content ?? "[]";
+      return { items: parseAIBatch(raw), ok: true, status: 200, raw };
+    });
+  } catch (e) {
+    console.warn(`[Watcher] AI call exhausted retries: ${(e as Error).message}`);
+    return { items: [], ok: false, status: 0, raw: String(e) };
+  }
 }
 
 async function fetchChapters(vodId: string): Promise<any[]> {
