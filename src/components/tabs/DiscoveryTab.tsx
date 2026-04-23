@@ -275,28 +275,42 @@ export function DiscoveryTab() {
         )}
       </div>
 
-      {/* AI Keywords */}
+      {/* Result stats + filter */}
       {result && (
-        <div className="card-surface p-4 space-y-2">
-          <h3 className="text-xs uppercase tracking-wider text-muted-foreground">{t("disc.ai_keywords")}</h3>
-          <div className="flex flex-wrap gap-1.5">
-            {result.keywords.map((kw, i) => (
-              <Badge key={i} variant="secondary" className="text-[10px] font-mono">{kw}</Badge>
-            ))}
-          </div>
-          <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+        <div className="card-surface p-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
             <span>{t("disc.total_scraped")}: <strong className="text-foreground">{result.total_scraped}</strong></span>
             <span>{t("disc.qualified")}: <strong className="text-accent">{result.total_qualified}</strong></span>
             <span>{t("disc.spam_filtered")}: <strong className="text-destructive">{result.total_spam}</strong></span>
             <span>{t("disc.low_score")}: <strong className="text-warning">{result.total_low_score}</strong></span>
           </div>
+          <div className="flex items-center gap-2 pt-1 border-t border-border/40">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Mostrar:</span>
+            {([
+              { key: "all", label: `Todos (${result.prospects.length})` },
+              { key: "qualified", label: `Qualificados (${result.total_qualified})` },
+              { key: "low", label: `Score baixo (${result.total_low_score})` },
+            ] as const).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setScoreFilter(opt.key)}
+                className={`text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded border transition-colors ${
+                  scoreFilter === opt.key
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-secondary/50 text-muted-foreground border-border hover:text-foreground"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
       {/* Results Grid */}
-      {result && result.prospects.length > 0 && (
+      {result && filteredProspects.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {result.prospects.map((p, i) => (
+          {filteredProspects.map((p, i) => (
             <div key={i} className="card-surface p-4 space-y-3 hover:border-primary/50 transition-colors">
               {/* Header */}
               <div className="flex items-start gap-3">
