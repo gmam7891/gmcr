@@ -246,7 +246,8 @@ export function DiscoveryTab() {
         {/* Manual keywords */}
         <div className="space-y-2 border-t border-border/40 pt-4">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-            Termos de busca {customKeywords.length > 0 && <span className="text-foreground">({customKeywords.length})</span>}
+            Termos de busca <span className="text-muted-foreground/60 normal-case tracking-normal">(opcional)</span>
+            {customKeywords.length > 0 && <span className="text-foreground ml-1">({customKeywords.length})</span>}
           </Label>
           <div className="flex flex-wrap gap-1.5 min-h-[24px]">
             {customKeywords.map((kw) => (
