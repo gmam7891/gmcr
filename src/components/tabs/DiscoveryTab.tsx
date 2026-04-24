@@ -73,8 +73,8 @@ export function DiscoveryTab() {
   const [minEngagement, setMinEngagement] = useState<number>(0); // % — 0 to 1000
   const [referenceUrl, setReferenceUrl] = useState<string>("");
 
-  // Result filtering
-  const [scoreFilter, setScoreFilter] = useState<"all" | "qualified" | "low">("all");
+  // Result sorting (no filtering — all profiles always shown)
+  const [sortBy, setSortBy] = useState<"original" | "score" | "followers" | "engagement">("original");
 
   const togglePlatform = (p: string) => {
     setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
