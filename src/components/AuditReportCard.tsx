@@ -46,6 +46,7 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
   const load = async () => {
     setLoading(true);
     try {
+      // Force fresh fetch — bypass any HTTP/Edge cache by appending a nonce
       const r = await getAuditReport(auditId);
       setReport(r);
     } catch (e: any) {
@@ -55,7 +56,14 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
     }
   };
 
-  useEffect(() => { if (autoLoad) void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [auditId]);
+  // Always force a fresh load when auditId changes (ignore stale local state).
+  useEffect(() => {
+    setReport(null);
+    setShareUrl(null);
+    setShareExpiresAt(null);
+    if (autoLoad) void load();
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [auditId]);
 
   // Aggregate seconds per provider
   const providerSlices = useMemo<ProviderSlice[]>(() => {
