@@ -413,10 +413,45 @@ export function DiscoveryTab() {
             </div>
           </div>
 
-          <p className="text-[10px] text-muted-foreground/70">
-            ⓘ Idade e gênero são inferidos a partir de bio/nome — nem todos os perfis serão classificados.
-          </p>
-        </div>
+          {/* Engagement minimum (≥) */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground/80 flex items-center gap-1">
+                <Heart className="h-3 w-3" /> Engajamento ≥
+              </Label>
+              <span className="text-xs font-mono font-bold text-foreground tabular-nums">
+                {minEngagement}%
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Slider
+                min={0}
+                max={1000}
+                step={1}
+                value={[minEngagement]}
+                onValueChange={(v) => setMinEngagement(v[0] ?? 0)}
+                disabled={loading}
+                className="flex-1"
+              />
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={1000}
+                value={minEngagement}
+                onChange={(e) => {
+                  const n = Math.max(0, Math.min(1000, Number(e.target.value) || 0));
+                  setMinEngagement(n);
+                }}
+                disabled={loading}
+                className="h-8 w-20 text-xs"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground/70">
+              Filtra perfis com engajamento mínimo (0% = sem filtro · até 1000%).
+            </p>
+          </div>
+
 
         {/* Platforms */}
         <div className="flex items-center gap-4 border-t border-border/40 pt-4">
