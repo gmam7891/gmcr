@@ -140,33 +140,75 @@ async function scrapeInstagram(keywords: string[], limit: number): Promise<any[]
   }
 }
 
-// ─── Match Score ────────────────────────────────────────────────────────
-const SE_STATES = ["SP", "RJ", "MG", "ES"];
+// ─── Match Score (generic — no niche bias) ──────────────────────────────
 const CASINO_KEYWORDS = ["casino", "cassino", "slot", "slots", "bet", "aposta", "apostas", "gambling", "igaming", "roleta", "blackjack", "poker", "tigrinho", "fortune"];
+// Heuristic gender hints from bios/names (declarative only — never assumed)
+const FEMALE_HINTS = ["ela/dela", "she/her", "♀", "mulher", "menina", "garota", "girl", "miss", "queen", "rainha"];
+const MALE_HINTS = ["ele/dele", "he/him", "♂", "homem", "menino", "garoto", "boy", "king", "rei", "mister"];
+
+function inferGender(profile: any): "female" | "male" | "unknown" {
+  const text = `${profile.bio || ""} ${profile.display_name || ""}`.toLowerCase();
+  if (FEMALE_HINTS.some((h) => text.includes(h))) return "female";
+  if (MALE_HINTS.some((h) => text.includes(h))) return "male";
+  return "unknown";
+}
 
 function calculateMatchScore(profile: any, filters: any): { score: number; breakdown: any } {
+  // Location: matches any user-provided location keyword (case-insensitive substring)
   let locationScore = 0;
   const loc = (profile.location_declared || profile.location_inferred || "").toLowerCase();
-  if (SE_STATES.some((s) => loc.includes(s.toLowerCase()) || loc.includes("são paulo") || loc.includes("rio de janeiro") || loc.includes("minas gerais") || loc.includes("espírito santo") || loc.includes("brasil") || loc.includes("brazil"))) {
+  const wantedLocs: string[] = (filters?.target_locations || []).map((l: string) => l.toLowerCase()).filter(Boolean);
+  if (wantedLocs.length === 0) {
+    locationScore = 15; // neutral when no location filter
+  } else if (wantedLocs.some((l) => loc.includes(l))) {
     locationScore = 30;
   }
 
+  // Followers: respects user-provided min/max range
+  const followers = profile.followers || 0;
+  const minF = Number(filters?.min_followers) || 0;
+  const maxF = Number(filters?.max_followers) || 0;
   let followersScore = 0;
-  if ((profile.followers || 0) >= (filters?.min_followers || 20000)) followersScore = 30;
-  else if ((profile.followers || 0) >= 10000) followersScore = 15;
+  const inMin = minF === 0 || followers >= minF;
+  const inMax = maxF === 0 || followers <= maxF;
+  if (inMin && inMax) followersScore = 30;
+  else if (followers >= Math.max(1000, minF * 0.5)) followersScore = 15;
 
+  // Frequency: posting/streaming activity
   let frequencyScore = 0;
   const activity = (profile.posts_last_30d || 0) + (profile.lives_last_30d || 0);
   if (activity >= 12) frequencyScore = 20;
   else if (activity >= 6) frequencyScore = 10;
+  else if (activity > 0) frequencyScore = 5;
 
-  let contentScore = 0;
+  // Content: matches user-provided keywords (any niche, not just casino)
   const bio = (profile.bio || "").toLowerCase();
   const name = (profile.display_name || "").toLowerCase();
   const combined = `${bio} ${name}`;
-  if (CASINO_KEYWORDS.some((kw) => combined.includes(kw))) {
+  const indicators: string[] = (filters?.content_indicators || []).map((k: string) => String(k).toLowerCase().replace(/^#/, "")).filter(Boolean);
+  let contentScore = 0;
+  if (indicators.length === 0) {
+    contentScore = 10; // neutral when no keyword filter
+  } else if (indicators.some((kw) => combined.includes(kw))) {
     contentScore = 20;
+  }
+  // Track casino content as a tag (not as scoring bias)
+  if (CASINO_KEYWORDS.some((kw) => combined.includes(kw))) {
     profile.has_casino_content = true;
+  }
+
+  // Gender filter (soft — penalises only when user picked a specific gender)
+  const wantedGender: string = filters?.target_gender || "any";
+  if (wantedGender !== "any") {
+    const inferred = inferGender(profile);
+    profile.gender_inferred = inferred;
+    if (inferred !== "unknown" && inferred !== wantedGender) {
+      // Hard mismatch — drop score significantly
+      return {
+        score: Math.max(0, locationScore + followersScore + frequencyScore + contentScore - 40),
+        breakdown: { location: locationScore, followers: followersScore, frequency: frequencyScore, content: contentScore },
+      };
+    }
   }
 
   const score = locationScore + followersScore + frequencyScore + contentScore;
@@ -233,41 +275,73 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { action, briefing, platforms, limit, custom_keywords } = await req.json();
+    const {
+      action,
+      briefing,
+      platforms,
+      limit,
+      custom_keywords,
+      manual_filters,
+      use_ai_expansion,
+    } = await req.json();
     const maxResults = Math.min(limit || 50, 100);
 
     if (action === "discover") {
-      if (!briefing) {
-        return new Response(JSON.stringify({ error: "briefing is required" }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
       let keywords: string[];
       let filters: any;
 
-      if (Array.isArray(custom_keywords) && custom_keywords.length > 0) {
-        // User provided custom keywords — skip AI expansion
-        const kws = custom_keywords.map((k: string) => String(k).trim()).filter(Boolean);
-        const twitchKws = kws.filter((k) => !k.startsWith("#"));
-        const igKws = kws.filter((k) => k.startsWith("#"));
-        keywords = kws;
-        filters = {
-          keywords_twitch: twitchKws.length > 0 ? twitchKws : kws,
-          keywords_instagram: igKws.length > 0 ? igKws : kws.map((k) => `#${k.replace(/\s+/g, "")}`),
-          target_regions: ["SP", "RJ", "MG", "ES"],
-          min_followers: 10000,
-          content_indicators: kws,
-        };
-        console.log("[Discovery] Using custom keywords:", keywords);
-      } else {
+      const hasCustomKws = Array.isArray(custom_keywords) && custom_keywords.length > 0;
+      const hasBriefing = typeof briefing === "string" && briefing.trim().length > 0;
+      // AI expansion runs only when explicitly requested AND briefing exists AND no manual keywords
+      const shouldExpand = use_ai_expansion === true && hasBriefing && !hasCustomKws;
+
+      if (shouldExpand) {
         console.log("[Discovery] Expanding briefing with AI...");
         const expanded = await expandBriefing(briefing);
         keywords = expanded.keywords;
         filters = expanded.filters;
-        console.log("[Discovery] Keywords:", keywords);
-        console.log("[Discovery] Filters:", JSON.stringify(filters));
+      } else {
+        const kws = hasCustomKws
+          ? custom_keywords.map((k: string) => String(k).trim()).filter(Boolean)
+          : [];
+        const twitchKws = kws.filter((k: string) => !k.startsWith("#"));
+        const igKws = kws.filter((k: string) => k.startsWith("#"));
+        keywords = kws;
+        filters = {
+          keywords_twitch: twitchKws.length > 0 ? twitchKws : kws,
+          keywords_instagram: igKws.length > 0 ? igKws : kws.map((k: string) => `#${k.replace(/\s+/g, "")}`),
+          content_indicators: kws,
+        };
+        console.log("[Discovery] Using custom/empty keywords:", keywords);
+      }
+
+      // Merge manual filters from the UI on top — these always win
+      if (manual_filters && typeof manual_filters === "object") {
+        filters = {
+          ...filters,
+          target_locations: manual_filters.locations || [],
+          target_gender: manual_filters.gender || "any",
+          min_age: Number(manual_filters.min_age) || 0,
+          max_age: Number(manual_filters.max_age) || 0,
+          min_followers: Number(manual_filters.min_followers) || Number(filters.min_followers) || 0,
+          max_followers: Number(manual_filters.max_followers) || 0,
+        };
+      }
+      console.log("[Discovery] Final filters:", JSON.stringify(filters));
+
+      // Need at least one of: keywords, briefing, or location filter to scrape
+      if (keywords.length === 0 && !hasBriefing && (!filters.target_locations || filters.target_locations.length === 0)) {
+        return new Response(JSON.stringify({ error: "Provide at least one search term, briefing, or filter" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      // If no scraping keywords, fall back to location terms so Apify has something to query
+      if (keywords.length === 0) {
+        const fallback = (filters.target_locations || []).slice(0, 3);
+        keywords = fallback.length > 0 ? fallback : ["brasil"];
+        filters.keywords_twitch = keywords;
+        filters.keywords_instagram = keywords.map((k: string) => `#${k.replace(/\s+/g, "").toLowerCase()}`);
       }
 
       const selectedPlatforms = platforms || ["twitch", "instagram"];
