@@ -69,6 +69,8 @@ export function DiscoveryTab() {
   const [maxAge, setMaxAge] = useState<string>("");
   const [minFollowers, setMinFollowers] = useState<string>("");
   const [maxFollowers, setMaxFollowers] = useState<string>("");
+  const [minEngagement, setMinEngagement] = useState<number>(0); // % — 0 to 1000
+  const [referenceUrl, setReferenceUrl] = useState<string>("");
 
   // Result filtering
   const [scoreFilter, setScoreFilter] = useState<"all" | "qualified" | "low">("all");
