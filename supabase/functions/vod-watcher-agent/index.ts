@@ -52,18 +52,20 @@ Você receberá GRID_COLS, GRID_ROWS, TILE_COUNT e o TIMESTAMP de cada tile.
 Ordem dos tiles: linha por linha, da esquerda para a direita, de cima para baixo.
 Tile (row=0, col=0) é o canto superior esquerdo. Tile (row=R-1, col=C-1) é o canto inferior direito.
 
-PARA CADA tile que mostre conteúdo de cassino (slot, mesa, crash, live casino, navegador em site de aposta), retorne uma entrada.
-IGNORE tiles com Just Chatting puro, gameplay tradicional (FPS, MMO, etc), tela preta, intro/outro.
-SEJA AGRESSIVO: thumbs são pequenos (220×124). Se vê reels coloridos, símbolos de fruta/diamante/coroa, layout 5×3 típico de slot, HUD com R$/$/€ — É CASSINO.
+A categoria/capítulo da Twitch é APENAS UM SINAL AUXILIAR DE CONTEXTO. Ela NÃO deve ser usada como prova principal, não deve gerar detecção sozinha e não deve substituir a análise visual dos tiles.
+
+PARA CADA tile que mostre visualmente conteúdo de cassino (slot, mesa, crash, live casino, navegador em site de aposta), retorne uma entrada.
+IGNORE tiles com Just Chatting puro, gameplay tradicional (FPS, MMO, etc), tela preta, intro/outro — mesmo que a categoria Twitch pareça relacionada a cassino.
+SEJA AGRESSIVO NA LEITURA VISUAL: thumbs são pequenos (220×124). Se vê reels coloridos, símbolos de fruta/diamante/coroa, layout 5×3 típico de slot, HUD com R$/$/€ — É CASSINO.
 
 PROVEDORAS (lista parcial — identifique quando reconhecer): Pragmatic Play, PG Soft, Hacksaw, Push Gaming, Relax Gaming, NetEnt, Play'n GO, Nolimit City, Red Tiger, Yggdrasil, Evolution, BGaming, Spribe (Aviator), Turbo Games, ELK, Big Time Gaming, 3 Oaks Gaming.
 
 JOGOS COMUNS: Sweet Bonanza, Gates of Olympus, Sugar Rush, Fortune Tiger (Jogo do Tigrinho), Aviator, Mines, Crazy Time, Monopoly Live.
 
-RESPONDA APENAS JSON ARRAY — uma entrada por TILE que tem cassino:
+RESPONDA APENAS JSON ARRAY — uma entrada por TILE que tem cassino VISÍVEL:
 [{"row":0,"col":2,"game":"Gates of Olympus","provider":"Pragmatic Play","category":"slots","confidence":"high","evidence":"reels com símbolos coloridos, HUD de aposta visível"}]
 
-Se NENHUM tile tem cassino, responda exatamente: []
+Se NENHUM tile tem cassino visível, responda exatamente: []
 `;
 
 function jsonResponse(data: unknown, status = 200) {
