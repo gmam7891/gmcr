@@ -86,8 +86,14 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
     const aiVsTwitch = Array.from(allKeys).map((name) => ({
       name, ai_seconds: gameShare[name] || 0, twitch_seconds: twitchCategoryShare[name] || 0,
     })).sort((a, b) => (b.ai_seconds + b.twitch_seconds) - (a.ai_seconds + a.twitch_seconds)).slice(0, 10);
+    // viewer_minutes = sum of (block_duration_minutes × block_avg_viewers) across all blocks
+    const viewerMinutes = blocks.reduce((sum: number, b: any) => {
+      const durationMin = (b.duration_seconds || 0) / 60;
+      const avgViewers = b.avg_viewers || b.peak_viewers || 0;
+      return sum + durationMin * avgViewers;
+    }, 0);
     return {
-      total_exposure_seconds: totalExposure, total_viewer_minutes: Math.round(totalExposure / 60),
+      total_exposure_seconds: totalExposure, total_viewer_minutes: Math.round(viewerMinutes),
       unique_streamers: uniqueStreamers, total_detections: blocks.length, avg_vod_coverage: avgCoverage,
       provider_share: providerShare, game_share: gameShare, twitch_category_share: twitchCategoryShare,
       ai_vs_twitch: aiVsTwitch, chat_sentiment: {},
