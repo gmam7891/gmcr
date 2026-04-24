@@ -590,6 +590,9 @@ export function DiscoveryTab() {
               <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
                 <span><Users className="h-3 w-3 inline mr-0.5" />{(p.followers || 0).toLocaleString()}</span>
                 {p.avg_views > 0 && <span>👁 {p.avg_views.toLocaleString()}</span>}
+                {typeof p.engagement_rate === "number" && p.engagement_rate > 0 && (
+                  <span><Heart className="h-3 w-3 inline mr-0.5" />{p.engagement_rate.toFixed(1)}%</span>
+                )}
                 {(p.location_declared || p.location_inferred) && (
                   <span><MapPin className="h-3 w-3 inline mr-0.5" />{p.location_declared || p.location_inferred}</span>
                 )}
