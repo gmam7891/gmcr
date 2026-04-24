@@ -30,6 +30,7 @@ interface Prospect {
   location_inferred: string;
   has_casino_content: boolean;
   gender_inferred?: "female" | "male" | "unknown";
+  engagement_rate?: number;
   match_score: number;
   score_breakdown: { location: number; followers: number; frequency: number; content: number };
   is_spam: boolean;
