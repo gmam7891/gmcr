@@ -514,24 +514,20 @@ export function DiscoveryTab() {
             </div>
           )}
           <div className="flex items-center gap-2 pt-1 border-t border-border/40">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Mostrar:</span>
-            {([
-              { key: "all", label: `Todos (${result.prospects.length})` },
-              { key: "qualified", label: `Qualificados (${result.total_qualified})` },
-              { key: "low", label: `Score baixo (${result.total_low_score})` },
-            ] as const).map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setScoreFilter(opt.key)}
-                className={`text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded border transition-colors ${
-                  scoreFilter === opt.key
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-secondary/50 text-muted-foreground border-border hover:text-foreground"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Mostrando todos os {result.prospects.length} perfis encontrados — ordenar por:
+            </span>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+              <SelectTrigger className="h-7 w-[180px] text-[10px] font-mono uppercase tracking-wider">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="original" className="text-xs">Ordem original</SelectItem>
+                <SelectItem value="score" className="text-xs">Match score (maior)</SelectItem>
+                <SelectItem value="followers" className="text-xs">Seguidores (maior)</SelectItem>
+                <SelectItem value="engagement" className="text-xs">Engajamento (maior)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       )}
