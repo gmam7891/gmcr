@@ -452,8 +452,12 @@ export function DiscoveryTab() {
             </p>
           </div>
 
+          <p className="text-[10px] text-muted-foreground/70">
+            ⓘ Idade e gênero são inferidos a partir de bio/nome — nem todos os perfis serão classificados.
+          </p>
+        </div>
 
-        {/* Platforms */}
+
         <div className="flex items-center gap-4 border-t border-border/40 pt-4">
           <span className="text-xs text-muted-foreground uppercase tracking-wider">{t("disc.platforms")}:</span>
           {["twitch", "instagram"].map((p) => (
