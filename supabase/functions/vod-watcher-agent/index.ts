@@ -428,9 +428,9 @@ Deno.serve(async (req) => {
       const userText = `MOSAICO ${mIdx + 1}/${plan.mosaics.length} do VOD "${plan.vod_title}".
 GRID_COLS=${mosaic.cols}, GRID_ROWS=${mosaic.rows}, TILE_COUNT=${mosaic.tiles.length}.
 Tile size: ${mosaic.tile_w}×${mosaic.tile_h} px.
-Categoria Twitch: ${chapterCategory}.
+Categoria Twitch auxiliar: ${chapterCategory}.
 Timestamps por tile: ${tileLabel}.
-Identifique cada tile que mostre conteúdo de cassino.`;
+Use a categoria Twitch apenas como contexto secundário; identifique cassino somente quando houver evidência visual no tile.`;
 
       const ai = await callAI([
         { role: "system", content: MOSAIC_PROMPT },
