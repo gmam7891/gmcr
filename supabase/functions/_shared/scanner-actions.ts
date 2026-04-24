@@ -310,13 +310,30 @@ export async function handleWrite(supabase: SupabaseClient, body: any) {
     const { data: evidences } = await supabase.from("raw_evidences").select("*")
       .eq("vod_id", vod_id).eq("is_valid", true).order("timestamp_seconds", { ascending: true });
     if (!evidences?.length) return { blocks: 0 };
+
+    // Fetch audit metadata for interval calculation
+    const { data: auditMeta } = await supabase
+      .from("vod_audits")
+      .select("expected_frames, vod_duration_seconds")
+      .eq("vod_id", vod_id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Derive frame interval from audit metadata (vod_duration / expected_frames)
+    // Falls back to 39s if metadata is unavailable
+    const frameInterval =
+      auditMeta?.expected_frames && auditMeta?.vod_duration_seconds
+        ? Math.max(15, Math.round(auditMeta.vod_duration_seconds / auditMeta.expected_frames))
+        : 39;
+
     const blocks: any[] = []; let current: any = null;
     for (const ev of evidences as any[]) {
       if (!current || current.game !== ev.game_detected || (ev.timestamp_seconds - current.endSec) > 180) {
         if (current && current.count >= 2) blocks.push(current);
-        current = { game: ev.game_detected, provider: ev.provider_detected, startSec: ev.timestamp_seconds, endSec: ev.timestamp_seconds + 60, confidences: [ev.confidence_score], count: 1 };
+        current = { game: ev.game_detected, provider: ev.provider_detected, startSec: ev.timestamp_seconds, endSec: ev.timestamp_seconds + frameInterval, confidences: [ev.confidence_score], count: 1 };
       } else {
-        current.endSec = ev.timestamp_seconds + 60;
+        current.endSec = ev.timestamp_seconds + frameInterval;
         current.confidences.push(ev.confidence_score);
         current.count++;
       }
