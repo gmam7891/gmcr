@@ -86,8 +86,14 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
     const aiVsTwitch = Array.from(allKeys).map((name) => ({
       name, ai_seconds: gameShare[name] || 0, twitch_seconds: twitchCategoryShare[name] || 0,
     })).sort((a, b) => (b.ai_seconds + b.twitch_seconds) - (a.ai_seconds + a.twitch_seconds)).slice(0, 10);
+    // viewer_minutes = sum of (block_duration_minutes × block_avg_viewers) across all blocks
+    const viewerMinutes = blocks.reduce((sum: number, b: any) => {
+      const durationMin = (b.duration_seconds || 0) / 60;
+      const avgViewers = b.avg_viewers || b.peak_viewers || 0;
+      return sum + durationMin * avgViewers;
+    }, 0);
     return {
-      total_exposure_seconds: totalExposure, total_viewer_minutes: Math.round(totalExposure / 60),
+      total_exposure_seconds: totalExposure, total_viewer_minutes: Math.round(viewerMinutes),
       unique_streamers: uniqueStreamers, total_detections: blocks.length, avg_vod_coverage: avgCoverage,
       provider_share: providerShare, game_share: gameShare, twitch_category_share: twitchCategoryShare,
       ai_vs_twitch: aiVsTwitch, chat_sentiment: {},
@@ -310,13 +316,30 @@ export async function handleWrite(supabase: SupabaseClient, body: any) {
     const { data: evidences } = await supabase.from("raw_evidences").select("*")
       .eq("vod_id", vod_id).eq("is_valid", true).order("timestamp_seconds", { ascending: true });
     if (!evidences?.length) return { blocks: 0 };
+
+    // Fetch audit metadata for interval calculation
+    const { data: auditMeta } = await supabase
+      .from("vod_audits")
+      .select("expected_frames, vod_duration_seconds")
+      .eq("vod_id", vod_id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Derive frame interval from audit metadata (vod_duration / expected_frames)
+    // Falls back to 39s if metadata is unavailable
+    const frameInterval =
+      auditMeta?.expected_frames && auditMeta?.vod_duration_seconds
+        ? Math.max(15, Math.round(auditMeta.vod_duration_seconds / auditMeta.expected_frames))
+        : 39;
+
     const blocks: any[] = []; let current: any = null;
     for (const ev of evidences as any[]) {
       if (!current || current.game !== ev.game_detected || (ev.timestamp_seconds - current.endSec) > 180) {
         if (current && current.count >= 2) blocks.push(current);
-        current = { game: ev.game_detected, provider: ev.provider_detected, startSec: ev.timestamp_seconds, endSec: ev.timestamp_seconds + 60, confidences: [ev.confidence_score], count: 1 };
+        current = { game: ev.game_detected, provider: ev.provider_detected, startSec: ev.timestamp_seconds, endSec: ev.timestamp_seconds + frameInterval, confidences: [ev.confidence_score], count: 1 };
       } else {
-        current.endSec = ev.timestamp_seconds + 60;
+        current.endSec = ev.timestamp_seconds + frameInterval;
         current.confidences.push(ev.confidence_score);
         current.count++;
       }

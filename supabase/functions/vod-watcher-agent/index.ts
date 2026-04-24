@@ -783,4 +783,25 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
   }).eq("id", audit.id);
 
   console.log(`[Watcher ${audit.id}] FINALIZED: ${uniqueGames} games, ${validRows.length} snapshots, ${flagged.length} flagged, reconcile=${reconciliationStatus}`);
+
+  // Auto-sync: populate gameplay_blocks so the Scanner Dashboard picks up the new data
+  try {
+    const pipelineUrl = `${SUPABASE_URL}/functions/v1/scanner-write`;
+    fetch(pipelineUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        action: "run_pipeline",
+        vod_id: audit.vod_id,
+        streamer_login: audit.streamer_login,
+        vod_duration_seconds: audit.vod_duration_seconds,
+      }),
+    }).catch((e) => console.warn("[Watcher] auto pipeline sync failed:", e));
+    console.log(`[Watcher ${audit.id}] Auto pipeline sync triggered for vod_id=${audit.vod_id}`);
+  } catch (e) {
+    console.warn("[Watcher] pipeline sync error:", e);
+  }
 }

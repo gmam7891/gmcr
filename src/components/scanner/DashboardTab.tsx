@@ -72,7 +72,7 @@ export function DashboardTab({ dataFilter }: Props) {
           <div className="flex items-start gap-2">
             <Sparkles className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
             <div className="space-y-0.5 min-w-0 flex-1">
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono leading-tight">Veredito do período</p>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono leading-tight">{t("scan.verdict_label")}</p>
               <p className="text-[12px] leading-tight text-foreground">
                 No período <span className="font-mono text-primary">{verdict.periodo}</span>,{" "}
                 <span className="font-semibold">{verdict.subject}</span> acumulou{" "}
@@ -94,7 +94,10 @@ export function DashboardTab({ dataFilter }: Props) {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
         <MetricCard label={t("scan.total_exposure")} value={`${exposureHours}h`} />
-        <MetricCard label={t("scan.total_viewer_min")} value={`${viewerMinK}k`} />
+        <MetricCard
+          label={viewerMinK > 0 ? t("scan.total_viewer_min") : t("scan.exposure_minutes")}
+          value={viewerMinK > 0 ? `${viewerMinK}k` : `${Math.round(exposureSec / 60)}m`}
+        />
         <MetricCard label={t("scan.unique_streamers")} value={data.unique_streamers || 0} />
         <MetricCard label={t("scan.total_detections")} value={data.total_detections || 0} />
         <MetricCard label={t("scan.avg_coverage")} value={`${Math.round(data.avg_vod_coverage || 0)}%`} />
@@ -144,6 +147,12 @@ export function DashboardTab({ dataFilter }: Props) {
                   );
                 })}
               </div>
+              {trend.length > 0 && trend.every((mv: any) => mv.delta_pct <= -99) && (
+                <p className="text-[10px] text-muted-foreground font-mono mt-1.5 leading-tight">
+                  ⚠ Sem dados no período atual — comparativo mostra queda total vs. período anterior.
+                  Ajuste o filtro de data para incluir o período com atividade.
+                </p>
+              )}
             </>
           )}
         </Card>
