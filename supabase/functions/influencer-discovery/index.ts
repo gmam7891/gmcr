@@ -542,7 +542,7 @@ Deno.serve(async (req) => {
       // Save ALL non-spam profiles to database (with qualification status implicit in score)
       if (allScored.length > 0) {
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const dbRecords = allScored.map(({ sullygnome_data, ...rest }) => rest);
+        const dbRecords = allScored.map(({ sullygnome_data, engagement_rate, ...rest }) => rest);
         const { error } = await supabase.from("discovery_prospects").insert(dbRecords);
         if (error) console.error("[Discovery] DB insert error:", error.message);
       }
