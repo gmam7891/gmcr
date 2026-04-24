@@ -489,8 +489,12 @@ Deno.serve(async (req) => {
       const scored = allProfiles.map((p) => {
         const { score, breakdown } = calculateMatchScore(p, filters);
         const isSpam = validateSpam(p);
+        const followers = p.followers || 0;
+        const views = p.avg_views || 0;
+        const engagement_rate = followers > 0 ? Number(((views / followers) * 100).toFixed(2)) : 0;
         return {
           ...p,
+          engagement_rate,
           briefing_id: briefingId,
           match_score: score,
           score_breakdown: breakdown,
@@ -501,8 +505,10 @@ Deno.serve(async (req) => {
       });
 
       // Sort all profiles by score, mark qualified vs low score
+      const minEng = Number(filters?.min_engagement) || 0;
       let allScored = scored
         .filter((p) => !p.is_spam)
+        .filter((p) => minEng === 0 || (p.engagement_rate || 0) >= minEng)
         .sort((a, b) => b.match_score - a.match_score);
 
       // SullyGnome validation for top Twitch prospects (regardless of qualification)
