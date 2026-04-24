@@ -107,7 +107,7 @@ serve(async (req) => {
       } else {
         const { data: inserted, error: insertErr } = await supabase.from("game_visual_library").insert({
           game_name: game_name_hint || "Unknown Game",
-          provider_name: provider_slug.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()),
+          provider_name: provider_slug.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
           provider_slug,
           source_url,
           training_status: "processing",
