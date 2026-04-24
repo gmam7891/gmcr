@@ -97,16 +97,6 @@ export function DiscoveryTab() {
   const removeLocation = (loc: string) => setLocations(locations.filter((l) => l !== loc));
 
   const handleDiscover = async () => {
-    const hasAnyInput =
-      briefing.trim() || customKeywords.length > 0 || locations.length > 0 || referenceUrl.trim();
-    if (!hasAnyInput) {
-      toast({
-        title: t("disc.error"),
-        description: "Adicione ao menos um termo de busca, briefing ou localização.",
-        variant: "destructive",
-      });
-      return;
-    }
     if (platforms.length === 0) {
       toast({ title: t("disc.error"), description: t("disc.platform_required"), variant: "destructive" });
       return;
