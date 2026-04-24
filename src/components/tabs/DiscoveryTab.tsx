@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { Search, Sparkles, MapPin, Users, Activity, Gamepad2, AlertTriangle, Download, ExternalLink, X, Plus, Wand2, SlidersHorizontal } from "lucide-react";
+import { Search, Sparkles, MapPin, Users, Activity, Gamepad2, AlertTriangle, Download, ExternalLink, X, Plus, Wand2, SlidersHorizontal, Heart, Link2 } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 import * as XLSX from "xlsx";
 
 interface Prospect {
@@ -29,6 +30,7 @@ interface Prospect {
   location_inferred: string;
   has_casino_content: boolean;
   gender_inferred?: "female" | "male" | "unknown";
+  engagement_rate?: number;
   match_score: number;
   score_breakdown: { location: number; followers: number; frequency: number; content: number };
   is_spam: boolean;
@@ -68,6 +70,8 @@ export function DiscoveryTab() {
   const [maxAge, setMaxAge] = useState<string>("");
   const [minFollowers, setMinFollowers] = useState<string>("");
   const [maxFollowers, setMaxFollowers] = useState<string>("");
+  const [minEngagement, setMinEngagement] = useState<number>(0); // % — 0 to 1000
+  const [referenceUrl, setReferenceUrl] = useState<string>("");
 
   // Result filtering
   const [scoreFilter, setScoreFilter] = useState<"all" | "qualified" | "low">("all");
@@ -94,7 +98,7 @@ export function DiscoveryTab() {
 
   const handleDiscover = async () => {
     const hasAnyInput =
-      briefing.trim() || customKeywords.length > 0 || locations.length > 0;
+      briefing.trim() || customKeywords.length > 0 || locations.length > 0 || referenceUrl.trim();
     if (!hasAnyInput) {
       toast({
         title: t("disc.error"),
@@ -123,6 +127,7 @@ export function DiscoveryTab() {
           limit: 50,
           custom_keywords: customKeywords.length > 0 ? customKeywords : undefined,
           use_ai_expansion: useAiExpansion,
+          reference_url: referenceUrl.trim() || undefined,
           manual_filters: {
             locations,
             gender,
@@ -130,6 +135,7 @@ export function DiscoveryTab() {
             max_age: maxAge ? Number(maxAge) : 0,
             min_followers: minFollowers ? Number(minFollowers) : 0,
             max_followers: maxFollowers ? Number(maxFollowers) : 0,
+            min_engagement: minEngagement,
           },
         },
       });
@@ -226,6 +232,25 @@ export function DiscoveryTab() {
               ⚠ A IA gerará termos automaticamente a partir do briefing acima.
             </p>
           )}
+        </div>
+
+        {/* Reference profile URL — find similar */}
+        <div className="space-y-2 border-t border-border/40 pt-4">
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <Link2 className="h-3 w-3" />
+            Perfil de referência (opcional)
+          </Label>
+          <Input
+            type="url"
+            placeholder="https://instagram.com/usuario  ou  https://twitch.tv/canal"
+            value={referenceUrl}
+            onChange={(e) => setReferenceUrl(e.target.value)}
+            disabled={loading}
+            className="h-9 text-xs font-mono"
+          />
+          <p className="text-[10px] text-muted-foreground/70">
+            ⓘ A IA vai analisar este perfil (bio, nicho, audiência) e procurar perfis semelhantes.
+          </p>
         </div>
 
         {/* Manual keywords */}
@@ -389,12 +414,51 @@ export function DiscoveryTab() {
             </div>
           </div>
 
+          {/* Engagement minimum (≥) */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground/80 flex items-center gap-1">
+                <Heart className="h-3 w-3" /> Engajamento ≥
+              </Label>
+              <span className="text-xs font-mono font-bold text-foreground tabular-nums">
+                {minEngagement}%
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Slider
+                min={0}
+                max={1000}
+                step={1}
+                value={[minEngagement]}
+                onValueChange={(v) => setMinEngagement(v[0] ?? 0)}
+                disabled={loading}
+                className="flex-1"
+              />
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={1000}
+                value={minEngagement}
+                onChange={(e) => {
+                  const n = Math.max(0, Math.min(1000, Number(e.target.value) || 0));
+                  setMinEngagement(n);
+                }}
+                disabled={loading}
+                className="h-8 w-20 text-xs"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground/70">
+              Filtra perfis com engajamento mínimo (0% = sem filtro · até 1000%).
+            </p>
+          </div>
+
           <p className="text-[10px] text-muted-foreground/70">
             ⓘ Idade e gênero são inferidos a partir de bio/nome — nem todos os perfis serão classificados.
           </p>
         </div>
 
-        {/* Platforms */}
+
         <div className="flex items-center gap-4 border-t border-border/40 pt-4">
           <span className="text-xs text-muted-foreground uppercase tracking-wider">{t("disc.platforms")}:</span>
           {["twitch", "instagram"].map((p) => (
@@ -526,6 +590,9 @@ export function DiscoveryTab() {
               <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
                 <span><Users className="h-3 w-3 inline mr-0.5" />{(p.followers || 0).toLocaleString()}</span>
                 {p.avg_views > 0 && <span>👁 {p.avg_views.toLocaleString()}</span>}
+                {typeof p.engagement_rate === "number" && p.engagement_rate > 0 && (
+                  <span><Heart className="h-3 w-3 inline mr-0.5" />{p.engagement_rate.toFixed(1)}%</span>
+                )}
                 {(p.location_declared || p.location_inferred) && (
                   <span><MapPin className="h-3 w-3 inline mr-0.5" />{p.location_declared || p.location_inferred}</span>
                 )}

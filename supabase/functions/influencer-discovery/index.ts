@@ -270,6 +270,93 @@ function normalizeInstagramProfile(raw: any): any {
   };
 }
 
+// ─── Reference Profile Analysis ─────────────────────────────────────────
+function parseProfileUrl(rawUrl: string): { platform: "twitch" | "instagram" | null; username: string } {
+  try {
+    const u = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
+    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    const path = u.pathname.replace(/^\/+|\/+$/g, "").split("/")[0] || "";
+    if (host.includes("twitch.tv")) return { platform: "twitch", username: path };
+    if (host.includes("instagram.com")) return { platform: "instagram", username: path };
+  } catch {
+    // Bare username fallback (e.g. "@user")
+    const cleaned = rawUrl.replace(/^@/, "").trim();
+    if (cleaned) return { platform: "instagram", username: cleaned };
+  }
+  return { platform: null, username: "" };
+}
+
+async function scrapeReferenceProfile(rawUrl: string): Promise<any | null> {
+  const { platform, username } = parseProfileUrl(rawUrl);
+  if (!platform || !username) return null;
+  try {
+    if (platform === "instagram") {
+      const url = `https://api.apify.com/v2/acts/apify~instagram-profile-scraper/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=60`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usernames: [username] }),
+      });
+      if (!res.ok) return null;
+      const items = await res.json();
+      const p = items?.[0];
+      return p ? { ...normalizeInstagramProfile(p), _platform: "instagram" } : null;
+    }
+    if (platform === "twitch") {
+      // Lightweight: derive seed from username only
+      return { _platform: "twitch", username, display_name: username, bio: "" };
+    }
+  } catch (e) {
+    console.warn("[Discovery] reference scrape failed:", e);
+  }
+  return null;
+}
+
+async function extractKeywordsFromProfile(profile: any): Promise<string[]> {
+  const seeds: string[] = [];
+  if (profile?.username) seeds.push(profile.username);
+  const text = `${profile?.bio || ""} ${profile?.display_name || ""}`.trim();
+
+  if (!text) return seeds.slice(0, 5);
+
+  // Use AI to extract niche/topic keywords from the reference profile bio
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Extraia de 5 a 10 palavras-chave de busca (em português) que representem o nicho, tema, estilo ou audiência deste perfil. Retorne APENAS um JSON: { \"keywords\": [\"...\"] }. Inclua hashtags com # quando apropriado para Instagram.",
+          },
+          { role: "user", content: text.slice(0, 1000) },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content || "{}";
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed.keywords)) {
+        for (const k of parsed.keywords) {
+          const s = String(k).trim();
+          if (s) seeds.push(s);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[Discovery] keyword extraction failed:", e);
+  }
+  return [...new Set(seeds)].slice(0, 12);
+}
+
 // ─── Main Handler ──────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -283,6 +370,7 @@ Deno.serve(async (req) => {
       custom_keywords,
       manual_filters,
       use_ai_expansion,
+      reference_url,
     } = await req.json();
     const maxResults = Math.min(limit || 50, 100);
 
@@ -292,28 +380,44 @@ Deno.serve(async (req) => {
 
       const hasCustomKws = Array.isArray(custom_keywords) && custom_keywords.length > 0;
       const hasBriefing = typeof briefing === "string" && briefing.trim().length > 0;
+      const hasReference = typeof reference_url === "string" && reference_url.trim().length > 0;
+
+      // ─── If reference URL given, derive keywords from that profile ─────
+      let referenceKeywords: string[] = [];
+      let referenceProfile: any = null;
+      if (hasReference) {
+        console.log("[Discovery] Analyzing reference profile:", reference_url);
+        referenceProfile = await scrapeReferenceProfile(reference_url.trim());
+        if (referenceProfile) {
+          referenceKeywords = await extractKeywordsFromProfile(referenceProfile);
+          console.log("[Discovery] Reference keywords:", referenceKeywords);
+        }
+      }
+
       // AI expansion runs only when explicitly requested AND briefing exists AND no manual keywords
       const shouldExpand = use_ai_expansion === true && hasBriefing && !hasCustomKws;
 
       if (shouldExpand) {
         console.log("[Discovery] Expanding briefing with AI...");
         const expanded = await expandBriefing(briefing);
-        keywords = expanded.keywords;
+        keywords = [...expanded.keywords, ...referenceKeywords];
         filters = expanded.filters;
       } else {
         const kws = hasCustomKws
           ? custom_keywords.map((k: string) => String(k).trim()).filter(Boolean)
           : [];
-        const twitchKws = kws.filter((k: string) => !k.startsWith("#"));
-        const igKws = kws.filter((k: string) => k.startsWith("#"));
-        keywords = kws;
+        const merged = [...new Set([...kws, ...referenceKeywords])];
+        const twitchKws = merged.filter((k: string) => !k.startsWith("#"));
+        const igKws = merged.filter((k: string) => k.startsWith("#"));
+        keywords = merged;
         filters = {
-          keywords_twitch: twitchKws.length > 0 ? twitchKws : kws,
-          keywords_instagram: igKws.length > 0 ? igKws : kws.map((k: string) => `#${k.replace(/\s+/g, "")}`),
-          content_indicators: kws,
+          keywords_twitch: twitchKws.length > 0 ? twitchKws : merged,
+          keywords_instagram: igKws.length > 0 ? igKws : merged.map((k: string) => `#${k.replace(/\s+/g, "")}`),
+          content_indicators: merged,
         };
-        console.log("[Discovery] Using custom/empty keywords:", keywords);
+        console.log("[Discovery] Using custom/reference keywords:", keywords);
       }
+
 
       // Merge manual filters from the UI on top — these always win
       if (manual_filters && typeof manual_filters === "object") {
@@ -325,6 +429,7 @@ Deno.serve(async (req) => {
           max_age: Number(manual_filters.max_age) || 0,
           min_followers: Number(manual_filters.min_followers) || Number(filters.min_followers) || 0,
           max_followers: Number(manual_filters.max_followers) || 0,
+          min_engagement: Number(manual_filters.min_engagement) || 0,
         };
       }
       console.log("[Discovery] Final filters:", JSON.stringify(filters));
@@ -384,8 +489,12 @@ Deno.serve(async (req) => {
       const scored = allProfiles.map((p) => {
         const { score, breakdown } = calculateMatchScore(p, filters);
         const isSpam = validateSpam(p);
+        const followers = p.followers || 0;
+        const views = p.avg_views || 0;
+        const engagement_rate = followers > 0 ? Number(((views / followers) * 100).toFixed(2)) : 0;
         return {
           ...p,
+          engagement_rate,
           briefing_id: briefingId,
           match_score: score,
           score_breakdown: breakdown,
@@ -396,8 +505,10 @@ Deno.serve(async (req) => {
       });
 
       // Sort all profiles by score, mark qualified vs low score
+      const minEng = Number(filters?.min_engagement) || 0;
       let allScored = scored
         .filter((p) => !p.is_spam)
+        .filter((p) => minEng === 0 || (p.engagement_rate || 0) >= minEng)
         .sort((a, b) => b.match_score - a.match_score);
 
       // SullyGnome validation for top Twitch prospects (regardless of qualification)
@@ -431,7 +542,7 @@ Deno.serve(async (req) => {
       // Save ALL non-spam profiles to database (with qualification status implicit in score)
       if (allScored.length > 0) {
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const dbRecords = allScored.map(({ sullygnome_data, ...rest }) => rest);
+        const dbRecords = allScored.map(({ sullygnome_data, engagement_rate, ...rest }) => rest);
         const { error } = await supabase.from("discovery_prospects").insert(dbRecords);
         if (error) console.error("[Discovery] DB insert error:", error.message);
       }
