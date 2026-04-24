@@ -429,6 +429,7 @@ Deno.serve(async (req) => {
           max_age: Number(manual_filters.max_age) || 0,
           min_followers: Number(manual_filters.min_followers) || Number(filters.min_followers) || 0,
           max_followers: Number(manual_filters.max_followers) || 0,
+          min_engagement: Number(manual_filters.min_engagement) || 0,
         };
       }
       console.log("[Discovery] Final filters:", JSON.stringify(filters));
