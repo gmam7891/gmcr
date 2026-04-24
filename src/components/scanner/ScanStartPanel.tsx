@@ -82,19 +82,19 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
   const startScan = async () => {
     const login = streamerLogin.trim().toLowerCase();
     if (!login) {
-      toast.error("Digite o nome do streamer");
+      toast.error(t("scan.enter_streamer"));
       return;
     }
 
     setScanning(true);
-    setProgress("Buscando streamer...");
+    setProgress(t("scan.searching_streamer"));
 
     try {
       // Step 1: Get user info
       const { data: userData, error: userError } = await supabase.functions.invoke("twitch-api", {
         body: { action: "get_user", login },
       });
-      if (userError || !userData?.data?.[0]) throw new Error("Streamer não encontrado");
+      if (userError || !userData?.data?.[0]) throw new Error(t("scan.streamer_not_found"));
       const user = userData.data[0];
       const userId = user.id;
 
@@ -103,7 +103,7 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
       const { data: vodData, error: vodError } = await supabase.functions.invoke("twitch-api", {
         body: { action: "get_vods", user_id: userId, vod_count: vodCount },
       });
-      if (vodError || !vodData?.data?.length) throw new Error("Nenhuma VOD encontrada");
+      if (vodError || !vodData?.data?.length) throw new Error(t("scan.no_vods_found"));
 
       const vods = vodData.data.slice(0, vodCount);
       toast.info(`${vods.length} VODs encontradas. Iniciando análise...`);
@@ -215,7 +215,7 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
       onComplete?.();
     } catch (err: any) {
       console.error("Scan error:", err);
-      toast.error(err.message || "Erro durante o scan");
+      toast.error(err.message || t("scan.scan_error"));
       setProgress("❌ Erro: " + (err.message || "desconhecido"));
     } finally {
       setScanning(false);
@@ -226,11 +226,11 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
     <Card className="p-4 border-primary/20 bg-primary/5">
       <div className="flex items-center gap-2 mb-3">
         <ScanSearch className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-semibold">Iniciar Scan de VODs</h3>
+        <h3 className="text-sm font-semibold">{t("scan.start_scan")}</h3>
       </div>
       <div className="flex items-center gap-2">
         <Input
-          placeholder="Nome do streamer (ex: gaules)"
+          placeholder={t("scan.streamer_placeholder")}
           value={streamerLogin}
           onChange={e => setStreamerLogin(e.target.value)}
           disabled={scanning}
@@ -245,11 +245,11 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
           onChange={e => setVodCount(Number(e.target.value))}
           disabled={scanning}
           className="w-20 h-9 text-sm"
-          title="Número de VODs"
+          title={t("scan.vod_count_label")}
         />
         <Button onClick={startScan} disabled={scanning} size="sm" className="h-9 px-4">
           {scanning ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Play className="h-4 w-4 mr-1" />}
-          {scanning ? "Escaneando..." : "Iniciar"}
+          {scanning ? t("scan.scanning") : t("scan.start_btn")}
         </Button>
       </div>
       {progress && (

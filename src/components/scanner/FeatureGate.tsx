@@ -14,6 +14,12 @@ export function FeatureGate({ requiredPlan, children, isLocked }: Props) {
 
   if (!isLocked) return <>{children}</>;
 
+  const handleUpgradeClick = () => {
+    window.location.href =
+      "mailto:contato@starklytic.com?subject=Upgrade de Plano&body=Olá, gostaria de fazer upgrade para o plano " +
+      requiredPlan;
+  };
+
   return (
     <div className="relative">
       <div className="absolute inset-0 z-10 backdrop-blur-sm bg-background/60 rounded-lg flex flex-col items-center justify-center gap-3">
@@ -22,7 +28,7 @@ export function FeatureGate({ requiredPlan, children, isLocked }: Props) {
         <p className="text-sm text-muted-foreground text-center max-w-xs">
           {t("scan.feature_locked")} <strong>{requiredPlan}</strong>
         </p>
-        <Button variant="outline" size="sm" className="text-xs">
+        <Button variant="outline" size="sm" className="text-xs" onClick={handleUpgradeClick}>
           {t("scan.upgrade_cta")}
         </Button>
       </div>

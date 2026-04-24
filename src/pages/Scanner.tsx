@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -9,7 +9,6 @@ import { Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2, Building2,
 import { StatusHeader } from "@/components/scanner/StatusHeader";
 import { GlobalFilters } from "@/components/scanner/GlobalFilters";
 import { useScannerFilters } from "@/contexts/ScannerFiltersContext";
-import type { ScannerFilters } from "@/contexts/ScannerFiltersContext";
 import { DashboardTab } from "@/components/scanner/DashboardTab";
 import { RankingsTab } from "@/components/scanner/RankingsTab";
 import { VodQualityTab } from "@/components/scanner/VodQualityTab";
@@ -20,21 +19,15 @@ import { ReviewTab } from "@/components/scanner/ReviewTab";
 import { AuditTab } from "@/components/scanner/AuditTab";
 import { QualityTab } from "@/components/scanner/QualityTab";
 import { ScanStartPanel } from "@/components/scanner/ScanStartPanel";
-import { getDashboardData, getProviders, getGames } from "@/lib/scanner-api";
-import { Badge } from "@/components/ui/badge";
 import { SullyGnomeTab } from "@/components/scanner/SullyGnomeTab";
 import { AiLabTab } from "@/components/scanner/AiLabTab";
 import { ResultsTab } from "@/components/scanner/ResultsTab";
 
 const Scanner = () => {
   const { isAdmin, userAccess, signOut } = useAuth();
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { filters } = useScannerFilters();
-  const [dashData, setDashData] = useState<any>(null);
-  const [providers, setProviders] = useState<any[]>([]);
-  const [games, setGames] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [dataFilter, setDataFilter] = useState<"confirmed" | "all" | "suspect">("confirmed");
 
@@ -50,23 +43,8 @@ const Scanner = () => {
   const canAccessReview = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_review");
   const canAccessAudit = tier === "admin" || tier === "pro" || tier === "enterprise" || allowedTabs.includes("scanner_audit");
   const canAccessQuality = tier === "admin" || tier === "enterprise" || allowedTabs.includes("scanner_quality");
-
-  const refreshData = () => {
-    setLoading(true);
-    getDashboardData({ ...filters, block_status_filter: dataFilter })
-      .then(setDashData)
-      .catch(() => setDashData(null))
-      .finally(() => setLoading(false));
-  };
-
-  useEffect(() => {
-    getProviders().then(setProviders);
-    getGames().then(setGames);
-  }, []);
-
-  useEffect(() => {
-    refreshData();
-  }, [filters, dataFilter]);
+  const canAccessSullyGnome = isAdmin || allowedTabs.includes("scanner_ai_lab");
+  const canAccessAiLab = isAdmin || allowedTabs.includes("scanner_ai_lab");
 
   const tabs = [
     { id: "dashboard", label: t("scan.dashboard"), icon: LayoutDashboard },
@@ -80,8 +58,8 @@ const Scanner = () => {
     { id: "vod_quality", label: t("scan.vod_quality"), icon: FileCheck },
     { id: "queue", label: t("scan.queue_tab"), icon: ListChecks },
     { id: "sullygnome", label: t("sully.tab"), icon: BarChart3 },
-    { id: "ai_lab", label: "AI Lab", icon: FlaskConical },
-    { id: "results", label: "Resultados", icon: Trophy },
+    { id: "ai_lab", label: t("scan.ai_lab_title"), icon: FlaskConical },
+    { id: "results", label: t("scan.results_title"), icon: Trophy },
   ];
 
   return (
@@ -127,7 +105,7 @@ const Scanner = () => {
 
       <main className="p-6 space-y-4">
         <StatusHeader />
-        <ScanStartPanel onComplete={refreshData} />
+        {isAdmin && <ScanStartPanel onComplete={() => {}} />}
         <GlobalFilters />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -201,19 +179,21 @@ const Scanner = () => {
           </TabsContent>
 
           <TabsContent value="sullygnome">
-            <FeatureGate requiredPlan="Pro" isLocked={!canAccessAudit}>
+            <FeatureGate requiredPlan="Pro" isLocked={!canAccessSullyGnome}>
               <SullyGnomeTab />
             </FeatureGate>
           </TabsContent>
 
           <TabsContent value="ai_lab">
-            <FeatureGate requiredPlan="Pro" isLocked={!canAccessAudit}>
+            <FeatureGate requiredPlan="Pro" isLocked={!canAccessAiLab}>
               <AiLabTab />
             </FeatureGate>
           </TabsContent>
 
           <TabsContent value="results">
-            <ResultsTab filters={filters} />
+            <FeatureGate requiredPlan="Pro" isLocked={!isAdmin && !allowedTabs.includes("scanner_results")}>
+              <ResultsTab filters={filters} />
+            </FeatureGate>
           </TabsContent>
         </Tabs>
       </main>

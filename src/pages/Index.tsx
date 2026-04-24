@@ -13,7 +13,7 @@ import { AuthenticityTab } from "@/components/tabs/AuthenticityTab";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
-import { Shield, LogOut, ScanLine } from "lucide-react";
+import { Shield, LogOut } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import instagramIcon from "@/assets/instagram-icon.png";
 import twitchLogo from "@/assets/twitch-logo.png";
@@ -29,25 +29,25 @@ interface TabConfig {
   route?: string;
 }
 
-const TAB_CONFIG: TabConfig[] = [
-  { id: "scanner", label: "Casino Scanner", icon: "🎰", component: null, route: "/scanner" },
-  { id: "icp", label: "ICP Calc", icon: "📊", component: IcpTab },
-  { id: "discovery", label: "Prospecção", icon: "🔎", component: DiscoveryTab },
-  { id: "instagram", label: "Instagram", icon: instagramIcon, component: InstagramTab },
-  { id: "twitch", label: "Twitch", icon: twitchLogo, component: TwitchTab },
-  { id: "youtube", label: "YouTube", icon: youtubeLogo, component: YouTubeTab },
-  { id: "kick", label: "Kick", icon: kickLogo, component: KickTab },
-  { id: "vod", label: "VOD Analyzer", icon: "📈", component: VodTab },
-  { id: "monitor", label: "Monitor", icon: "📡", component: MonitorTab },
-  { id: "simulator", label: "Simulador", icon: "⚡", component: SimulatorTab },
-  { id: "authenticity", label: "Authenticity", icon: "🔍", component: AuthenticityTab },
-];
-
 const Index = () => {
   const { isAdmin, userAccess, signOut } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+
+  const TAB_CONFIG: TabConfig[] = [
+    { id: "scanner", label: t("mod.scanner.title"), icon: "🎰", component: null, route: "/scanner" },
+    { id: "icp", label: t("mod.icp.title"), icon: "📊", component: IcpTab },
+    { id: "discovery", label: t("mod.discovery.title"), icon: "🔎", component: DiscoveryTab },
+    { id: "instagram", label: t("mod.instagram.title"), icon: instagramIcon, component: InstagramTab },
+    { id: "twitch", label: t("mod.twitch.title"), icon: twitchLogo, component: TwitchTab },
+    { id: "youtube", label: t("mod.youtube.title"), icon: youtubeLogo, component: YouTubeTab },
+    { id: "kick", label: t("mod.kick.title"), icon: kickLogo, component: KickTab },
+    { id: "vod", label: t("mod.vod.title"), icon: "📈", component: VodTab },
+    { id: "monitor", label: t("mod.monitor.title"), icon: "📡", component: MonitorTab },
+    { id: "simulator", label: t("mod.simulator.title"), icon: "⚡", component: SimulatorTab },
+    { id: "authenticity", label: t("mod.authenticity.title"), icon: "🔍", component: AuthenticityTab },
+  ];
 
   const allowedTabs = userAccess?.allowed_tabs || [];
   const visibleTabs = TAB_CONFIG.filter((t) => allowedTabs.includes(t.id));
@@ -101,21 +101,39 @@ const Index = () => {
       <main className="p-3 sm:p-6">
         <Tabs defaultValue={defaultTab} className="space-y-4 sm:space-y-6">
           <TabsList className="bg-secondary/50 border border-border p-1 h-auto gap-1 flex-wrap overflow-x-auto">
-            {visibleTabs.map((tab) => (
-              <TabsTrigger
-                key={tab.id}
-                value={tab.route ? "__nav__" : tab.id}
-                onClick={tab.route ? (e) => { e.preventDefault(); navigate(tab.route!); } : undefined}
-                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-[10px] sm:text-xs font-mono uppercase tracking-wider px-2 sm:px-4 py-1.5 sm:py-2 flex items-center gap-1 sm:gap-1.5"
-              >
-                {tab.icon && (tab.icon.length > 5 ? (
-                  <img src={tab.icon} alt="" className="h-3.5 w-3.5 sm:h-4 sm:w-4 object-contain" />
-                ) : (
-                  <span className="text-xs sm:text-sm">{tab.icon}</span>
-                ))}
-                <span className="hidden xs:inline sm:inline">{tab.label}</span>
-              </TabsTrigger>
-            ))}
+            {visibleTabs.map((tab) => {
+              if (tab.route) {
+                // Tab de navegação — renderiza como botão simples
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => navigate(tab.route!)}
+                    className="text-[10px] sm:text-xs font-mono uppercase tracking-wider px-2 sm:px-4 py-1.5 sm:py-2 flex items-center gap-1 sm:gap-1.5 rounded-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                  >
+                    {tab.icon && (tab.icon.length > 5 ? (
+                      <img src={tab.icon} alt="" className="h-3.5 w-3.5 sm:h-4 sm:w-4 object-contain" />
+                    ) : (
+                      <span className="text-xs sm:text-sm">{tab.icon}</span>
+                    ))}
+                    <span className="hidden xs:inline sm:inline">{tab.label}</span>
+                  </button>
+                );
+              }
+              return (
+                <TabsTrigger
+                  key={tab.id}
+                  value={tab.id}
+                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-[10px] sm:text-xs font-mono uppercase tracking-wider px-2 sm:px-4 py-1.5 sm:py-2 flex items-center gap-1 sm:gap-1.5"
+                >
+                  {tab.icon && (tab.icon.length > 5 ? (
+                    <img src={tab.icon} alt="" className="h-3.5 w-3.5 sm:h-4 sm:w-4 object-contain" />
+                  ) : (
+                    <span className="text-xs sm:text-sm">{tab.icon}</span>
+                  ))}
+                  <span className="hidden xs:inline sm:inline">{tab.label}</span>
+                </TabsTrigger>
+              );
+            })}
           </TabsList>
 
           {contentTabs.map((tab) => (
