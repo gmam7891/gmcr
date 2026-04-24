@@ -283,6 +283,7 @@ Deno.serve(async (req) => {
       custom_keywords,
       manual_filters,
       use_ai_expansion,
+      reference_url,
     } = await req.json();
     const maxResults = Math.min(limit || 50, 100);
 
@@ -292,28 +293,44 @@ Deno.serve(async (req) => {
 
       const hasCustomKws = Array.isArray(custom_keywords) && custom_keywords.length > 0;
       const hasBriefing = typeof briefing === "string" && briefing.trim().length > 0;
+      const hasReference = typeof reference_url === "string" && reference_url.trim().length > 0;
+
+      // ─── If reference URL given, derive keywords from that profile ─────
+      let referenceKeywords: string[] = [];
+      let referenceProfile: any = null;
+      if (hasReference) {
+        console.log("[Discovery] Analyzing reference profile:", reference_url);
+        referenceProfile = await scrapeReferenceProfile(reference_url.trim());
+        if (referenceProfile) {
+          referenceKeywords = await extractKeywordsFromProfile(referenceProfile);
+          console.log("[Discovery] Reference keywords:", referenceKeywords);
+        }
+      }
+
       // AI expansion runs only when explicitly requested AND briefing exists AND no manual keywords
       const shouldExpand = use_ai_expansion === true && hasBriefing && !hasCustomKws;
 
       if (shouldExpand) {
         console.log("[Discovery] Expanding briefing with AI...");
         const expanded = await expandBriefing(briefing);
-        keywords = expanded.keywords;
+        keywords = [...expanded.keywords, ...referenceKeywords];
         filters = expanded.filters;
       } else {
         const kws = hasCustomKws
           ? custom_keywords.map((k: string) => String(k).trim()).filter(Boolean)
           : [];
-        const twitchKws = kws.filter((k: string) => !k.startsWith("#"));
-        const igKws = kws.filter((k: string) => k.startsWith("#"));
-        keywords = kws;
+        const merged = [...new Set([...kws, ...referenceKeywords])];
+        const twitchKws = merged.filter((k: string) => !k.startsWith("#"));
+        const igKws = merged.filter((k: string) => k.startsWith("#"));
+        keywords = merged;
         filters = {
-          keywords_twitch: twitchKws.length > 0 ? twitchKws : kws,
-          keywords_instagram: igKws.length > 0 ? igKws : kws.map((k: string) => `#${k.replace(/\s+/g, "")}`),
-          content_indicators: kws,
+          keywords_twitch: twitchKws.length > 0 ? twitchKws : merged,
+          keywords_instagram: igKws.length > 0 ? igKws : merged.map((k: string) => `#${k.replace(/\s+/g, "")}`),
+          content_indicators: merged,
         };
-        console.log("[Discovery] Using custom/empty keywords:", keywords);
+        console.log("[Discovery] Using custom/reference keywords:", keywords);
       }
+
 
       // Merge manual filters from the UI on top — these always win
       if (manual_filters && typeof manual_filters === "object") {
