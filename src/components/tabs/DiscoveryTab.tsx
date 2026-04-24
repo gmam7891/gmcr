@@ -97,16 +97,6 @@ export function DiscoveryTab() {
   const removeLocation = (loc: string) => setLocations(locations.filter((l) => l !== loc));
 
   const handleDiscover = async () => {
-    const hasAnyInput =
-      briefing.trim() || customKeywords.length > 0 || locations.length > 0 || referenceUrl.trim();
-    if (!hasAnyInput) {
-      toast({
-        title: t("disc.error"),
-        description: "Adicione ao menos um termo de busca, briefing ou localização.",
-        variant: "destructive",
-      });
-      return;
-    }
     if (platforms.length === 0) {
       toast({ title: t("disc.error"), description: t("disc.platform_required"), variant: "destructive" });
       return;
@@ -256,7 +246,8 @@ export function DiscoveryTab() {
         {/* Manual keywords */}
         <div className="space-y-2 border-t border-border/40 pt-4">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-            Termos de busca {customKeywords.length > 0 && <span className="text-foreground">({customKeywords.length})</span>}
+            Termos de busca <span className="text-muted-foreground/60 normal-case tracking-normal">(opcional)</span>
+            {customKeywords.length > 0 && <span className="text-foreground ml-1">({customKeywords.length})</span>}
           </Label>
           <div className="flex flex-wrap gap-1.5 min-h-[24px]">
             {customKeywords.map((kw) => (
