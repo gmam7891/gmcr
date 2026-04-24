@@ -145,10 +145,12 @@ export function DiscoveryTab() {
 
   const filteredProspects = useMemo(() => {
     if (!result?.prospects) return [];
-    if (scoreFilter === "qualified") return result.prospects.filter((p) => p.match_score >= 70);
-    if (scoreFilter === "low") return result.prospects.filter((p) => p.match_score < 70);
-    return result.prospects;
-  }, [result, scoreFilter]);
+    const list = [...result.prospects];
+    if (sortBy === "score") return list.sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
+    if (sortBy === "followers") return list.sort((a, b) => (b.followers || 0) - (a.followers || 0));
+    if (sortBy === "engagement") return list.sort((a, b) => (b.engagement_rate || 0) - (a.engagement_rate || 0));
+    return list; // "original" — order returned by backend
+  }, [result, sortBy]);
 
   const exportExcel = () => {
     if (!result?.prospects?.length) return;
