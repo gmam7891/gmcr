@@ -73,8 +73,8 @@ export function DiscoveryTab() {
   const [minEngagement, setMinEngagement] = useState<number>(0); // % — 0 to 1000
   const [referenceUrl, setReferenceUrl] = useState<string>("");
 
-  // Result filtering
-  const [scoreFilter, setScoreFilter] = useState<"all" | "qualified" | "low">("all");
+  // Result sorting (no filtering — all profiles always shown)
+  const [sortBy, setSortBy] = useState<"original" | "score" | "followers" | "engagement">("original");
 
   const togglePlatform = (p: string) => {
     setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
@@ -145,10 +145,12 @@ export function DiscoveryTab() {
 
   const filteredProspects = useMemo(() => {
     if (!result?.prospects) return [];
-    if (scoreFilter === "qualified") return result.prospects.filter((p) => p.match_score >= 70);
-    if (scoreFilter === "low") return result.prospects.filter((p) => p.match_score < 70);
-    return result.prospects;
-  }, [result, scoreFilter]);
+    const list = [...result.prospects];
+    if (sortBy === "score") return list.sort((a, b) => (b.match_score || 0) - (a.match_score || 0));
+    if (sortBy === "followers") return list.sort((a, b) => (b.followers || 0) - (a.followers || 0));
+    if (sortBy === "engagement") return list.sort((a, b) => (b.engagement_rate || 0) - (a.engagement_rate || 0));
+    return list; // "original" — order returned by backend
+  }, [result, sortBy]);
 
   const exportExcel = () => {
     if (!result?.prospects?.length) return;
@@ -512,24 +514,20 @@ export function DiscoveryTab() {
             </div>
           )}
           <div className="flex items-center gap-2 pt-1 border-t border-border/40">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Mostrar:</span>
-            {([
-              { key: "all", label: `Todos (${result.prospects.length})` },
-              { key: "qualified", label: `Qualificados (${result.total_qualified})` },
-              { key: "low", label: `Score baixo (${result.total_low_score})` },
-            ] as const).map((opt) => (
-              <button
-                key={opt.key}
-                onClick={() => setScoreFilter(opt.key)}
-                className={`text-[10px] font-mono uppercase tracking-wider px-2.5 py-1 rounded border transition-colors ${
-                  scoreFilter === opt.key
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-secondary/50 text-muted-foreground border-border hover:text-foreground"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Mostrando todos os {result.prospects.length} perfis encontrados — ordenar por:
+            </span>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+              <SelectTrigger className="h-7 w-[180px] text-[10px] font-mono uppercase tracking-wider">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="original" className="text-xs">Ordem original</SelectItem>
+                <SelectItem value="score" className="text-xs">Match score (maior)</SelectItem>
+                <SelectItem value="followers" className="text-xs">Seguidores (maior)</SelectItem>
+                <SelectItem value="engagement" className="text-xs">Engajamento (maior)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       )}

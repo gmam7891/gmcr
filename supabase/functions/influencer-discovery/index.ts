@@ -140,7 +140,95 @@ async function scrapeInstagram(keywords: string[], limit: number): Promise<any[]
   }
 }
 
-// ─── Match Score (generic — no niche bias) ──────────────────────────────
+// ─── Firecrawl Web Search (real Google search) ──────────────────────────
+// Uses Firecrawl /search to find IG/Twitch profile URLs across the open web.
+// Returns lightweight profile stubs that are merged with Apify results.
+async function searchProfilesViaFirecrawl(
+  keywords: string[],
+  platforms: string[],
+  limitPerQuery = 10,
+): Promise<any[]> {
+  const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
+  if (!FIRECRAWL_API_KEY) {
+    console.warn("[Firecrawl] FIRECRAWL_API_KEY not set — skipping web search");
+    return [];
+  }
+  if (!keywords.length) return [];
+
+  const profiles: any[] = [];
+  const seen = new Set<string>();
+
+  // Build site-restricted queries: e.g. site:instagram.com "fitness"
+  const queries: { query: string; platform: "instagram" | "twitch" }[] = [];
+  for (const kw of keywords.slice(0, 4)) {
+    const cleanKw = kw.replace(/^#/, "").trim();
+    if (!cleanKw) continue;
+    if (platforms.includes("instagram")) {
+      queries.push({ query: `site:instagram.com "${cleanKw}"`, platform: "instagram" });
+    }
+    if (platforms.includes("twitch")) {
+      queries.push({ query: `site:twitch.tv "${cleanKw}"`, platform: "twitch" });
+    }
+  }
+
+  for (const { query, platform } of queries) {
+    try {
+      const res = await fetch("https://api.firecrawl.dev/v2/search", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query, limit: limitPerQuery }),
+      });
+      if (!res.ok) {
+        console.warn(`[Firecrawl] Search failed for "${query}": ${res.status}`);
+        continue;
+      }
+      const json = await res.json();
+      const results = json?.data?.web || json?.data || [];
+      for (const r of results) {
+        const url: string = r.url || "";
+        if (!url) continue;
+        // Extract username from URL
+        let username = "";
+        if (platform === "instagram") {
+          const m = url.match(/instagram\.com\/([A-Za-z0-9._]+)\/?$/);
+          if (m) username = m[1];
+        } else {
+          const m = url.match(/twitch\.tv\/([A-Za-z0-9_]+)\/?$/);
+          if (m) username = m[1];
+        }
+        if (!username) continue;
+        // Filter out reserved/non-profile paths
+        if (["p", "reel", "explore", "directory", "videos", "search", "settings", "about", "tv"].includes(username.toLowerCase())) continue;
+        const key = `${platform}:${username.toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        profiles.push({
+          platform,
+          username,
+          display_name: r.title?.replace(/[\u2022\|].*$/, "").trim() || username,
+          bio: r.description || "",
+          profile_url: url,
+          avatar_url: null,
+          followers: 0, // unknown from search — Apify or downstream may enrich
+          avg_views: 0,
+          posts_last_30d: 0,
+          lives_last_30d: 0,
+          location_declared: null,
+          source: "firecrawl",
+        });
+      }
+    } catch (e: any) {
+      console.warn(`[Firecrawl] Error for "${query}":`, e.message);
+    }
+  }
+
+  console.log(`[Firecrawl] Found ${profiles.length} profile candidates from web search`);
+  return profiles;
+}
+
 const CASINO_KEYWORDS = ["casino", "cassino", "slot", "slots", "bet", "aposta", "apostas", "gambling", "igaming", "roleta", "blackjack", "poker", "tigrinho", "fortune"];
 // Heuristic gender hints from bios/names (declarative only — never assumed)
 const FEMALE_HINTS = ["ela/dela", "she/her", "♀", "mulher", "menina", "garota", "girl", "miss", "queen", "rainha"];
@@ -481,8 +569,22 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Firecrawl web search runs in parallel — finds profiles via Google
+      promises.push(
+        searchProfilesViaFirecrawl(keywords, selectedPlatforms, 10).then((results) => {
+          const seen = new Set(allProfiles.map((p) => `${p.platform}:${(p.username || "").toLowerCase()}`));
+          for (const r of results) {
+            const k = `${r.platform}:${r.username.toLowerCase()}`;
+            if (!seen.has(k)) {
+              seen.add(k);
+              allProfiles.push(r);
+            }
+          }
+        })
+      );
+
       await Promise.all(promises);
-      console.log(`[Discovery] Scraped ${allProfiles.length} profiles total`);
+      console.log(`[Discovery] Scraped ${allProfiles.length} profiles total (Apify + Firecrawl)`);
 
       // Score and filter
       const briefingId = crypto.randomUUID();
