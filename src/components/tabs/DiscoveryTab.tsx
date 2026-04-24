@@ -97,7 +97,7 @@ export function DiscoveryTab() {
 
   const handleDiscover = async () => {
     const hasAnyInput =
-      briefing.trim() || customKeywords.length > 0 || locations.length > 0;
+      briefing.trim() || customKeywords.length > 0 || locations.length > 0 || referenceUrl.trim();
     if (!hasAnyInput) {
       toast({
         title: t("disc.error"),
