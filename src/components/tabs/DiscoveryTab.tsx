@@ -126,6 +126,7 @@ export function DiscoveryTab() {
           limit: 50,
           custom_keywords: customKeywords.length > 0 ? customKeywords : undefined,
           use_ai_expansion: useAiExpansion,
+          reference_url: referenceUrl.trim() || undefined,
           manual_filters: {
             locations,
             gender,
@@ -133,6 +134,7 @@ export function DiscoveryTab() {
             max_age: maxAge ? Number(maxAge) : 0,
             min_followers: minFollowers ? Number(minFollowers) : 0,
             max_followers: maxFollowers ? Number(maxFollowers) : 0,
+            min_engagement: minEngagement,
           },
         },
       });
