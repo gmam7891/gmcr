@@ -4,10 +4,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { Search, Sparkles, MapPin, Users, Activity, Gamepad2, AlertTriangle, Download, ExternalLink, X, Plus, Wand2 } from "lucide-react";
+import { Search, Sparkles, MapPin, Users, Activity, Gamepad2, AlertTriangle, Download, ExternalLink, X, Plus, Wand2, SlidersHorizontal } from "lucide-react";
 import * as XLSX from "xlsx";
 
 interface Prospect {
@@ -25,6 +28,7 @@ interface Prospect {
   location_declared: string;
   location_inferred: string;
   has_casino_content: boolean;
+  gender_inferred?: "female" | "male" | "unknown";
   match_score: number;
   score_breakdown: { location: number; followers: number; frequency: number; content: number };
   is_spam: boolean;
@@ -41,19 +45,31 @@ interface DiscoveryResult {
   prospects: Prospect[];
 }
 
+type Gender = "any" | "female" | "male";
+
 export function DiscoveryTab() {
   const { t } = useLanguage();
   const [briefing, setBriefing] = useState("");
+  const [useAiExpansion, setUseAiExpansion] = useState(false); // OFF by default — user has full control
   const [platforms, setPlatforms] = useState<string[]>(["twitch", "instagram"]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [step, setStep] = useState<"input" | "expanding" | "scraping" | "scoring" | "done">("input");
 
-  // Editable keyword state
+  // Manual keywords (no auto-suggestion)
   const [customKeywords, setCustomKeywords] = useState<string[]>([]);
   const [newKeyword, setNewKeyword] = useState("");
 
-  // Score / qualification filter for results
+  // Demographic / audience filters (all manual, all optional)
+  const [locations, setLocations] = useState<string[]>([]);
+  const [newLocation, setNewLocation] = useState("");
+  const [gender, setGender] = useState<Gender>("any");
+  const [minAge, setMinAge] = useState<string>("");
+  const [maxAge, setMaxAge] = useState<string>("");
+  const [minFollowers, setMinFollowers] = useState<string>("");
+  const [maxFollowers, setMaxFollowers] = useState<string>("");
+
+  // Result filtering
   const [scoreFilter, setScoreFilter] = useState<"all" | "qualified" | "low">("all");
 
   const togglePlatform = (p: string) => {
@@ -62,19 +78,29 @@ export function DiscoveryTab() {
 
   const addKeyword = () => {
     const k = newKeyword.trim();
-    if (!k) return;
-    if (customKeywords.includes(k)) return;
+    if (!k || customKeywords.includes(k)) return;
     setCustomKeywords([...customKeywords, k]);
     setNewKeyword("");
   };
+  const removeKeyword = (kw: string) => setCustomKeywords(customKeywords.filter((k) => k !== kw));
 
-  const removeKeyword = (kw: string) => {
-    setCustomKeywords(customKeywords.filter((k) => k !== kw));
+  const addLocation = () => {
+    const l = newLocation.trim();
+    if (!l || locations.includes(l)) return;
+    setLocations([...locations, l]);
+    setNewLocation("");
   };
+  const removeLocation = (loc: string) => setLocations(locations.filter((l) => l !== loc));
 
   const handleDiscover = async () => {
-    if (!briefing.trim() && customKeywords.length === 0) {
-      toast({ title: t("disc.error"), description: t("disc.briefing_required"), variant: "destructive" });
+    const hasAnyInput =
+      briefing.trim() || customKeywords.length > 0 || locations.length > 0;
+    if (!hasAnyInput) {
+      toast({
+        title: t("disc.error"),
+        description: "Adicione ao menos um termo de busca, briefing ou localização.",
+        variant: "destructive",
+      });
       return;
     }
     if (platforms.length === 0) {
@@ -83,28 +109,33 @@ export function DiscoveryTab() {
     }
 
     setLoading(true);
-    setStep("expanding");
+    setStep(useAiExpansion && briefing.trim() ? "expanding" : "scraping");
 
     try {
-      setTimeout(() => setStep("scraping"), 3000);
-      setTimeout(() => setStep("scoring"), 8000);
+      setTimeout(() => setStep("scraping"), 2000);
+      setTimeout(() => setStep("scoring"), 7000);
 
       const { data, error } = await supabase.functions.invoke("influencer-discovery", {
         body: {
           action: "discover",
-          briefing: briefing || "Busca personalizada",
+          briefing: briefing || "",
           platforms,
           limit: 50,
           custom_keywords: customKeywords.length > 0 ? customKeywords : undefined,
+          use_ai_expansion: useAiExpansion,
+          manual_filters: {
+            locations,
+            gender,
+            min_age: minAge ? Number(minAge) : 0,
+            max_age: maxAge ? Number(maxAge) : 0,
+            min_followers: minFollowers ? Number(minFollowers) : 0,
+            max_followers: maxFollowers ? Number(maxFollowers) : 0,
+          },
         },
       });
 
       if (error) throw error;
       setResult(data);
-      // Sync chips with the keywords actually used (so user can edit & re-run)
-      if (data?.keywords?.length) {
-        setCustomKeywords(data.keywords);
-      }
       setStep("done");
       toast({ title: t("disc.success"), description: `${data.total_qualified} ${t("disc.profiles_found")}` });
     } catch (e: any) {
@@ -132,12 +163,8 @@ export function DiscoveryTab() {
       [t("disc.followers")]: p.followers,
       [t("disc.avg_views")]: p.avg_views,
       [t("disc.location")]: p.location_declared || p.location_inferred || "-",
-      [t("disc.casino_content")]: p.has_casino_content ? "✅" : "❌",
+      Gênero: p.gender_inferred || "-",
       [t("disc.match_score")]: p.match_score,
-      [t("disc.score_location")]: p.score_breakdown?.location || 0,
-      [t("disc.score_followers")]: p.score_breakdown?.followers || 0,
-      [t("disc.score_frequency")]: p.score_breakdown?.frequency || 0,
-      [t("disc.score_content")]: p.score_breakdown?.content || 0,
       URL: p.profile_url,
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -156,44 +183,57 @@ export function DiscoveryTab() {
 
   return (
     <div className="space-y-6">
-      {/* Briefing Input */}
-      <div className="card-surface p-6 space-y-4">
+      {/* ── Search Builder ────────────────────────────────────────── */}
+      <div className="card-surface p-6 space-y-5">
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-primary" />
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground">{t("disc.title")}</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground">
+            {t("disc.title")}
+          </h2>
         </div>
-        <p className="text-xs text-muted-foreground">{t("disc.subtitle")}</p>
+        <p className="text-xs text-muted-foreground">
+          Monte sua busca manualmente. Todos os campos são opcionais — combine como preferir.
+        </p>
 
-        <Textarea
-          placeholder={t("disc.placeholder")}
-          value={briefing}
-          onChange={(e) => setBriefing(e.target.value)}
-          className="min-h-[100px] text-sm"
-          disabled={loading}
-        />
-
-        {/* Editable Keywords */}
+        {/* Briefing — optional, AI-expansion is opt-in */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Wand2 className="h-3 w-3" />
-              {t("disc.ai_keywords") || "Termos de busca"}
-              <span className="text-[10px] normal-case tracking-normal text-muted-foreground/60">
-                — {customKeywords.length > 0 ? "edite ou adicione termos" : "deixe vazio para a IA gerar"}
-              </span>
-            </span>
-            {customKeywords.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setCustomKeywords([])}
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+              Briefing (opcional)
+            </Label>
+            <div className="flex items-center gap-2">
+              <Wand2 className="h-3 w-3 text-muted-foreground" />
+              <Label htmlFor="ai-toggle" className="text-[10px] uppercase tracking-wider text-muted-foreground cursor-pointer">
+                Expandir com IA
+              </Label>
+              <Switch
+                id="ai-toggle"
+                checked={useAiExpansion}
+                onCheckedChange={setUseAiExpansion}
                 disabled={loading}
-                className="text-[10px] text-muted-foreground hover:text-destructive uppercase tracking-wider"
-              >
-                Limpar
-              </button>
-            )}
+              />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+          <Textarea
+            placeholder="Descreva quem você procura. Exemplo: 'Streamers de games competitivos no Norte do Brasil' ou deixe vazio."
+            value={briefing}
+            onChange={(e) => setBriefing(e.target.value)}
+            className="min-h-[80px] text-sm"
+            disabled={loading}
+          />
+          {useAiExpansion && (
+            <p className="text-[10px] text-muted-foreground/70">
+              ⚠ A IA gerará termos automaticamente a partir do briefing acima.
+            </p>
+          )}
+        </div>
+
+        {/* Manual keywords */}
+        <div className="space-y-2 border-t border-border/40 pt-4">
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+            Termos de busca {customKeywords.length > 0 && <span className="text-foreground">({customKeywords.length})</span>}
+          </Label>
+          <div className="flex flex-wrap gap-1.5 min-h-[24px]">
             {customKeywords.map((kw) => (
               <Badge key={kw} variant="secondary" className="text-[10px] font-mono gap-1 pr-1">
                 {kw}
@@ -208,18 +248,16 @@ export function DiscoveryTab() {
                 </button>
               </Badge>
             ))}
+            {customKeywords.length === 0 && (
+              <span className="text-[10px] text-muted-foreground/60 italic">Nenhum termo adicionado</span>
+            )}
           </div>
           <div className="flex gap-2">
             <Input
-              placeholder='ex: "fortune tiger", #betano, slots'
+              placeholder='ex: "minecraft", #fitness, viagem'
               value={newKeyword}
               onChange={(e) => setNewKeyword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addKeyword();
-                }
-              }}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addKeyword(); } }}
               disabled={loading}
               className="h-8 text-xs flex-1"
             />
@@ -228,11 +266,136 @@ export function DiscoveryTab() {
             </Button>
           </div>
           <p className="text-[10px] text-muted-foreground/70">
-            Use <code className="font-mono">#hashtag</code> para Instagram e termos sem # para Twitch.
+            <code className="font-mono">#hashtag</code> para Instagram · termos sem # para Twitch.
           </p>
         </div>
 
-        <div className="flex items-center gap-4">
+        {/* Demographic filters */}
+        <div className="space-y-3 border-t border-border/40 pt-4">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+              Filtros de público (opcionais)
+            </Label>
+          </div>
+
+          {/* Locations */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground/80">
+              <MapPin className="h-3 w-3 inline mr-1" />Localização
+            </Label>
+            <div className="flex flex-wrap gap-1.5 min-h-[20px]">
+              {locations.map((loc) => (
+                <Badge key={loc} variant="outline" className="text-[10px] font-mono gap-1 pr-1">
+                  {loc}
+                  <button
+                    type="button"
+                    onClick={() => removeLocation(loc)}
+                    disabled={loading}
+                    className="hover:text-destructive"
+                    aria-label={`Remover ${loc}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+              {locations.length === 0 && (
+                <span className="text-[10px] text-muted-foreground/60 italic">Qualquer local</span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                placeholder="ex: São Paulo, Brasil, Lisboa, Portugal"
+                value={newLocation}
+                onChange={(e) => setNewLocation(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLocation(); } }}
+                disabled={loading}
+                className="h-8 text-xs flex-1"
+              />
+              <Button type="button" size="sm" variant="outline" onClick={addLocation} disabled={loading || !newLocation.trim()} className="h-8 gap-1">
+                <Plus className="h-3 w-3" /> Adicionar
+              </Button>
+            </div>
+          </div>
+
+          {/* Gender + Age */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground/80">Gênero</Label>
+              <Select value={gender} onValueChange={(v) => setGender(v as Gender)} disabled={loading}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any" className="text-xs">Qualquer</SelectItem>
+                  <SelectItem value="female" className="text-xs">Feminino</SelectItem>
+                  <SelectItem value="male" className="text-xs">Masculino</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground/80">Idade mín.</Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                placeholder="ex: 18"
+                value={minAge}
+                onChange={(e) => setMinAge(e.target.value)}
+                disabled={loading}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground/80">Idade máx.</Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                placeholder="ex: 35"
+                value={maxAge}
+                onChange={(e) => setMaxAge(e.target.value)}
+                disabled={loading}
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+
+          {/* Followers range */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground/80">
+                <Users className="h-3 w-3 inline mr-1" />Seguidores mín.
+              </Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                placeholder="ex: 5000"
+                value={minFollowers}
+                onChange={(e) => setMinFollowers(e.target.value)}
+                disabled={loading}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground/80">Seguidores máx.</Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                placeholder="ex: 500000"
+                value={maxFollowers}
+                onChange={(e) => setMaxFollowers(e.target.value)}
+                disabled={loading}
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+
+          <p className="text-[10px] text-muted-foreground/70">
+            ⓘ Idade e gênero são inferidos a partir de bio/nome — nem todos os perfis serão classificados.
+          </p>
+        </div>
+
+        {/* Platforms */}
+        <div className="flex items-center gap-4 border-t border-border/40 pt-4">
           <span className="text-xs text-muted-foreground uppercase tracking-wider">{t("disc.platforms")}:</span>
           {["twitch", "instagram"].map((p) => (
             <button
@@ -250,8 +413,9 @@ export function DiscoveryTab() {
           ))}
         </div>
 
+        {/* Submit */}
         <div className="flex items-center gap-3">
-          <Button onClick={handleDiscover} disabled={loading || (!briefing.trim() && customKeywords.length === 0)} className="gap-2">
+          <Button onClick={handleDiscover} disabled={loading} className="gap-2">
             <Search className="h-4 w-4" />
             {loading ? t("disc.searching") : t("disc.search_btn")}
           </Button>
@@ -275,7 +439,7 @@ export function DiscoveryTab() {
         )}
       </div>
 
-      {/* Result stats + filter */}
+      {/* ── Result stats + filter ─────────────────────────────────── */}
       {result && (
         <div className="card-surface p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
@@ -284,6 +448,14 @@ export function DiscoveryTab() {
             <span>{t("disc.spam_filtered")}: <strong className="text-destructive">{result.total_spam}</strong></span>
             <span>{t("disc.low_score")}: <strong className="text-warning">{result.total_low_score}</strong></span>
           </div>
+          {result.keywords?.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/40">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Termos usados:</span>
+              {result.keywords.map((kw) => (
+                <Badge key={kw} variant="outline" className="text-[9px] font-mono">{kw}</Badge>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-2 pt-1 border-t border-border/40">
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Mostrar:</span>
             {([
@@ -307,12 +479,11 @@ export function DiscoveryTab() {
         </div>
       )}
 
-      {/* Results Grid */}
+      {/* ── Results Grid ─────────────────────────────────────────── */}
       {result && filteredProspects.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredProspects.map((p, i) => (
             <div key={i} className="card-surface p-4 space-y-3 hover:border-primary/50 transition-colors">
-              {/* Header */}
               <div className="flex items-start gap-3">
                 {p.avatar_url ? (
                   <img src={p.avatar_url} alt={p.username} className="w-10 h-10 rounded-full object-cover border border-border" />
@@ -333,12 +504,8 @@ export function DiscoveryTab() {
                 </div>
               </div>
 
-              {/* Bio */}
-              {p.bio && (
-                <p className="text-xs text-muted-foreground line-clamp-2">{p.bio}</p>
-              )}
+              {p.bio && <p className="text-xs text-muted-foreground line-clamp-2">{p.bio}</p>}
 
-              {/* Score Breakdown */}
               <div className="grid grid-cols-4 gap-1">
                 {[
                   { icon: MapPin, label: t("disc.score_location"), value: p.score_breakdown?.location || 0, max: 30 },
@@ -356,23 +523,23 @@ export function DiscoveryTab() {
                 ))}
               </div>
 
-              {/* Metrics */}
-              <div className="flex gap-3 text-[10px] text-muted-foreground">
+              <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
                 <span><Users className="h-3 w-3 inline mr-0.5" />{(p.followers || 0).toLocaleString()}</span>
                 {p.avg_views > 0 && <span>👁 {p.avg_views.toLocaleString()}</span>}
                 {(p.location_declared || p.location_inferred) && (
                   <span><MapPin className="h-3 w-3 inline mr-0.5" />{p.location_declared || p.location_inferred}</span>
                 )}
+                {p.gender_inferred && p.gender_inferred !== "unknown" && (
+                  <span className="capitalize">⚥ {p.gender_inferred === "female" ? "Fem" : "Masc"}</span>
+                )}
               </div>
 
-              {/* Casino badge */}
               {p.has_casino_content && (
                 <Badge variant="default" className="text-[9px]">
                   <Gamepad2 className="h-3 w-3 mr-1" />{t("disc.casino_confirmed")}
                 </Badge>
               )}
 
-              {/* Actions */}
               <div className="flex gap-2 pt-1">
                 <Button variant="outline" size="sm" className="text-[10px] h-7 gap-1" asChild>
                   <a href={p.profile_url} target="_blank" rel="noopener noreferrer">
