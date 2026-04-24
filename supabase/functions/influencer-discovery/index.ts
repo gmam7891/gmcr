@@ -569,8 +569,22 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Firecrawl web search runs in parallel — finds profiles via Google
+      promises.push(
+        searchProfilesViaFirecrawl(keywords, selectedPlatforms, 10).then((results) => {
+          const seen = new Set(allProfiles.map((p) => `${p.platform}:${(p.username || "").toLowerCase()}`));
+          for (const r of results) {
+            const k = `${r.platform}:${r.username.toLowerCase()}`;
+            if (!seen.has(k)) {
+              seen.add(k);
+              allProfiles.push(r);
+            }
+          }
+        })
+      );
+
       await Promise.all(promises);
-      console.log(`[Discovery] Scraped ${allProfiles.length} profiles total`);
+      console.log(`[Discovery] Scraped ${allProfiles.length} profiles total (Apify + Firecrawl)`);
 
       // Score and filter
       const briefingId = crypto.randomUUID();
