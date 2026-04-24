@@ -233,6 +233,25 @@ export function DiscoveryTab() {
           )}
         </div>
 
+        {/* Reference profile URL — find similar */}
+        <div className="space-y-2 border-t border-border/40 pt-4">
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <Link2 className="h-3 w-3" />
+            Perfil de referência (opcional)
+          </Label>
+          <Input
+            type="url"
+            placeholder="https://instagram.com/usuario  ou  https://twitch.tv/canal"
+            value={referenceUrl}
+            onChange={(e) => setReferenceUrl(e.target.value)}
+            disabled={loading}
+            className="h-9 text-xs font-mono"
+          />
+          <p className="text-[10px] text-muted-foreground/70">
+            ⓘ A IA vai analisar este perfil (bio, nicho, audiência) e procurar perfis semelhantes.
+          </p>
+        </div>
+
         {/* Manual keywords */}
         <div className="space-y-2 border-t border-border/40 pt-4">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground">
