@@ -270,6 +270,93 @@ function normalizeInstagramProfile(raw: any): any {
   };
 }
 
+// ─── Reference Profile Analysis ─────────────────────────────────────────
+function parseProfileUrl(rawUrl: string): { platform: "twitch" | "instagram" | null; username: string } {
+  try {
+    const u = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`);
+    const host = u.hostname.toLowerCase().replace(/^www\./, "");
+    const path = u.pathname.replace(/^\/+|\/+$/g, "").split("/")[0] || "";
+    if (host.includes("twitch.tv")) return { platform: "twitch", username: path };
+    if (host.includes("instagram.com")) return { platform: "instagram", username: path };
+  } catch {
+    // Bare username fallback (e.g. "@user")
+    const cleaned = rawUrl.replace(/^@/, "").trim();
+    if (cleaned) return { platform: "instagram", username: cleaned };
+  }
+  return { platform: null, username: "" };
+}
+
+async function scrapeReferenceProfile(rawUrl: string): Promise<any | null> {
+  const { platform, username } = parseProfileUrl(rawUrl);
+  if (!platform || !username) return null;
+  try {
+    if (platform === "instagram") {
+      const url = `https://api.apify.com/v2/acts/apify~instagram-profile-scraper/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=60`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ usernames: [username] }),
+      });
+      if (!res.ok) return null;
+      const items = await res.json();
+      const p = items?.[0];
+      return p ? { ...normalizeInstagramProfile(p), _platform: "instagram" } : null;
+    }
+    if (platform === "twitch") {
+      // Lightweight: derive seed from username only
+      return { _platform: "twitch", username, display_name: username, bio: "" };
+    }
+  } catch (e) {
+    console.warn("[Discovery] reference scrape failed:", e);
+  }
+  return null;
+}
+
+async function extractKeywordsFromProfile(profile: any): Promise<string[]> {
+  const seeds: string[] = [];
+  if (profile?.username) seeds.push(profile.username);
+  const text = `${profile?.bio || ""} ${profile?.display_name || ""}`.trim();
+
+  if (!text) return seeds.slice(0, 5);
+
+  // Use AI to extract niche/topic keywords from the reference profile bio
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          {
+            role: "system",
+            content:
+              "Extraia de 5 a 10 palavras-chave de busca (em português) que representem o nicho, tema, estilo ou audiência deste perfil. Retorne APENAS um JSON: { \"keywords\": [\"...\"] }. Inclua hashtags com # quando apropriado para Instagram.",
+          },
+          { role: "user", content: text.slice(0, 1000) },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content || "{}";
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed.keywords)) {
+        for (const k of parsed.keywords) {
+          const s = String(k).trim();
+          if (s) seeds.push(s);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[Discovery] keyword extraction failed:", e);
+  }
+  return [...new Set(seeds)].slice(0, 12);
+}
+
 // ─── Main Handler ──────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
