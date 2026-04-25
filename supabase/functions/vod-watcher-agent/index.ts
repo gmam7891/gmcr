@@ -646,7 +646,9 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       }
     }
 
-    const games = Array.from(byGame.values()).sort((a, b) => b.seconds - a.seconds);
+    const games = Array.from(byGame.values())
+      .map((g) => ({ ...g, status: g.frames === 1 || g.avgConfidence < 0.5 ? "suspect" as const : "confirmed" as const }))
+      .sort((a, b) => b.seconds - a.seconds);
     const totalCasinoSeconds = games.reduce((s, g) => s + g.seconds, 0);
     const totalPendingFrames = games.reduce((s, g) => s + g.pendingFrames, 0);
     const vodDuration = audit.vod_duration_seconds || 0;
