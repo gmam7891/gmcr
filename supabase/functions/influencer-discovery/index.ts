@@ -600,10 +600,9 @@ Deno.serve(async (req) => {
       });
 
       if (result.error && result.prospects.length === 0) {
-        return new Response(
-          JSON.stringify({ error: result.error, stats: result.stats }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        instagramStats = { ...(result.stats || {}), error: result.error };
+      } else {
+        instagramStats = result.stats;
       }
 
       // Tag each prospect with the briefing id and save
@@ -614,14 +613,28 @@ Deno.serve(async (req) => {
         search_keywords: custom_keywords || [],
       }));
       responseProspects.push(...prospects);
-      instagramStats = result.stats;
     }
 
     // ─── TWITCH — preserved lightweight route ─────────────────────────
     if (selectedPlatforms.includes("twitch")) {
       const twitchKeywords = Array.isArray(custom_keywords) && custom_keywords.length > 0
         ? custom_keywords.map(String)
-        : [briefing || "casino", ...(manual_filters?.locations || [])].filter(Boolean);
+        : [briefing, ...(manual_filters?.locations || [])].filter(Boolean).map(String);
+      if (twitchKeywords.length === 0) {
+        return new Response(
+          JSON.stringify({
+            briefing_id: briefingId,
+            keywords: [],
+            total_scraped: responseProspects.length,
+            total_qualified: responseProspects.length,
+            total_spam: instagramStats?.dropped_by_hard_filter || 0,
+            total_low_score: 0,
+            stats: instagramStats || { error: "Forneça uma referência, briefing, palavras-chave ou localização." },
+            prospects: responseProspects,
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       const twitchProfiles = (await scrapeTwitch(twitchKeywords, 30))
         .map(normalizeTwitchProfile)
         .filter((p) => p.username)
