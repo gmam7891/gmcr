@@ -276,7 +276,7 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
 }
 
 // ─────────────── WRITES (admin only) ───────────────
-export async function handleWrite(supabase: SupabaseClient, body: any) {
+export async function handleWrite(supabase: SupabaseClient, body: any): Promise<any> {
   const { action } = body;
 
   if (action === "save_raw_evidences") {
@@ -326,35 +326,83 @@ export async function handleWrite(supabase: SupabaseClient, body: any) {
       .limit(1)
       .maybeSingle();
 
-    // Derive frame interval from audit metadata (vod_duration / expected_frames)
-    // Falls back to 39s if metadata is unavailable
+    // Derive frame interval from audit metadata (vod_duration / expected_frames).
+    // Fallback to 39s only if metadata is missing.
     const frameInterval =
       auditMeta?.expected_frames && auditMeta?.vod_duration_seconds
         ? Math.max(15, Math.round(auditMeta.vod_duration_seconds / auditMeta.expected_frames))
         : 39;
 
-    const blocks: any[] = []; let current: any = null;
+    const halfInterval = Math.round(frameInterval / 2);
+
+    type RawBlock = {
+      game: string;
+      provider: string;
+      firstFrameTs: number;
+      lastFrameTs: number;
+      confidences: number[];
+      count: number;
+    };
+
+    const rawBlocks: RawBlock[] = [];
+    let current: RawBlock | null = null;
+    const gapThreshold = frameInterval * 3;
+
     for (const ev of evidences as any[]) {
-      if (!current || current.game !== ev.game_detected || (ev.timestamp_seconds - current.endSec) > 180) {
-        if (current && current.count >= 2) blocks.push(current);
-        current = { game: ev.game_detected, provider: ev.provider_detected, startSec: ev.timestamp_seconds, endSec: ev.timestamp_seconds + frameInterval, confidences: [ev.confidence_score], count: 1 };
+      if (!current || current.game !== ev.game_detected || (ev.timestamp_seconds - current.lastFrameTs) > gapThreshold) {
+        if (current) rawBlocks.push(current);
+        current = {
+          game: ev.game_detected,
+          provider: ev.provider_detected,
+          firstFrameTs: ev.timestamp_seconds,
+          lastFrameTs: ev.timestamp_seconds,
+          confidences: [ev.confidence_score],
+          count: 1,
+        };
       } else {
-        current.endSec = ev.timestamp_seconds + frameInterval;
+        current.lastFrameTs = ev.timestamp_seconds;
         current.confidences.push(ev.confidence_score);
         current.count++;
       }
     }
-    if (current && current.count >= 2) blocks.push(current);
+    if (current) rawBlocks.push(current);
+
+    const refinedBlocks = rawBlocks.map((b, idx) => {
+      const prev = rawBlocks[idx - 1];
+      const next = rawBlocks[idx + 1];
+      const startSec = prev ? Math.round((prev.lastFrameTs + b.firstFrameTs) / 2) : Math.max(0, b.firstFrameTs - halfInterval);
+      const endSec = next ? Math.round((b.lastFrameTs + next.firstFrameTs) / 2) : b.lastFrameTs + halfInterval;
+      return { ...b, startSec, endSec: Math.max(endSec, startSec + halfInterval) };
+    });
+
+    const merged: typeof refinedBlocks = [];
+    for (const block of refinedBlocks) {
+      const last = merged[merged.length - 1];
+      if (last && last.game === block.game && block.startSec - last.endSec <= frameInterval * 2) {
+        last.endSec = block.endSec;
+        last.lastFrameTs = block.lastFrameTs;
+        last.confidences.push(...block.confidences);
+        last.count += block.count;
+      } else {
+        merged.push({ ...block });
+      }
+    }
+
     const streamerLogin = (evidences[0] as any).streamer_login;
-    const rows = blocks.map((b: any) => ({
-      vod_id, streamer_login: streamerLogin, platform: "twitch", source_type: "vod", source_id: vod_id,
-      game_name: b.game, provider_name: b.provider, start_seconds: b.startSec, end_seconds: b.endSec,
-      duration_seconds: b.endSec - b.startSec, evidence_count: b.count,
-      confidence_avg: b.confidences.reduce((a: number, c: number) => a + c, 0) / b.confidences.length,
-      confidence_min: Math.min(...b.confidences), confidence_max: Math.max(...b.confidences), status: "confirmed",
-    }));
+    const rows = merged.map((b) => {
+      const avgConfidence = b.confidences.reduce((a, c) => a + c, 0) / b.confidences.length;
+      const isLowConfidence = b.count === 1 || avgConfidence < 0.5;
+      return {
+        vod_id, streamer_login: streamerLogin, platform: "twitch", source_type: "vod", source_id: vod_id,
+        game_name: b.game, provider_name: b.provider, start_seconds: b.startSec, end_seconds: b.endSec,
+        duration_seconds: b.endSec - b.startSec, evidence_count: b.count,
+        confidence_avg: avgConfidence,
+        confidence_min: Math.min(...b.confidences), confidence_max: Math.max(...b.confidences),
+        status: isLowConfidence ? "suspect" : "confirmed",
+      };
+    });
     if (rows.length) await supabase.from("gameplay_blocks").insert(rows);
-    return { confirmed: rows.length };
+    return { confirmed: rows.filter((r) => r.status === "confirmed").length, suspect: rows.filter((r) => r.status === "suspect").length };
   }
 
   if (action === "compute_metrics") {
@@ -387,9 +435,9 @@ export async function handleWrite(supabase: SupabaseClient, body: any) {
 
   if (action === "run_pipeline") {
     const { vod_id, streamer_login, vod_duration_seconds } = body;
-    const validate = await handleWrite(supabase, { action: "validate_vod", vod_id });
-    const consolidate = await handleWrite(supabase, { action: "consolidate_vod", vod_id });
-    const metrics = await handleWrite(supabase, { action: "compute_metrics", vod_id, vod_duration_seconds });
+    const validate: any = await handleWrite(supabase, { action: "validate_vod", vod_id });
+    const consolidate: any = await handleWrite(supabase, { action: "consolidate_vod", vod_id });
+    const metrics: any = await handleWrite(supabase, { action: "compute_metrics", vod_id, vod_duration_seconds });
     await supabase.from("pipeline_audit_logs").insert({
       action: "run_pipeline", entity_type: "vod", entity_id: vod_id, vod_id,
       details: { streamer_login, validate, consolidate, metrics },

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getAuditReport, type AuditReport } from "@/lib/vod-watcher";
 import { supabase } from "@/integrations/supabase/client";
-import { FileText, RefreshCw, Download, Loader2, Link2, Copy } from "lucide-react";
+import { AlertTriangle, FileText, RefreshCw, Download, Loader2, Link2, Copy } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
@@ -139,6 +139,10 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
   const detectedPct = report.vod_duration_seconds > 0
     ? (totalDetected / report.vod_duration_seconds) * 100
     : 0;
+  const frameCount = report.expected_frames || 200;
+  const durationPrecision = Math.round(((report.vod_duration_seconds || 0) / frameCount) / 2);
+  const confirmedGames = report.games.filter((g) => g.status !== "suspect");
+  const suspectGames = report.games.filter((g) => g.status === "suspect");
 
   return (
     <div className="space-y-3">
@@ -191,6 +195,9 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
             </h3>
             <p className="text-[11px] text-muted-foreground font-mono">
               @{report.streamer_login} · VOD {report.vod_id} · Gerado em {new Date().toLocaleString("pt-BR")}
+            </p>
+            <p className="text-[10px] text-muted-foreground font-mono mt-1">
+              Análise baseada em amostragem de {frameCount} frames. Precisão de duração: ±{durationPrecision}s por jogo detectado.
             </p>
           </div>
         </div>
@@ -319,7 +326,7 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
               Detecção por jogo (rigoroso 15s/frame)
             </p>
             <div className="space-y-1 max-h-64 overflow-auto">
-              {report.games.map((g, i) => (
+              {confirmedGames.map((g, i) => (
                 <div key={i} className="flex items-center justify-between gap-2 text-xs py-1 px-2 rounded bg-secondary/50">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{g.game}</p>
@@ -332,6 +339,25 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
                 </div>
               ))}
             </div>
+            {suspectGames.length > 0 && (
+              <div className="space-y-1 pt-2">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <AlertTriangle className="h-3 w-3 text-accent" /> Detecções não confirmadas
+                </p>
+                {suspectGames.map((g, i) => (
+                  <div key={`suspect-${i}`} className="flex items-center justify-between gap-2 text-xs py-1 px-2 rounded border border-accent/30 bg-accent/5">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{g.game}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono">{g.provider}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="outline" className="text-[9px] font-mono">{g.frames}f</Badge>
+                      <span className="font-mono font-semibold text-accent">{fmt(g.seconds)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

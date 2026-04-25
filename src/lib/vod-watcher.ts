@@ -14,6 +14,7 @@ export interface AuditReportGame {
   frames: number;
   seconds: number;
   avgConfidence: number;
+  status?: "confirmed" | "suspect";
 }
 
 export interface AuditReport {
@@ -33,6 +34,7 @@ export interface AuditReport {
   snapshots_found?: number;
   diagnostic_log?: string | null;
   pending_review_frames?: number;
+  expected_frames?: number | null;
   reconciliation_status?: "ok" | "mismatch" | "pending";
   reconciliation_notes?: string | null;
   last_checkpoint_at?: string | null;
