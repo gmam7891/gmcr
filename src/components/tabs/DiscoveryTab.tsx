@@ -32,7 +32,7 @@ interface Prospect {
   gender_inferred?: "female" | "male" | "unknown";
   engagement_rate?: number;
   match_score: number;
-  score_breakdown: { location: number; followers: number; frequency: number; content: number };
+  score_breakdown?: { location?: number; followers?: number; frequency?: number; content?: number; reason?: string };
   is_spam: boolean;
 }
 
@@ -71,7 +71,8 @@ export function DiscoveryTab() {
   const [minFollowers, setMinFollowers] = useState<string>("");
   const [maxFollowers, setMaxFollowers] = useState<string>("");
   const [minEngagement, setMinEngagement] = useState<number>(0); // % — 0 to 1000
-  const [referenceUrl, setReferenceUrl] = useState<string>("");
+  const [referenceUrls, setReferenceUrls] = useState<string[]>([]);
+  const [newReferenceUrl, setNewReferenceUrl] = useState<string>("");
 
   // Result sorting (no filtering — all profiles always shown)
   const [sortBy, setSortBy] = useState<"original" | "score" | "followers" | "engagement">("original");
@@ -96,6 +97,18 @@ export function DiscoveryTab() {
   };
   const removeLocation = (loc: string) => setLocations(locations.filter((l) => l !== loc));
 
+  const addReference = () => {
+    const u = newReferenceUrl.trim();
+    if (!u || referenceUrls.includes(u)) return;
+    if (referenceUrls.length >= 3) {
+      toast({ title: "Máximo 3 referências", variant: "destructive" });
+      return;
+    }
+    setReferenceUrls([...referenceUrls, u]);
+    setNewReferenceUrl("");
+  };
+  const removeReference = (url: string) => setReferenceUrls(referenceUrls.filter((u) => u !== url));
+
   const handleDiscover = async () => {
     if (platforms.length === 0) {
       toast({ title: t("disc.error"), description: t("disc.platform_required"), variant: "destructive" });
@@ -117,7 +130,7 @@ export function DiscoveryTab() {
           limit: 50,
           custom_keywords: customKeywords.length > 0 ? customKeywords : undefined,
           use_ai_expansion: useAiExpansion,
-          reference_url: referenceUrl.trim() || undefined,
+          reference_urls: referenceUrls,
           manual_filters: {
             locations,
             gender,
@@ -226,22 +239,47 @@ export function DiscoveryTab() {
           )}
         </div>
 
-        {/* Reference profile URL — find similar */}
+        {/* Reference profile URLs — find similar */}
         <div className="space-y-2 border-t border-border/40 pt-4">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
             <Link2 className="h-3 w-3" />
-            Perfil de referência (opcional)
+            Perfis de referência (opcional)
           </Label>
-          <Input
-            type="url"
-            placeholder="https://instagram.com/usuario  ou  https://twitch.tv/canal"
-            value={referenceUrl}
-            onChange={(e) => setReferenceUrl(e.target.value)}
-            disabled={loading}
-            className="h-9 text-xs font-mono"
-          />
+          <div className="flex flex-wrap gap-1.5 min-h-[24px]">
+            {referenceUrls.map((url) => (
+              <Badge key={url} variant="secondary" className="text-[10px] font-mono gap-1 pr-1 max-w-full">
+                <span className="truncate max-w-[220px]">{url}</span>
+                <button
+                  type="button"
+                  onClick={() => removeReference(url)}
+                  disabled={loading}
+                  className="hover:text-destructive transition-colors"
+                  aria-label={`Remover ${url}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+            {referenceUrls.length === 0 && (
+              <span className="text-[10px] text-muted-foreground/60 italic">Nenhuma referência adicionada</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Input
+              type="url"
+              placeholder="https://instagram.com/usuario ou @usuario"
+              value={newReferenceUrl}
+              onChange={(e) => setNewReferenceUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addReference(); } }}
+              disabled={loading || referenceUrls.length >= 3}
+              className="h-9 text-xs font-mono flex-1"
+            />
+            <Button type="button" size="sm" variant="outline" onClick={addReference} disabled={loading || !newReferenceUrl.trim() || referenceUrls.length >= 3} className="h-9 gap-1">
+              <Plus className="h-3 w-3" /> Adicionar
+            </Button>
+          </div>
           <p className="text-[10px] text-muted-foreground/70">
-            ⓘ A IA vai analisar este perfil (bio, nicho, audiência) e procurar perfis semelhantes.
+            ⓘ Use 1–3 perfis do Instagram. O sistema descobre contas seguidas por eles e enriquece dados reais.
           </p>
         </div>
 
@@ -558,6 +596,12 @@ export function DiscoveryTab() {
               </div>
 
               {p.bio && <p className="text-xs text-muted-foreground line-clamp-2">{p.bio}</p>}
+
+              {p.score_breakdown?.reason && (
+                <p className="text-[10px] text-muted-foreground italic mt-1">
+                  {p.score_breakdown.reason}
+                </p>
+              )}
 
               <div className="grid grid-cols-4 gap-1">
                 {[
