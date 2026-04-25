@@ -587,6 +587,8 @@ Deno.serve(async (req) => {
 
     const selectedPlatforms: string[] = platforms || ["instagram"];
     const briefingId = crypto.randomUUID();
+    const responseProspects: any[] = [];
+    let instagramStats: any = null;
 
     // ─── INSTAGRAM (new seed-based flow) ──────────────────────────────
     if (selectedPlatforms.includes("instagram")) {
@@ -611,42 +613,47 @@ Deno.serve(async (req) => {
         briefing_text: briefing || "",
         search_keywords: custom_keywords || [],
       }));
+      responseProspects.push(...prospects);
+      instagramStats = result.stats;
+    }
 
-      if (prospects.length > 0) {
-        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const dbRecords = prospects.map(({ _raw_following_list, ai_qualification, ...rest }) => ({
-          ...rest,
-          score_breakdown: ai_qualification || null,
+    // ─── TWITCH — preserved lightweight route ─────────────────────────
+    if (selectedPlatforms.includes("twitch")) {
+      const twitchKeywords = Array.isArray(custom_keywords) && custom_keywords.length > 0
+        ? custom_keywords.map(String)
+        : [briefing || "casino", ...(manual_filters?.locations || [])].filter(Boolean);
+      const twitchProfiles = (await scrapeTwitch(twitchKeywords, 30))
+        .map(normalizeTwitchProfile)
+        .filter((p) => p.username)
+        .map((p) => ({
+          ...p,
+          briefing_id: briefingId,
+          briefing_text: briefing || "",
+          search_keywords: twitchKeywords,
         }));
+      responseProspects.push(...twitchProfiles);
+    }
+
+      if (responseProspects.length > 0) {
+        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+        const dbRecords = responseProspects.map((p) => toDbProspectRecord(p, briefingId, briefing || "", p.search_keywords || custom_keywords || []));
         const { error } = await supabase.from("discovery_prospects").insert(dbRecords);
-        if (error) console.error("[IG] DB insert error:", error.message);
+        if (error) console.error("[Discovery] DB insert error:", error.message);
       }
 
       return new Response(
         JSON.stringify({
           briefing_id: briefingId,
-          total_scraped: result.stats.total_enriched || 0,
-          total_qualified: result.stats.qualified || 0,
-          total_spam: result.stats.dropped_by_hard_filter || 0,
+          keywords: custom_keywords || [],
+          total_scraped: responseProspects.length,
+          total_qualified: responseProspects.length,
+          total_spam: instagramStats?.dropped_by_hard_filter || 0,
           total_low_score: 0,
-          stats: result.stats,
-          prospects,
+          stats: instagramStats,
+          prospects: responseProspects,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
-    }
-
-    // ─── TWITCH — falls back to "not implemented" in this version ────
-    // The previous Twitch logic should remain if it already works; otherwise
-    // return a helpful message.
-    return new Response(
-      JSON.stringify({
-        error: "Twitch discovery está sendo migrada. Use Instagram por enquanto.",
-        briefing_id: briefingId,
-        prospects: [],
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
 
   } catch (error: any) {
     console.error("[Discovery] Error:", error);
