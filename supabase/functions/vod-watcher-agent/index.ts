@@ -577,7 +577,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
         : 39;
 
-    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; pendingFrames: number; }>();
+    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; pendingFrames: number; status?: "confirmed" | "suspect"; }>();
 
     const pushDetection = (game: string, provider: string, conf: number, secs: number) => {
       const key = `${game}|${provider}`;
@@ -682,6 +682,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       pending_audits: ((audit.pending_audit_segments as any)?.flagged || []).length,
       audit_status: audit.status,
       error_message: audit.error_message,
+      expected_frames: audit.expected_frames,
       data_source: dataSource,
       snapshots_found: snapshotsFound,
       diagnostic_log: diagnosticLog,
