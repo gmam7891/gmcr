@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const pdfBytes = generatePdf(body);
 
-    return new Response(pdfBytes, {
+    return new Response(pdfBytes.buffer as ArrayBuffer, {
       headers: {
         ...corsHeaders,
         "Content-Type": "application/pdf",
@@ -119,7 +119,8 @@ Deno.serve(async (req) => {
       },
     });
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
