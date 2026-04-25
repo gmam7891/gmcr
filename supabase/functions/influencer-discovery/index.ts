@@ -18,6 +18,33 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "
 
 const MAX_PROFILES_PER_SEARCH = 30; // hard cap to control Apify cost
 
+function toDbProspectRecord(prospect: any, briefingId: string, briefing: string, keywords: string[]) {
+  const followers = Number(prospect.followers || 0);
+  const following = Number(prospect.following || prospect.following_count || 0);
+  return {
+    platform: prospect.platform || "instagram",
+    username: prospect.username || "",
+    display_name: prospect.display_name || prospect.username || "",
+    bio: prospect.bio || "",
+    avatar_url: prospect.avatar_url || null,
+    profile_url: prospect.profile_url || null,
+    followers,
+    avg_views: Number(prospect.avg_views || 0),
+    posts_last_30d: Number(prospect.posts_last_30d || 0),
+    lives_last_30d: Number(prospect.lives_last_30d || 0),
+    location_declared: prospect.location_declared || null,
+    location_inferred: prospect.location_inferred || null,
+    follower_following_ratio: following > 0 ? followers / following : null,
+    has_casino_content: !!prospect.has_casino_content,
+    is_spam: !!prospect.is_spam,
+    match_score: Number(prospect.match_score || 0),
+    score_breakdown: prospect.ai_qualification || prospect.score_breakdown || null,
+    briefing_id: briefingId,
+    briefing_text: briefing || "",
+    search_keywords: keywords || [],
+  };
+}
+
 /** Parse a profile URL or @handle into a clean username. */
 function parseInstagramUsername(raw: string): string | null {
   if (!raw) return null;
@@ -77,6 +104,43 @@ async function scrapeInstagramProfilesBatch(usernames: string[]): Promise<any[]>
     console.warn(`[IG] batch scrape error:`, e.message);
     return [];
   }
+}
+
+async function scrapeTwitch(keywords: string[], limit: number): Promise<any[]> {
+  try {
+    const actorId = "epctex/twitch-scraper";
+    const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=120`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ searchQueries: keywords.slice(0, 5), maxItems: limit, proxy: { useApifyProxy: true } }),
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (e: any) {
+    console.warn("[Twitch] scrape failed:", e.message);
+    return [];
+  }
+}
+
+function normalizeTwitchProfile(raw: any): any {
+  return {
+    platform: "twitch",
+    username: raw.login || raw.name || raw.displayName || "",
+    display_name: raw.displayName || raw.name || raw.login || "",
+    bio: raw.description || raw.bio || "",
+    avatar_url: raw.profileImageURL || raw.profileImageUrl || raw.thumbnailUrl || "",
+    profile_url: `https://twitch.tv/${raw.login || raw.name || ""}`,
+    followers: raw.followers || raw.followersCount || 0,
+    avg_views: raw.averageViewers || raw.viewCount || 0,
+    posts_last_30d: 0,
+    lives_last_30d: raw.recentBroadcasts?.length || 0,
+    location_declared: raw.location || "",
+    location_inferred: raw.language === "pt" || raw.broadcasterLanguage === "pt" ? "Brasil" : "",
+    match_score: 50,
+    score_breakdown: { reason: "twitch-legacy-route" },
+    is_spam: false,
+  };
 }
 
 /** Normalize a raw Apify profile object into our canonical shape.
