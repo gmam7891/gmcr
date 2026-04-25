@@ -115,6 +115,21 @@ export function DiscoveryTab() {
       return;
     }
 
+    const hasSearchCriteria =
+      briefing.trim().length > 0 ||
+      customKeywords.length > 0 ||
+      referenceUrls.length > 0 ||
+      locations.length > 0;
+
+    if (!hasSearchCriteria) {
+      toast({
+        title: t("disc.error"),
+        description: "Adicione ao menos uma referência, briefing, termo de busca ou localização.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
     setStep(useAiExpansion && briefing.trim() ? "expanding" : "scraping");
 
@@ -143,7 +158,11 @@ export function DiscoveryTab() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        toast({ title: t("disc.error"), description: error.message, variant: "destructive" });
+        setStep("input");
+        return;
+      }
       setResult(data);
       setStep("done");
       toast({ title: t("disc.success"), description: `${data.total_qualified} ${t("disc.profiles_found")}` });
