@@ -32,7 +32,7 @@ interface Prospect {
   gender_inferred?: "female" | "male" | "unknown";
   engagement_rate?: number;
   match_score: number;
-  score_breakdown: { location: number; followers: number; frequency: number; content: number };
+  score_breakdown?: { location?: number; followers?: number; frequency?: number; content?: number; reason?: string };
   is_spam: boolean;
 }
 
@@ -71,7 +71,8 @@ export function DiscoveryTab() {
   const [minFollowers, setMinFollowers] = useState<string>("");
   const [maxFollowers, setMaxFollowers] = useState<string>("");
   const [minEngagement, setMinEngagement] = useState<number>(0); // % — 0 to 1000
-  const [referenceUrl, setReferenceUrl] = useState<string>("");
+  const [referenceUrls, setReferenceUrls] = useState<string[]>([]);
+  const [newReferenceUrl, setNewReferenceUrl] = useState<string>("");
 
   // Result sorting (no filtering — all profiles always shown)
   const [sortBy, setSortBy] = useState<"original" | "score" | "followers" | "engagement">("original");
@@ -96,6 +97,18 @@ export function DiscoveryTab() {
   };
   const removeLocation = (loc: string) => setLocations(locations.filter((l) => l !== loc));
 
+  const addReference = () => {
+    const u = newReferenceUrl.trim();
+    if (!u || referenceUrls.includes(u)) return;
+    if (referenceUrls.length >= 3) {
+      toast({ title: "Máximo 3 referências", variant: "destructive" });
+      return;
+    }
+    setReferenceUrls([...referenceUrls, u]);
+    setNewReferenceUrl("");
+  };
+  const removeReference = (url: string) => setReferenceUrls(referenceUrls.filter((u) => u !== url));
+
   const handleDiscover = async () => {
     if (platforms.length === 0) {
       toast({ title: t("disc.error"), description: t("disc.platform_required"), variant: "destructive" });
@@ -117,7 +130,7 @@ export function DiscoveryTab() {
           limit: 50,
           custom_keywords: customKeywords.length > 0 ? customKeywords : undefined,
           use_ai_expansion: useAiExpansion,
-          reference_url: referenceUrl.trim() || undefined,
+          reference_urls: referenceUrls,
           manual_filters: {
             locations,
             gender,
