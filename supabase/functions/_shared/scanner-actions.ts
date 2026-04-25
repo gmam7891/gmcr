@@ -276,7 +276,7 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
 }
 
 // ─────────────── WRITES (admin only) ───────────────
-export async function handleWrite(supabase: SupabaseClient, body: any) {
+export async function handleWrite(supabase: SupabaseClient, body: any): Promise<any> {
   const { action } = body;
 
   if (action === "save_raw_evidences") {
@@ -435,9 +435,9 @@ export async function handleWrite(supabase: SupabaseClient, body: any) {
 
   if (action === "run_pipeline") {
     const { vod_id, streamer_login, vod_duration_seconds } = body;
-    const validate = await handleWrite(supabase, { action: "validate_vod", vod_id });
-    const consolidate = await handleWrite(supabase, { action: "consolidate_vod", vod_id });
-    const metrics = await handleWrite(supabase, { action: "compute_metrics", vod_id, vod_duration_seconds });
+    const validate: any = await handleWrite(supabase, { action: "validate_vod", vod_id });
+    const consolidate: any = await handleWrite(supabase, { action: "consolidate_vod", vod_id });
+    const metrics: any = await handleWrite(supabase, { action: "compute_metrics", vod_id, vod_duration_seconds });
     await supabase.from("pipeline_audit_logs").insert({
       action: "run_pipeline", entity_type: "vod", entity_id: vod_id, vod_id,
       details: { streamer_login, validate, consolidate, metrics },
