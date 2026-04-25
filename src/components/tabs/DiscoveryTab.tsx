@@ -597,6 +597,12 @@ export function DiscoveryTab() {
 
               {p.bio && <p className="text-xs text-muted-foreground line-clamp-2">{p.bio}</p>}
 
+              {p.score_breakdown?.reason && (
+                <p className="text-[10px] text-muted-foreground italic mt-1">
+                  {p.score_breakdown.reason}
+                </p>
+              )}
+
               <div className="grid grid-cols-4 gap-1">
                 {[
                   { icon: MapPin, label: t("disc.score_location"), value: p.score_breakdown?.location || 0, max: 30 },
