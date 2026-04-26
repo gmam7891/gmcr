@@ -583,6 +583,8 @@ Deno.serve(async (req) => {
       const prospects = result.prospects.map(p => ({
         ...p,
         platform: "instagram",
+        avg_views: Number(p.median_views || 0),
+        score_breakdown: p.ai_qualification || null,
         briefing_id: briefingId,
         briefing_text: briefing || "",
         search_keywords: custom_keywords || [],
@@ -590,9 +592,27 @@ Deno.serve(async (req) => {
 
       if (prospects.length > 0) {
         const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const dbRecords = prospects.map(({ ai_qualification, latest_posts, ...rest }: any) => ({
-          ...rest,
-          score_breakdown: ai_qualification || null,
+        const dbRecords = prospects.map((p: any) => ({
+          platform: "instagram",
+          username: p.username || "",
+          display_name: p.display_name || p.username || "",
+          bio: p.bio || "",
+          avatar_url: p.avatar_url || null,
+          profile_url: p.profile_url || null,
+          followers: Number(p.followers || 0),
+          avg_views: Number(p.median_views || 0),
+          posts_last_30d: Number(p.posts_last_30d || 0),
+          lives_last_30d: 0,
+          location_declared: p.location_declared || null,
+          location_inferred: null,
+          follower_following_ratio: Number(p.following || 0) > 0 ? Number(p.followers || 0) / Number(p.following || 1) : null,
+          has_casino_content: false,
+          is_spam: false,
+          match_score: Number(p.match_score || 0),
+          score_breakdown: p.ai_qualification || null,
+          briefing_id: briefingId,
+          briefing_text: briefing || "",
+          search_keywords: custom_keywords || [],
         }));
         const { error } = await supabase.from("discovery_prospects").insert(dbRecords);
         if (error) console.error("[DB] insert error:", error.message);
