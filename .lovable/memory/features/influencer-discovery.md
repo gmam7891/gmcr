@@ -1,32 +1,28 @@
 ---
 name: Influencer Discovery
-description: Instagram discovery is seed-based with Apify enrichment; Twitch route remains lightweight; Firecrawl is fallback only.
+description: Instagram discovery uses seed-based two-layer enrichment reusing instagram-profile analytics; Twitch is not primary.
 type: feature
 ---
 
-# Influencer Discovery — Seed-based Instagram + Twitch support
+# Influencer Discovery — Instagram 2-layer enrichment
 
 ## Sourcing
-Instagram discovery must not use hashtag/post scraping as the primary source. It uses:
-1. **Seed mode:** user provides 1–3 Instagram references; backend extracts followed accounts, caps candidates at 30, then enriches each profile with Apify profile data.
-2. **Fallback mode:** when no reference exists, briefing/filters/custom keywords feed Firecrawl profile search, then candidates are enriched through Apify.
-3. **Twitch route:** keep lightweight Twitch scraping available when platform includes Twitch.
+Instagram discovery must prioritize:
+1. **Seed mode:** user provides 1–3 Instagram references; backend extracts followed accounts and caps candidates at 30.
+2. **Fallback mode:** when no reference exists, briefing/filters/custom keywords feed Firecrawl profile search.
+3. **Layer 1:** cheap `instagram-profile-scraper` profile scrape with hard filters before expensive enrichment.
+4. **Layer 2:** only top 15 Layer 1 survivors call the existing `instagram-profile` function for rich metrics.
+5. **Layer 3:** Gemini qualifies enriched profiles against the briefing.
 
 ## Rules
-- **NO automatic keywords.** "Termos de busca" is empty by default and OPTIONAL.
-- **AI keyword expansion** is opt-in via toggle, only runs when ON + briefing present + no manual kws.
+- Target cost is controlled by enriching only 15 survivors with rich Instagram-tab analytics.
+- Private reference profiles return a friendly error; private candidate profiles are silently discarded.
+- Results should show `score_breakdown.reason`, `engagement_rate`, `median_views`, and `stories_view_estimate` when available.
+- **NO automatic keywords** unless AI expansion is explicitly enabled or fallback needs briefing extraction.
 - **Reference profile URLs:** support up to 3 Instagram references as removable chips.
-- **Engagement filter (≥)**: 0–1000% slider. Instagram engagement uses recent post interactions / followers when enriched.
-- **No iGaming bias** in scoring. Casino terms only flag `has_casino_content`.
-- **Generic location/gender/followers/age filters** — all manual, all optional.
-- **All non-spam profiles are returned and shown**, regardless of `match_score`. Score is informational only.
+- **Engagement filter (≥)**: 0–1000% slider.
+- **No iGaming bias** in scoring. Casino terms only flag `has_casino_content` when explicitly detected.
 
-## Frontend (`src/components/tabs/DiscoveryTab.tsx`)
-- Sections: Briefing (optional + AI toggle) → Reference URLs → Manual keywords (optional) → Filters → Platforms → Submit.
-- Result UI shows ALL prospects with a sort dropdown: `original | score | followers | engagement`.
-- No qualified/low-score toggle — removed per user request.
-
-## Backend (`supabase/functions/influencer-discovery/index.ts`)
-- Instagram route: `runInstagramDiscovery` → seed following list or Firecrawl fallback → Apify profile enrichment → hard filters → Gemini qualification.
-- Return Gemini qualification reason in `score_breakdown.reason` for UI context.
-- Private reference profiles return a friendly error.
+## Frontend
+- Loading should communicate long-running stages: references/keywords → fast scrape → rich enrichment → AI scoring.
+- Result UI shows all returned prospects with sorting by original, score, followers, or engagement.
