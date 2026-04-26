@@ -220,7 +220,14 @@ export function DiscoveryTab() {
     return "text-warning";
   };
 
-  const stepProgress = { input: 0, expanding: 20, scraping: 50, scoring: 80, done: 100 };
+  const stepProgress = { input: 0, expanding: 20, scraping: 45, enriching: 70, scoring: 88, done: 100 };
+  const stepLabels = {
+    expanding: "Extraindo referências e palavras-chave...",
+    scraping: "Buscando candidatos no Instagram (camada rápida)...",
+    enriching: "Analisando perfis qualificados em profundidade...",
+    scoring: "Avaliando aderência ao briefing com IA...",
+    done: "Concluído",
+  } as const;
 
   return (
     <div className="space-y-6">
@@ -556,9 +563,7 @@ export function DiscoveryTab() {
           <div className="space-y-2">
             <Progress value={stepProgress[step]} className="h-1.5" />
             <p className="text-xs text-muted-foreground font-mono">
-              {step === "expanding" && t("disc.step_expanding")}
-              {step === "scraping" && t("disc.step_scraping")}
-              {step === "scoring" && t("disc.step_scoring")}
+              {step !== "input" && stepLabels[step]}
             </p>
           </div>
         )}
@@ -629,8 +634,16 @@ export function DiscoveryTab() {
 
               {p.score_breakdown?.reason && (
                 <p className="text-[10px] text-muted-foreground italic mt-1">
-                  {p.score_breakdown.reason}
+                  🤖 {p.score_breakdown.reason}
                 </p>
+              )}
+
+              {typeof p.engagement_rate === "number" && p.engagement_rate > 0 && (
+                <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono mt-2 text-muted-foreground">
+                  <span>ER: {p.engagement_rate.toFixed(1)}%</span>
+                  {Number(p.median_views) > 0 && <span>Views: {Math.round(Number(p.median_views)).toLocaleString("pt-BR")}</span>}
+                  {Number(p.stories_view_estimate) > 0 && <span>Stories: ~{Math.round(Number(p.stories_view_estimate)).toLocaleString("pt-BR")}</span>}
+                </div>
               )}
 
               <div className="grid grid-cols-4 gap-1">
