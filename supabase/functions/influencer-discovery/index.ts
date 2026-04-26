@@ -6,46 +6,24 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const APIFY_API_KEY = Deno.env.get("APIFY_API_KEY") || "";
+const APIFY_API_KEY = Deno.env.get("APIFY_API_KEY") || Deno.env.get("APIFY_API_TOKEN") || "";
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
 const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY") || "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
 // ═══════════════════════════════════════════════════════════════════════
-//  INSTAGRAM — NEW SEED-BASED DISCOVERY
+//  CONFIG — Cost & quality knobs
 // ═══════════════════════════════════════════════════════════════════════
 
-const MAX_PROFILES_PER_SEARCH = 30; // hard cap to control Apify cost
+const MAX_CANDIDATES = 30;        // Layer 1: cheap scrape this many
+const MAX_RICH_ENRICHMENTS = 15;  // Layer 2: rich enrichment only on the top 15 survivors
+const FOLLOWING_FETCH_PER_REF = 60; // How many "followings" to pull per reference profile
 
-function toDbProspectRecord(prospect: any, briefingId: string, briefing: string, keywords: string[]) {
-  const followers = Number(prospect.followers || 0);
-  const following = Number(prospect.following || prospect.following_count || 0);
-  return {
-    platform: prospect.platform || "instagram",
-    username: prospect.username || "",
-    display_name: prospect.display_name || prospect.username || "",
-    bio: prospect.bio || "",
-    avatar_url: prospect.avatar_url || null,
-    profile_url: prospect.profile_url || null,
-    followers,
-    avg_views: Number(prospect.avg_views || 0),
-    posts_last_30d: Number(prospect.posts_last_30d || 0),
-    lives_last_30d: Number(prospect.lives_last_30d || 0),
-    location_declared: prospect.location_declared || null,
-    location_inferred: prospect.location_inferred || null,
-    follower_following_ratio: following > 0 ? followers / following : null,
-    has_casino_content: !!prospect.has_casino_content,
-    is_spam: !!prospect.is_spam,
-    match_score: Number(prospect.match_score || 0),
-    score_breakdown: prospect.ai_qualification || prospect.score_breakdown || null,
-    briefing_id: briefingId,
-    briefing_text: briefing || "",
-    search_keywords: keywords || [],
-  };
-}
+// ═══════════════════════════════════════════════════════════════════════
+//  APIFY HELPERS
+// ═══════════════════════════════════════════════════════════════════════
 
-/** Parse a profile URL or @handle into a clean username. */
 function parseInstagramUsername(raw: string): string | null {
   if (!raw) return null;
   const trimmed = raw.trim().replace(/^@/, "");
@@ -56,222 +34,270 @@ function parseInstagramUsername(raw: string): string | null {
       return path || null;
     }
   } catch {
-    // bare username — valid if it looks right
     if (/^[A-Za-z0-9._]+$/.test(trimmed)) return trimmed;
   }
   return null;
 }
 
-/** Full scrape of an Instagram profile using Apify's instagram-profile-scraper.
- *  Returns enriched data including followers, bio, post count, recent posts. */
-async function scrapeInstagramProfile(username: string): Promise<any | null> {
-  try {
-    const url = `https://api.apify.com/v2/acts/apify~instagram-profile-scraper/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=90`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usernames: [username] }),
-    });
-    if (!res.ok) {
-      console.warn(`[IG] scrape ${username} failed: ${res.status}`);
-      return null;
-    }
-    const items = await res.json();
-    return items?.[0] || null;
-  } catch (e: any) {
-    console.warn(`[IG] scrape ${username} error:`, e.message);
-    return null;
+async function callApify(actorId: string, input: Record<string, unknown>, timeoutSec = 120): Promise<any> {
+  if (!APIFY_API_KEY) throw new Error("APIFY_API_KEY not configured");
+  const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=${timeoutSec}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Apify ${actorId} failed [${res.status}]: ${errText.slice(0, 200)}`);
   }
+  return await res.json();
 }
 
-/** Batch version — scrapes up to 10 profiles in a single Apify run.
- *  Much cheaper than N individual calls. */
-async function scrapeInstagramProfilesBatch(usernames: string[]): Promise<any[]> {
-  if (usernames.length === 0) return [];
-  try {
-    const url = `https://api.apify.com/v2/acts/apify~instagram-profile-scraper/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=180`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ usernames: usernames.slice(0, 30) }),
-    });
-    if (!res.ok) {
-      console.warn(`[IG] batch scrape failed: ${res.status}`);
-      return [];
-    }
-    return await res.json();
-  } catch (e: any) {
-    console.warn(`[IG] batch scrape error:`, e.message);
-    return [];
-  }
+// Stats helpers (replicated from instagram-profile to keep the function self-contained)
+function calculateMedian(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+function filterOutliers(data: number[]): number[] {
+  if (data.length < 4) return data;
+  const sorted = [...data].sort((a, b) => a - b);
+  const q1 = calculateMedian(sorted.slice(0, Math.floor(sorted.length / 2)));
+  const q3 = calculateMedian(sorted.slice(Math.ceil(sorted.length / 2)));
+  const iqr = q3 - q1;
+  return data.filter((x) => x >= q1 - 1.5 * iqr && x <= q3 + 1.5 * iqr);
 }
 
-async function scrapeTwitch(keywords: string[], limit: number): Promise<any[]> {
-  try {
-    const actorId = "epctex/twitch-scraper";
-    const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=120`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ searchQueries: keywords.slice(0, 5), maxItems: limit, proxy: { useApifyProxy: true } }),
-    });
-    if (!res.ok) return [];
-    return await res.json();
-  } catch (e: any) {
-    console.warn("[Twitch] scrape failed:", e.message);
-    return [];
-  }
+// ═══════════════════════════════════════════════════════════════════════
+//  LAYER 1 — Cheap profile scrape (basic data for hard filtering)
+// ═══════════════════════════════════════════════════════════════════════
+
+interface BasicProfile {
+  username: string;
+  display_name: string;
+  bio: string;
+  avatar_url: string;
+  profile_url: string;
+  followers: number;
+  following: number;
+  posts_count: number;
+  posts_last_30d: number;
+  is_verified: boolean;
+  is_private: boolean;
+  location_declared: string;
+  recent_post_captions: string[];
 }
 
-function normalizeTwitchProfile(raw: any): any {
-  return {
-    platform: "twitch",
-    username: raw.login || raw.name || raw.displayName || "",
-    display_name: raw.displayName || raw.name || raw.login || "",
-    bio: raw.description || raw.bio || "",
-    avatar_url: raw.profileImageURL || raw.profileImageUrl || raw.thumbnailUrl || "",
-    profile_url: `https://twitch.tv/${raw.login || raw.name || ""}`,
-    followers: raw.followers || raw.followersCount || 0,
-    avg_views: raw.averageViewers || raw.viewCount || 0,
-    posts_last_30d: 0,
-    lives_last_30d: raw.recentBroadcasts?.length || 0,
-    location_declared: raw.location || "",
-    location_inferred: raw.language === "pt" || raw.broadcasterLanguage === "pt" ? "Brasil" : "",
-    match_score: 50,
-    score_breakdown: { reason: "twitch-legacy-route" },
-    is_spam: false,
-  };
-}
-
-/** Normalize a raw Apify profile object into our canonical shape.
- *  Uses REAL fields from the profile scraper — not hashtag scraper fallbacks. */
-function normalizeProfile(raw: any): any {
+function normalizeBasic(raw: any): BasicProfile | null {
   if (!raw || !raw.username) return null;
-  const followers = Number(raw.followersCount || 0);
-  const following = Number(raw.followsCount || raw.followingCount || 0);
-  const postsCount = Number(raw.postsCount || 0);
-
-  // Engagement rate: average likes+comments across the last few posts ÷ followers
-  let avgInteractions = 0;
-  let avgViews = 0;
   const recentPosts = Array.isArray(raw.latestPosts) ? raw.latestPosts.slice(0, 12) : [];
-  if (recentPosts.length > 0) {
-    let totalInter = 0;
-    let totalViews = 0;
-    for (const p of recentPosts) {
-      totalInter += (Number(p.likesCount || 0) + Number(p.commentsCount || 0));
-      totalViews += Number(p.videoViewCount || p.videoPlayCount || 0);
-    }
-    avgInteractions = Math.round(totalInter / recentPosts.length);
-    avgViews = Math.round(totalViews / recentPosts.length);
-  }
-  const engagementRate = followers > 0 ? Number(((avgInteractions / followers) * 100).toFixed(2)) : 0;
-
-  // Posts in last 30d: count posts whose timestamp is within 30 days
   let postsLast30d = 0;
   const cutoff = Date.now() - 30 * 24 * 3600 * 1000;
   for (const p of recentPosts) {
-    const ts = new Date(p.timestamp || p.takenAtTimestamp * 1000 || 0).getTime();
+    const ts = new Date(p.timestamp || (p.takenAtTimestamp ? p.takenAtTimestamp * 1000 : 0)).getTime();
     if (ts >= cutoff) postsLast30d++;
   }
-
   return {
-    platform: "instagram",
     username: raw.username,
     display_name: raw.fullName || raw.username,
     bio: raw.biography || "",
     avatar_url: raw.profilePicUrl || raw.profilePicUrlHD || "",
     profile_url: `https://instagram.com/${raw.username}`,
-    followers,
-    following,
-    posts_count: postsCount,
-    avg_views: avgViews,
-    avg_interactions: avgInteractions,
-    engagement_rate: engagementRate,
+    followers: Number(raw.followersCount || 0),
+    following: Number(raw.followsCount || raw.followingCount || 0),
+    posts_count: Number(raw.postsCount || 0),
     posts_last_30d: postsLast30d,
-    lives_last_30d: 0,
-    location_declared: raw.locationName || "",
     is_verified: !!raw.verified,
     is_private: !!raw.private,
-    external_url: raw.externalUrl || "",
-    recent_post_captions: recentPosts.slice(0, 5).map((p: any) => String(p.caption || "").slice(0, 280)).filter(Boolean),
-    _raw_following_list: Array.isArray(raw.followings) ? raw.followings : [],
+    location_declared: raw.locationName || "",
+    recent_post_captions: recentPosts.slice(0, 5)
+      .map((p: any) => String(p.caption || "").slice(0, 280))
+      .filter(Boolean),
   };
 }
 
-/** Extract candidate usernames from a reference profile's "following" list.
- *  Apify's profile scraper does not return followings by default — we need
- *  a secondary actor. This function uses instagram-followers-scraper for that. */
-async function getFollowingList(username: string, limit = 60): Promise<string[]> {
+async function layer1Scrape(usernames: string[]): Promise<BasicProfile[]> {
+  if (usernames.length === 0) return [];
   try {
-    // Use the dedicated followers/following scraper
-    const url = `https://api.apify.com/v2/acts/apify~instagram-follower-scraper/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=90`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        usernames: [username],
-        resultsType: "following",
-        resultsLimit: limit,
-      }),
-    });
-    if (!res.ok) {
-      console.warn(`[IG] following list failed for ${username}: ${res.status}`);
-      return [];
-    }
-    const items = await res.json();
-    // The actor returns objects like { username: "..." } for each followed account
+    const items = await callApify("apify~instagram-profile-scraper", {
+      usernames: usernames.slice(0, MAX_CANDIDATES),
+    }, 180);
+    return items.map(normalizeBasic).filter((p: BasicProfile | null): p is BasicProfile => p !== null);
+  } catch (e: any) {
+    console.warn(`[L1] batch scrape error:`, e.message);
+    return [];
+  }
+}
+
+async function getFollowingList(username: string, limit = FOLLOWING_FETCH_PER_REF): Promise<string[]> {
+  try {
+    const items = await callApify("apify~instagram-follower-scraper", {
+      usernames: [username],
+      resultsType: "following",
+      resultsLimit: limit,
+    }, 90);
     return items
       .map((i: any) => i.username || i.handle || "")
       .filter((u: string) => !!u && /^[A-Za-z0-9._]+$/.test(u))
       .slice(0, limit);
   } catch (e: any) {
-    console.warn(`[IG] following list error for ${username}:`, e.message);
+    console.warn(`[seed] following list failed for ${username}:`, e.message);
     return [];
   }
 }
 
-/** Qualify a profile against the briefing using Gemini.
- *  Returns { match: boolean, confidence: 0-1, reason: string } */
-async function qualifyProfile(profile: any, briefing: string, filters: any): Promise<{ match: boolean; confidence: number; reason: string }> {
-  if (!LOVABLE_API_KEY || !briefing?.trim()) {
-    return { match: true, confidence: 0.5, reason: "no-briefing-fallback" };
-  }
+function passesHardFilters(p: BasicProfile, filters: any): boolean {
+  if (p.is_private) return false;
+  const minF = Number(filters?.min_followers) || 0;
+  const maxF = Number(filters?.max_followers) || 0;
+  if (minF > 0 && p.followers < minF) return false;
+  if (maxF > 0 && p.followers > maxF) return false;
+  // Activity check (only for smaller profiles — big accounts may post less often)
+  if (p.posts_last_30d === 0 && p.followers < 100_000) return false;
+  // Bot-like ratio
+  if (p.following > 3000 && p.followers > 0 && (p.followers / p.following) < 0.1) return false;
+  return true;
+}
 
-  const profileSummary = [
+function locationMatches(p: BasicProfile, wantedLocs: string[]): boolean {
+  if (wantedLocs.length === 0) return true;
+  const loc = p.location_declared.toLowerCase();
+  const bio = p.bio.toLowerCase();
+  return wantedLocs.some(l => {
+    const needle = l.toLowerCase();
+    return loc.includes(needle) || bio.includes(needle);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LAYER 2 — Rich enrichment via the existing instagram-profile function
+// ═══════════════════════════════════════════════════════════════════════
+
+interface RichProfile extends BasicProfile {
+  median_engagement: number;
+  median_views: number;
+  engagement_rate: number;          // %
+  stories_view_estimate: number;
+  estimated_ctr: number;            // %
+  sample_size: number;              // posts analyzed
+  latest_posts: Array<{ likes: number; comments: number; views: number; type: string }>;
+}
+
+async function layer2EnrichOne(username: string): Promise<RichProfile | null> {
+  try {
+    // Reuse the existing instagram-profile edge function — guarantees identical
+    // analytics to what the Instagram tab shows for the same user.
+    const url = `${SUPABASE_URL}/functions/v1/instagram-profile`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+      body: JSON.stringify({ username }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !data.username) return null;
+
+    return {
+      username: data.username,
+      display_name: data.fullName || data.username,
+      bio: data.biography || "",
+      avatar_url: data.profilePicUrl || "",
+      profile_url: `https://instagram.com/${data.username}`,
+      followers: data.followers || 0,
+      following: 0,
+      posts_count: data.postsCount || 0,
+      posts_last_30d: 0,
+      is_verified: !!data.isVerified,
+      is_private: false,
+      location_declared: "",
+      recent_post_captions: [],
+      median_engagement: data.medianEngagement || 0,
+      median_views: data.medianViews || 0,
+      engagement_rate: data.engagementRate || 0,
+      stories_view_estimate: data.storiesViewEstimate || 0,
+      estimated_ctr: data.estimatedCtr || 0,
+      sample_size: data.sampleSize || 0,
+      latest_posts: data.latestPosts || [],
+    };
+  } catch (e: any) {
+    console.warn(`[L2] enrich ${username} failed:`, e.message);
+    return null;
+  }
+}
+
+async function layer2EnrichBatch(profiles: BasicProfile[]): Promise<RichProfile[]> {
+  // Run in parallel batches of 3 to control concurrency and avoid Apify rate limits
+  const BATCH_SIZE = 3;
+  const enriched: RichProfile[] = [];
+  for (let i = 0; i < profiles.length; i += BATCH_SIZE) {
+    const chunk = profiles.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(chunk.map(p => layer2EnrichOne(p.username)));
+    for (let j = 0; j < chunk.length; j++) {
+      const rich = results[j];
+      if (rich) {
+        // Merge: keep basic fields (bio, location, captions) from layer 1
+        // and stat fields from layer 2 — both sources contribute their best data
+        enriched.push({
+          ...chunk[j],
+          ...rich,
+          bio: chunk[j].bio || rich.bio,
+          location_declared: chunk[j].location_declared,
+          recent_post_captions: chunk[j].recent_post_captions,
+        });
+      }
+    }
+    console.log(`[L2] Enriched ${enriched.length}/${profiles.length}`);
+  }
+  return enriched;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LAYER 3 — Gemini qualification against briefing
+// ═══════════════════════════════════════════════════════════════════════
+
+async function qualifyProfile(profile: RichProfile, briefing: string, filters: any): Promise<{ match: boolean; confidence: number; reason: string }> {
+  if (!LOVABLE_API_KEY || !briefing?.trim()) {
+    return { match: true, confidence: 0.5, reason: "sem-briefing" };
+  }
+  const summary = [
     `Username: @${profile.username}`,
     `Nome: ${profile.display_name}`,
     `Bio: ${profile.bio || "(vazia)"}`,
-    `Seguidores: ${profile.followers}`,
-    `Posts recentes: ${profile.posts_last_30d} nos últimos 30 dias`,
+    `Seguidores: ${profile.followers.toLocaleString("pt-BR")}`,
+    `Engagement rate: ${profile.engagement_rate}%`,
+    `Median engagement: ${profile.median_engagement}`,
+    `Median views (vídeos): ${profile.median_views}`,
     `Verificado: ${profile.is_verified ? "sim" : "não"}`,
-    profile.recent_post_captions?.length ? `Legendas recentes:\n${profile.recent_post_captions.slice(0, 3).map((c: string) => `- ${c}`).join("\n")}` : "",
+    profile.recent_post_captions.length
+      ? `Legendas recentes:\n${profile.recent_post_captions.slice(0, 3).map((c: string) => `- ${c}`).join("\n")}`
+      : "",
   ].filter(Boolean).join("\n");
 
-  const systemPrompt = `Você é um analista de descoberta de influenciadores para campanhas de marketing.
-Dado o BRIEFING e os FILTROS do usuário, avalie se o PERFIL abaixo é um bom match.
+  const systemPrompt = `Você é um analista sênior de descoberta de influenciadores.
+Avalie se o PERFIL bate com o BRIEFING e os FILTROS.
 
-Responda APENAS com um objeto JSON no formato:
-{
-  "match": true | false,
-  "confidence": 0.0 a 1.0,
-  "reason": "explicação curta em pt-BR (máx 15 palavras)"
-}
+Responda APENAS com JSON:
+{ "match": true|false, "confidence": 0.0-1.0, "reason": "explicação curta em pt-BR (máx 18 palavras)" }
 
 Critérios:
-- O perfil tem o NICHO/TEMA descrito no briefing? (analise bio + legendas, não só palavras-chave)
-- O tamanho de audiência está adequado?
-- O perfil parece ATIVO e REAL (não bot, não abandonado)?
-- Bate com os filtros de gênero/localização se informados?
+- Nicho/tema alinhado ao briefing? (analise bio + legendas + engagement, não só keywords)
+- Audiência consistente com o porte pedido?
+- Perfil ativo, real, com engagement saudável?
+- Bate com gênero/localização se informados?
 
-Seja rigoroso. Prefira rejeitar do que aceitar perfil duvidoso.`;
+Seja rigoroso. Prefira rejeitar perfil duvidoso.`;
 
   const userPrompt = `BRIEFING:\n${briefing}\n\nFILTROS:\n${JSON.stringify({
     locations: filters?.target_locations || [],
     gender: filters?.target_gender || "any",
     min_followers: filters?.min_followers || 0,
     max_followers: filters?.max_followers || 0,
-  })}\n\nPERFIL:\n${profileSummary}`;
+  })}\n\nPERFIL:\n${summary}`;
 
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -291,61 +317,23 @@ Seja rigoroso. Prefira rejeitar do que aceitar perfil duvidoso.`;
     });
     if (!res.ok) return { match: true, confidence: 0.3, reason: "ai-error-fallback" };
     const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content || "{}";
-    const parsed = JSON.parse(content);
+    const parsed = JSON.parse(data?.choices?.[0]?.message?.content || "{}");
     return {
       match: !!parsed.match,
       confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
       reason: String(parsed.reason || ""),
     };
   } catch (e: any) {
-    console.warn("[IG] qualify error:", e.message);
+    console.warn("[L3] qualify error:", e.message);
     return { match: true, confidence: 0.3, reason: "ai-parse-error" };
   }
 }
 
-/** Apply hard filters before sending to AI (cheap pre-filter). */
-function passesHardFilters(profile: any, filters: any): boolean {
-  // Private profiles are useless for campaigns
-  if (profile.is_private) return false;
+// ═══════════════════════════════════════════════════════════════════════
+//  FALLBACK — Firecrawl-based discovery when no reference is provided
+// ═══════════════════════════════════════════════════════════════════════
 
-  // Followers range
-  const minF = Number(filters?.min_followers) || 0;
-  const maxF = Number(filters?.max_followers) || 0;
-  if (minF > 0 && profile.followers < minF) return false;
-  if (maxF > 0 && profile.followers > maxF) return false;
-
-  // Minimum engagement rate
-  const minEng = Number(filters?.min_engagement) || 0;
-  if (minEng > 0 && profile.engagement_rate < minEng) return false;
-
-  // Activity: profile must have posted something in last 30 days
-  if (profile.posts_last_30d === 0 && profile.followers < 100_000) return false;
-
-  // Followers/following sanity check — exclude obvious spam/bot accounts
-  if (profile.followers > 0 && profile.following > 0) {
-    const ratio = profile.followers / profile.following;
-    // Spam pattern: follows thousands, has nobody following back
-    if (profile.following > 3000 && ratio < 0.1) return false;
-  }
-
-  return true;
-}
-
-/** Location match (declared field only — we do not infer). */
-function locationMatches(profile: any, wantedLocs: string[]): boolean {
-  if (wantedLocs.length === 0) return true;
-  const loc = (profile.location_declared || "").toLowerCase();
-  const bio = (profile.bio || "").toLowerCase();
-  return wantedLocs.some(l => {
-    const needle = l.toLowerCase();
-    return loc.includes(needle) || bio.includes(needle);
-  });
-}
-
-/** Firecrawl fallback: when no reference profile, derive candidate usernames from
- *  briefing + filters by searching Google for `site:instagram.com "<keyword>"`. */
-async function discoverCandidatesViaFirecrawl(keywords: string[], limit = 40): Promise<string[]> {
+async function discoverViaFirecrawl(keywords: string[], limit = 60): Promise<string[]> {
   if (!FIRECRAWL_API_KEY || keywords.length === 0) return [];
   const usernames = new Set<string>();
   for (const kw of keywords.slice(0, 4)) {
@@ -355,10 +343,7 @@ async function discoverCandidatesViaFirecrawl(keywords: string[], limit = 40): P
     try {
       const res = await fetch("https://api.firecrawl.dev/v2/search", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
-          "Content-Type": "application/json",
-        },
+        headers: { Authorization: `Bearer ${FIRECRAWL_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({ query: `site:instagram.com "${cleanKw}"`, limit: 15 }),
       });
       if (!res.ok) continue;
@@ -374,13 +359,40 @@ async function discoverCandidatesViaFirecrawl(keywords: string[], limit = 40): P
         if (usernames.size >= limit) break;
       }
     } catch (e: any) {
-      console.warn(`[Firecrawl] error:`, e.message);
+      console.warn(`[firecrawl] error:`, e.message);
     }
   }
   return Array.from(usernames);
 }
 
-/** MAIN ROUTINE — Instagram seed-based discovery */
+async function extractKeywordsFromBriefing(briefing: string): Promise<string[]> {
+  if (!LOVABLE_API_KEY || !briefing.trim()) return [];
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          { role: "system", content: 'Extraia 4-6 palavras-chave de busca (pt-BR) do briefing. Retorne APENAS JSON: { "keywords": ["..."] }' },
+          { role: "user", content: briefing.slice(0, 800) },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const parsed = JSON.parse(data?.choices?.[0]?.message?.content || "{}");
+    return Array.isArray(parsed.keywords) ? parsed.keywords.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MAIN ROUTINE
+// ═══════════════════════════════════════════════════════════════════════
+
 async function runInstagramDiscovery(params: {
   briefing: string;
   reference_urls: string[];
@@ -388,7 +400,6 @@ async function runInstagramDiscovery(params: {
   custom_keywords: string[];
 }): Promise<{ prospects: any[]; stats: any; error?: string }> {
   const { briefing, reference_urls, manual_filters, custom_keywords } = params;
-
   const filters = {
     target_locations: manual_filters?.locations || [],
     target_gender: manual_filters?.gender || "any",
@@ -396,115 +407,101 @@ async function runInstagramDiscovery(params: {
     max_followers: Number(manual_filters?.max_followers) || 0,
     min_engagement: Number(manual_filters?.min_engagement) || 0,
   };
-
   const hasBriefing = typeof briefing === "string" && briefing.trim().length > 0;
   const refUsernames = (reference_urls || [])
     .map(parseInstagramUsername)
     .filter((u): u is string => !!u);
 
-  // ─── PATH A: reference-based ─────────────────────────────────────────
-  let candidateUsernames: string[] = [];
+  const stats: any = { used_path: "", layer1_total: 0, layer1_passed: 0, layer2_enriched: 0, qualified: 0 };
   const errorsDuringSeed: string[] = [];
+  let candidateUsernames: string[] = [];
 
+  // ─── PATH A: reference-based ─────────────────────────────────────
   if (refUsernames.length > 0) {
-    console.log(`[IG] Seed mode — references: ${refUsernames.join(", ")}`);
+    stats.used_path = "reference";
+    console.log(`[seed] References: ${refUsernames.join(", ")}`);
 
-    // 1. Scrape each reference profile (full data)
-    const seedProfiles = await scrapeInstagramProfilesBatch(refUsernames);
-    for (const rawSeed of seedProfiles) {
-      const seed = normalizeProfile(rawSeed);
-      if (!seed) continue;
+    // Quick scrape of references to verify they are public
+    const seedProfiles = await layer1Scrape(refUsernames);
+    for (const seed of seedProfiles) {
       if (seed.is_private) {
         errorsDuringSeed.push(`Perfil @${seed.username} é privado e não pode ser usado como referência.`);
         continue;
       }
-      // 2. Get the accounts this seed follows
-      const following = await getFollowingList(seed.username, 60);
-      console.log(`[IG] @${seed.username} follows ${following.length} accounts`);
+      const following = await getFollowingList(seed.username, FOLLOWING_FETCH_PER_REF);
+      console.log(`[seed] @${seed.username} follows ${following.length} accounts`);
       candidateUsernames.push(...following);
     }
-
-    // Deduplicate and drop the references themselves
     candidateUsernames = [...new Set(candidateUsernames)].filter(u => !refUsernames.includes(u));
 
     if (candidateUsernames.length === 0 && errorsDuringSeed.length > 0) {
-      return { prospects: [], stats: {}, error: errorsDuringSeed.join(" ") };
+      return { prospects: [], stats, error: errorsDuringSeed.join(" ") };
     }
   }
 
-  // ─── PATH B: briefing-based fallback (no reference) ─────────────────
+  // ─── PATH B: briefing-based fallback ─────────────────────────────
   if (candidateUsernames.length === 0) {
-    console.log(`[IG] Fallback mode — discovering via briefing + keywords`);
+    stats.used_path = "briefing";
+    console.log(`[fallback] Discovering via briefing + keywords`);
     const keywords = [
       ...(custom_keywords || []).map(String).filter(Boolean),
       ...(filters.target_locations || []),
     ];
     if (hasBriefing) {
-      // Extract keywords from briefing via AI
-      try {
-        const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
-            messages: [
-              { role: "system", content: "Extraia 4-6 palavras-chave de busca (pt-BR) do briefing. Retorne APENAS JSON: { \"keywords\": [\"...\"] }" },
-              { role: "user", content: briefing.slice(0, 800) },
-            ],
-            response_format: { type: "json_object" },
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const parsed = JSON.parse(data?.choices?.[0]?.message?.content || "{}");
-          if (Array.isArray(parsed.keywords)) keywords.push(...parsed.keywords.map(String));
-        }
-      } catch {/* ignore */}
+      const aiKeywords = await extractKeywordsFromBriefing(briefing);
+      keywords.push(...aiKeywords);
     }
-
     const uniqueKeywords = [...new Set(keywords)].slice(0, 6);
     if (uniqueKeywords.length === 0) {
-      return { prospects: [], stats: {}, error: "Forneça uma referência, briefing, palavras-chave ou localização." };
+      return { prospects: [], stats, error: "Forneça pelo menos uma referência, briefing, ou palavras-chave." };
     }
-    candidateUsernames = await discoverCandidatesViaFirecrawl(uniqueKeywords, MAX_PROFILES_PER_SEARCH * 2);
+    candidateUsernames = await discoverViaFirecrawl(uniqueKeywords, MAX_CANDIDATES * 2);
   }
 
-  // Cap before the expensive enrichment step
-  candidateUsernames = candidateUsernames.slice(0, MAX_PROFILES_PER_SEARCH);
-  console.log(`[IG] Enriching ${candidateUsernames.length} candidates`);
+  candidateUsernames = candidateUsernames.slice(0, MAX_CANDIDATES);
+  stats.layer1_total = candidateUsernames.length;
+  console.log(`[L1] Scraping ${candidateUsernames.length} candidates (cheap)`);
 
   if (candidateUsernames.length === 0) {
-    return { prospects: [], stats: {}, error: "Nenhum candidato encontrado com os critérios fornecidos." };
+    return { prospects: [], stats, error: "Nenhum candidato encontrado." };
   }
 
-  // ─── ENRICHMENT — full scrape of each candidate ─────────────────────
-  const rawProfiles = await scrapeInstagramProfilesBatch(candidateUsernames);
-  const enriched = rawProfiles.map(normalizeProfile).filter((p): p is any => p !== null);
-  console.log(`[IG] Enriched ${enriched.length} profiles successfully`);
+  // ─── LAYER 1: cheap scrape + hard filter ────────────────────────
+  const basicProfiles = await layer1Scrape(candidateUsernames);
+  console.log(`[L1] Got ${basicProfiles.length} basic profiles`);
 
-  // ─── HARD FILTERS ───────────────────────────────────────────────────
-  let filtered = enriched.filter(p => passesHardFilters(p, filters));
-  const droppedByHardFilter = enriched.length - filtered.length;
-  console.log(`[IG] Hard filters dropped ${droppedByHardFilter}, ${filtered.length} remain`);
-
-  // ─── LOCATION FILTER ────────────────────────────────────────────────
   const wantedLocs = (filters.target_locations || []).filter((l: string) => l);
-  if (wantedLocs.length > 0) {
-    const before = filtered.length;
-    filtered = filtered.filter(p => locationMatches(p, wantedLocs));
-    console.log(`[IG] Location filter dropped ${before - filtered.length}`);
+  const layer1Survivors = basicProfiles
+    .filter(p => passesHardFilters(p, filters))
+    .filter(p => locationMatches(p, wantedLocs))
+    // Sort by followers desc and pick top N for the expensive enrichment
+    .sort((a, b) => b.followers - a.followers)
+    .slice(0, MAX_RICH_ENRICHMENTS);
+  stats.layer1_passed = layer1Survivors.length;
+  console.log(`[L1→L2] ${layer1Survivors.length} profiles selected for rich enrichment`);
+
+  if (layer1Survivors.length === 0) {
+    return {
+      prospects: [],
+      stats,
+      error: "Todos os candidatos foram filtrados. Tente ajustar os filtros ou usar outras referências.",
+    };
   }
 
-  // ─── AI QUALIFICATION (only if briefing exists) ─────────────────────
+  // ─── LAYER 2: rich enrichment (calls instagram-profile fn) ─────
+  const richProfiles = await layer2EnrichBatch(layer1Survivors);
+  stats.layer2_enriched = richProfiles.length;
+  console.log(`[L2] Enriched ${richProfiles.length} profiles with full analytics`);
+
+  // ─── LAYER 3: AI qualification ──────────────────────────────────
   const qualified: any[] = [];
   if (hasBriefing) {
-    // Run qualifications in parallel batches of 5 to control concurrency
     const BATCH = 5;
-    for (let i = 0; i < filtered.length; i += BATCH) {
-      const chunk = filtered.slice(i, i + BATCH);
+    for (let i = 0; i < richProfiles.length; i += BATCH) {
+      const chunk = richProfiles.slice(i, i + BATCH);
       const results = await Promise.all(chunk.map(p => qualifyProfile(p, briefing, filters)));
       for (let j = 0; j < chunk.length; j++) {
-        const p = chunk[j];
+        const p: any = chunk[j];
         const q = results[j];
         p.ai_qualification = q;
         p.match_score = Math.round(q.confidence * 100);
@@ -512,33 +509,23 @@ async function runInstagramDiscovery(params: {
       }
     }
   } else {
-    // No briefing — everything that passed hard filters is "qualified"
-    for (const p of filtered) {
-      p.ai_qualification = { match: true, confidence: 0.5, reason: "no-briefing" };
+    for (const p of richProfiles as any[]) {
+      p.ai_qualification = { match: true, confidence: 0.5, reason: "sem-briefing" };
       p.match_score = 50;
       qualified.push(p);
     }
   }
+  stats.qualified = qualified.length;
 
-  // ─── FINAL RANKING ──────────────────────────────────────────────────
+  // ─── FINAL RANKING ──────────────────────────────────────────────
   qualified.sort((a, b) => {
     if (b.match_score !== a.match_score) return b.match_score - a.match_score;
     if (b.engagement_rate !== a.engagement_rate) return b.engagement_rate - a.engagement_rate;
     return b.followers - a.followers;
   });
 
-  return {
-    prospects: qualified,
-    stats: {
-      total_candidates: candidateUsernames.length,
-      total_enriched: enriched.length,
-      dropped_by_hard_filter: droppedByHardFilter,
-      dropped_by_location: wantedLocs.length > 0 ? filtered.length - qualified.length : 0,
-      qualified: qualified.length,
-      used_path: refUsernames.length > 0 ? "reference" : "briefing",
-      errors: errorsDuringSeed.length > 0 ? errorsDuringSeed : undefined,
-    },
-  };
+  if (errorsDuringSeed.length > 0) stats.warnings = errorsDuringSeed;
+  return { prospects: qualified, stats };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -550,15 +537,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const {
-      action,
-      briefing,
-      platforms,
-      custom_keywords,
-      manual_filters,
-      reference_url,       // legacy — single URL
-      reference_urls,      // new — array of URLs
-    } = body;
+    const { action, briefing, platforms, custom_keywords, manual_filters, reference_url, reference_urls } = body;
 
     if (action === "list") {
       const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -580,17 +559,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Normalize reference input — accept either single or array
     const refUrls: string[] = Array.isArray(reference_urls)
       ? reference_urls.filter(Boolean)
       : (reference_url ? [reference_url] : []);
-
     const selectedPlatforms: string[] = platforms || ["instagram"];
     const briefingId = crypto.randomUUID();
-    const responseProspects: any[] = [];
-    let instagramStats: any = null;
 
-    // ─── INSTAGRAM (new seed-based flow) ──────────────────────────────
     if (selectedPlatforms.includes("instagram")) {
       const result = await runInstagramDiscovery({
         briefing: briefing || "",
@@ -600,73 +574,72 @@ Deno.serve(async (req) => {
       });
 
       if (result.error && result.prospects.length === 0) {
-        instagramStats = { ...(result.stats || {}), error: result.error };
-      } else {
-        instagramStats = result.stats;
+        return new Response(
+          JSON.stringify({ error: result.error, stats: result.stats }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
 
-      // Tag each prospect with the briefing id and save
       const prospects = result.prospects.map(p => ({
         ...p,
+        platform: "instagram",
+        avg_views: Number(p.median_views || 0),
+        score_breakdown: p.ai_qualification || null,
         briefing_id: briefingId,
         briefing_text: briefing || "",
         search_keywords: custom_keywords || [],
       }));
-      responseProspects.push(...prospects);
-    }
 
-    // ─── TWITCH — preserved lightweight route ─────────────────────────
-    if (selectedPlatforms.includes("twitch")) {
-      const twitchKeywords = Array.isArray(custom_keywords) && custom_keywords.length > 0
-        ? custom_keywords.map(String)
-        : [briefing, ...(manual_filters?.locations || [])].filter(Boolean).map(String);
-      if (twitchKeywords.length === 0) {
-        return new Response(
-          JSON.stringify({
-            briefing_id: briefingId,
-            keywords: [],
-            total_scraped: responseProspects.length,
-            total_qualified: responseProspects.length,
-            total_spam: instagramStats?.dropped_by_hard_filter || 0,
-            total_low_score: 0,
-            stats: instagramStats || { error: "Forneça uma referência, briefing, palavras-chave ou localização." },
-            prospects: responseProspects,
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const twitchProfiles = (await scrapeTwitch(twitchKeywords, 30))
-        .map(normalizeTwitchProfile)
-        .filter((p) => p.username)
-        .map((p) => ({
-          ...p,
+      if (prospects.length > 0) {
+        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+        const dbRecords = prospects.map((p: any) => ({
+          platform: "instagram",
+          username: p.username || "",
+          display_name: p.display_name || p.username || "",
+          bio: p.bio || "",
+          avatar_url: p.avatar_url || null,
+          profile_url: p.profile_url || null,
+          followers: Number(p.followers || 0),
+          avg_views: Number(p.median_views || 0),
+          posts_last_30d: Number(p.posts_last_30d || 0),
+          lives_last_30d: 0,
+          location_declared: p.location_declared || null,
+          location_inferred: null,
+          follower_following_ratio: Number(p.following || 0) > 0 ? Number(p.followers || 0) / Number(p.following || 1) : null,
+          has_casino_content: false,
+          is_spam: false,
+          match_score: Number(p.match_score || 0),
+          score_breakdown: p.ai_qualification || null,
           briefing_id: briefingId,
           briefing_text: briefing || "",
-          search_keywords: twitchKeywords,
+          search_keywords: custom_keywords || [],
         }));
-      responseProspects.push(...twitchProfiles);
-    }
-
-      if (responseProspects.length > 0) {
-        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-        const dbRecords = responseProspects.map((p) => toDbProspectRecord(p, briefingId, briefing || "", p.search_keywords || custom_keywords || []));
         const { error } = await supabase.from("discovery_prospects").insert(dbRecords);
-        if (error) console.error("[Discovery] DB insert error:", error.message);
+        if (error) console.error("[DB] insert error:", error.message);
       }
 
       return new Response(
         JSON.stringify({
           briefing_id: briefingId,
-          keywords: custom_keywords || [],
-          total_scraped: responseProspects.length,
-          total_qualified: responseProspects.length,
-          total_spam: instagramStats?.dropped_by_hard_filter || 0,
-          total_low_score: 0,
-          stats: instagramStats,
-          prospects: responseProspects,
+          total_scraped: result.stats.layer2_enriched || 0,
+          total_qualified: result.stats.qualified || 0,
+          total_spam: (result.stats.layer1_total || 0) - (result.stats.layer1_passed || 0),
+          total_low_score: (result.stats.layer2_enriched || 0) - (result.stats.qualified || 0),
+          stats: result.stats,
+          prospects,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    return new Response(
+      JSON.stringify({
+        error: "Twitch discovery está em manutenção. Use Instagram por enquanto.",
+        briefing_id: briefingId,
+        prospects: [],
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
 
   } catch (error: any) {
     console.error("[Discovery] Error:", error);

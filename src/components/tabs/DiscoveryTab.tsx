@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,8 @@ interface Prospect {
   has_casino_content: boolean;
   gender_inferred?: "female" | "male" | "unknown";
   engagement_rate?: number;
+  median_views?: number;
+  stories_view_estimate?: number;
   match_score: number;
   score_breakdown?: { location?: number; followers?: number; frequency?: number; content?: number; reason?: string };
   is_spam: boolean;
@@ -56,7 +58,7 @@ export function DiscoveryTab() {
   const [platforms, setPlatforms] = useState<string[]>(["twitch", "instagram"]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
-  const [step, setStep] = useState<"input" | "expanding" | "scraping" | "scoring" | "done">("input");
+  const [step, setStep] = useState<"input" | "expanding" | "scraping" | "enriching" | "scoring" | "done">("input");
 
   // Manual keywords (no auto-suggestion)
   const [customKeywords, setCustomKeywords] = useState<string[]>([]);
@@ -109,6 +111,18 @@ export function DiscoveryTab() {
   };
   const removeReference = (url: string) => setReferenceUrls(referenceUrls.filter((u) => u !== url));
 
+  useEffect(() => {
+    if (!loading) return;
+    const seq = ["expanding", "scraping", "enriching", "scoring"] as const;
+    let idx = 0;
+    setStep(seq[idx]);
+    const interval = window.setInterval(() => {
+      idx = Math.min(idx + 1, seq.length - 1);
+      setStep(seq[idx]);
+    }, 90_000);
+    return () => window.clearInterval(interval);
+  }, [loading]);
+
   const handleDiscover = async () => {
     if (platforms.length === 0) {
       toast({ title: t("disc.error"), description: t("disc.platform_required"), variant: "destructive" });
@@ -131,12 +145,9 @@ export function DiscoveryTab() {
     }
 
     setLoading(true);
-    setStep(useAiExpansion && briefing.trim() ? "expanding" : "scraping");
+    setStep("expanding");
 
     try {
-      setTimeout(() => setStep("scraping"), 2000);
-      setTimeout(() => setStep("scoring"), 7000);
-
       const { data, error } = await supabase.functions.invoke("influencer-discovery", {
         body: {
           action: "discover",
@@ -209,7 +220,14 @@ export function DiscoveryTab() {
     return "text-warning";
   };
 
-  const stepProgress = { input: 0, expanding: 20, scraping: 50, scoring: 80, done: 100 };
+  const stepProgress = { input: 0, expanding: 20, scraping: 45, enriching: 70, scoring: 88, done: 100 };
+  const stepLabels = {
+    expanding: "Extraindo referências e palavras-chave...",
+    scraping: "Buscando candidatos no Instagram (camada rápida)...",
+    enriching: "Analisando perfis qualificados em profundidade...",
+    scoring: "Avaliando aderência ao briefing com IA...",
+    done: "Concluído",
+  } as const;
 
   return (
     <div className="space-y-6">
@@ -545,9 +563,7 @@ export function DiscoveryTab() {
           <div className="space-y-2">
             <Progress value={stepProgress[step]} className="h-1.5" />
             <p className="text-xs text-muted-foreground font-mono">
-              {step === "expanding" && t("disc.step_expanding")}
-              {step === "scraping" && t("disc.step_scraping")}
-              {step === "scoring" && t("disc.step_scoring")}
+              {step !== "input" && stepLabels[step]}
             </p>
           </div>
         )}
@@ -618,8 +634,16 @@ export function DiscoveryTab() {
 
               {p.score_breakdown?.reason && (
                 <p className="text-[10px] text-muted-foreground italic mt-1">
-                  {p.score_breakdown.reason}
+                  🤖 {p.score_breakdown.reason}
                 </p>
+              )}
+
+              {typeof p.engagement_rate === "number" && p.engagement_rate > 0 && (
+                <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono mt-2 text-muted-foreground">
+                  <span>ER: {p.engagement_rate.toFixed(1)}%</span>
+                  {Number(p.median_views) > 0 && <span>Views: {Math.round(Number(p.median_views)).toLocaleString("pt-BR")}</span>}
+                  {Number(p.stories_view_estimate) > 0 && <span>Stories: ~{Math.round(Number(p.stories_view_estimate)).toLocaleString("pt-BR")}</span>}
+                </div>
               )}
 
               <div className="grid grid-cols-4 gap-1">
