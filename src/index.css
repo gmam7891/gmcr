@@ -135,4 +135,20 @@
   .status-nogo {
     @apply text-destructive;
   }
+
+  .recharts-default-tooltip {
+    background-color: hsl(var(--popover)) !important;
+    border: 1px solid hsl(var(--border)) !important;
+    border-radius: 8px !important;
+    color: hsl(var(--popover-foreground)) !important;
+    box-shadow: 0 12px 30px hsl(var(--background) / 0.35) !important;
+  }
+
+  .recharts-tooltip-label,
+  .recharts-tooltip-item,
+  .recharts-tooltip-item-name,
+  .recharts-tooltip-item-value,
+  .recharts-tooltip-item-separator {
+    color: hsl(var(--popover-foreground)) !important;
+  }
 }
