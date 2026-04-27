@@ -575,8 +575,16 @@ Deno.serve(async (req) => {
 
       if (result.error && result.prospects.length === 0) {
         return new Response(
-          JSON.stringify({ error: result.error, stats: result.stats }),
-          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({
+            briefing_id: briefingId,
+            total_scraped: result.stats.layer2_enriched || result.stats.layer1_total || 0,
+            total_qualified: 0,
+            total_spam: Math.max(0, (result.stats.layer1_total || 0) - (result.stats.layer1_passed || 0)),
+            total_low_score: result.stats.layer2_enriched || 0,
+            stats: { ...result.stats, warning: result.error },
+            prospects: [],
+          }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
