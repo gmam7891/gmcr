@@ -175,7 +175,19 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
                         <Cell key={i} fill={COLORS[i % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v: number) => formatMinutes(v)} />
+                    <Tooltip
+                      formatter={(v: number) => formatMinutes(v)}
+                      contentStyle={{
+                        background: "hsl(var(--popover))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: 8,
+                        color: "hsl(var(--popover-foreground))",
+                        fontSize: 12,
+                        boxShadow: "0 12px 30px hsl(var(--background) / 0.35)",
+                      }}
+                      labelStyle={{ color: "hsl(var(--popover-foreground))", fontWeight: 600 }}
+                      itemStyle={{ color: "hsl(var(--popover-foreground))" }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
