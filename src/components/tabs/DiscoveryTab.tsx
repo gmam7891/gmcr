@@ -170,7 +170,16 @@ export function DiscoveryTab() {
       });
 
       if (error) {
-        toast({ title: t("disc.error"), description: error.message, variant: "destructive" });
+        let description = error.message;
+        if ("context" in error && error.context && typeof error.context === "object") {
+          try {
+            const payload = await (error.context as Response).clone().json();
+            description = payload?.error || payload?.message || description;
+          } catch {
+            // Keep the SDK error message if the function body cannot be parsed.
+          }
+        }
+        toast({ title: t("disc.error"), description, variant: "destructive" });
         setStep("input");
         return;
       }
