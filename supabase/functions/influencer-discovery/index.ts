@@ -536,7 +536,16 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const body = await req.json();
+    let body: any = {};
+    try {
+      const text = await req.text();
+      body = text ? JSON.parse(text) : {};
+    } catch (parseErr) {
+      return new Response(
+        JSON.stringify({ error: "Invalid JSON body", prospects: [] }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     const { action, briefing, platforms, custom_keywords, manual_filters, reference_url, reference_urls } = body;
 
     if (action === "list") {
