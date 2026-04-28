@@ -404,6 +404,11 @@ async function runInstagramDiscovery(params: {
   manual_filters: any;
   custom_keywords: string[];
 }): Promise<{ prospects: any[]; stats: any; error?: string }> {
+  const debugLogs: string[] = [];
+  const log = (msg: string) => {
+    console.log(msg);
+    debugLogs.push(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
+  };
   const { briefing, reference_urls, manual_filters, custom_keywords } = params;
   const filters = {
     target_locations: manual_filters?.locations || [],
@@ -424,17 +429,17 @@ async function runInstagramDiscovery(params: {
   // ─── PATH A: reference-based ─────────────────────────────────────
   if (refUsernames.length > 0) {
     stats.used_path = "reference";
-    console.log(`[seed] References: ${refUsernames.join(", ")}`);
+    log(`[seed] References: ${refUsernames.join(", ")}`);
 
     // Quick scrape of references to verify they are public
-    const seedProfiles = await layer1Scrape(refUsernames);
+    const seedProfiles = await layer1Scrape(refUsernames, log);
     for (const seed of seedProfiles) {
       if (seed.is_private) {
         errorsDuringSeed.push(`Perfil @${seed.username} é privado e não pode ser usado como referência.`);
         continue;
       }
-      const following = await getFollowingList(seed.username, FOLLOWING_FETCH_PER_REF);
-      console.log(`[seed] @${seed.username} follows ${following.length} accounts`);
+      const following = await getFollowingList(seed.username, FOLLOWING_FETCH_PER_REF, log);
+      log(`[seed] @${seed.username} follows ${following.length} accounts`);
       candidateUsernames.push(...following);
     }
     candidateUsernames = [...new Set(candidateUsernames)].filter(u => !refUsernames.includes(u));
@@ -447,7 +452,7 @@ async function runInstagramDiscovery(params: {
   // ─── PATH B: briefing-based fallback ─────────────────────────────
   if (candidateUsernames.length === 0) {
     stats.used_path = "briefing";
-    console.log(`[fallback] Discovering via briefing + keywords`);
+    log(`[fallback] Discovering via briefing + keywords`);
     const keywords = [
       ...(custom_keywords || []).map(String).filter(Boolean),
       ...(filters.target_locations || []),
@@ -465,15 +470,15 @@ async function runInstagramDiscovery(params: {
 
   candidateUsernames = candidateUsernames.slice(0, MAX_CANDIDATES);
   stats.layer1_total = candidateUsernames.length;
-  console.log(`[L1] Scraping ${candidateUsernames.length} candidates (cheap)`);
+  log(`[L1] Scraping ${candidateUsernames.length} candidates (cheap)`);
 
   if (candidateUsernames.length === 0) {
     return { prospects: [], stats, error: "Nenhum candidato encontrado." };
   }
 
   // ─── LAYER 1: cheap scrape + hard filter ────────────────────────
-  const basicProfiles = await layer1Scrape(candidateUsernames);
-  console.log(`[L1] Got ${basicProfiles.length} basic profiles`);
+  const basicProfiles = await layer1Scrape(candidateUsernames, log);
+  log(`[L1] Got ${basicProfiles.length} basic profiles`);
 
   const wantedLocs = (filters.target_locations || []).filter((l: string) => l);
   const layer1Survivors = basicProfiles
@@ -483,7 +488,7 @@ async function runInstagramDiscovery(params: {
     .sort((a, b) => b.followers - a.followers)
     .slice(0, MAX_RICH_ENRICHMENTS);
   stats.layer1_passed = layer1Survivors.length;
-  console.log(`[L1→L2] ${layer1Survivors.length} profiles selected for rich enrichment`);
+  log(`[L1→L2] ${layer1Survivors.length} profiles selected for rich enrichment`);
 
   if (layer1Survivors.length === 0) {
     return {
@@ -494,9 +499,9 @@ async function runInstagramDiscovery(params: {
   }
 
   // ─── LAYER 2: rich enrichment (calls instagram-profile fn) ─────
-  const richProfiles = await layer2EnrichBatch(layer1Survivors);
+  const richProfiles = await layer2EnrichBatch(layer1Survivors, log);
   stats.layer2_enriched = richProfiles.length;
-  console.log(`[L2] Enriched ${richProfiles.length} profiles with full analytics`);
+  log(`[L2] Enriched ${richProfiles.length} profiles with full analytics`);
 
   // ─── LAYER 3: AI qualification ──────────────────────────────────
   const qualified: any[] = [];
@@ -530,7 +535,7 @@ async function runInstagramDiscovery(params: {
   });
 
   if (errorsDuringSeed.length > 0) stats.warnings = errorsDuringSeed;
-  return { prospects: qualified, stats };
+  return { prospects: qualified, stats: { ...stats, debug_logs: debugLogs } };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
