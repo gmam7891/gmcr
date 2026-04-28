@@ -42,7 +42,7 @@ interface Prospect {
 interface DiscoveryResult {
   briefing_id: string;
   keywords: string[];
-  filters: any;
+  filters: Record<string, unknown>;
   total_scraped: number;
   total_qualified: number;
   total_spam: number;
@@ -193,9 +193,10 @@ export function DiscoveryTab() {
       }
       setStep("done");
       toast({ title: t("disc.success"), description: `${data.total_qualified} ${t("disc.profiles_found")}` });
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Discovery error:", e);
-      toast({ title: t("disc.error"), description: e.message, variant: "destructive" });
+      const description = e instanceof Error ? e.message : "Erro inesperado no discovery.";
+      toast({ title: t("disc.error"), description, variant: "destructive" });
       setStep("input");
     } finally {
       setLoading(false);
