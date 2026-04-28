@@ -118,7 +118,9 @@ function normalizeBasic(raw: any): BasicProfile | null {
   };
 }
 
-async function layer1Scrape(usernames: string[]): Promise<BasicProfile[]> {
+type DiscoveryLogger = (msg: string) => void;
+
+async function layer1Scrape(usernames: string[], log?: DiscoveryLogger): Promise<BasicProfile[]> {
   if (usernames.length === 0) return [];
   try {
     const items = await callApify("apify~instagram-profile-scraper", {
@@ -126,12 +128,13 @@ async function layer1Scrape(usernames: string[]): Promise<BasicProfile[]> {
     }, 180);
     return items.map(normalizeBasic).filter((p: BasicProfile | null): p is BasicProfile => p !== null);
   } catch (e: any) {
-    console.warn(`[L1] batch scrape error:`, e.message);
+    const msg = `[WARN] [L1] batch scrape error: ${e.message}`;
+    log ? log(msg) : console.warn(msg);
     return [];
   }
 }
 
-async function getFollowingList(username: string, limit = FOLLOWING_FETCH_PER_REF): Promise<string[]> {
+async function getFollowingList(username: string, limit = FOLLOWING_FETCH_PER_REF, log?: DiscoveryLogger): Promise<string[]> {
   try {
     const items = await callApify("apify~instagram-follower-scraper", {
       usernames: [username],
@@ -143,7 +146,8 @@ async function getFollowingList(username: string, limit = FOLLOWING_FETCH_PER_RE
       .filter((u: string) => !!u && /^[A-Za-z0-9._]+$/.test(u))
       .slice(0, limit);
   } catch (e: any) {
-    console.warn(`[seed] following list failed for ${username}:`, e.message);
+    const msg = `[WARN] [seed] following list failed for ${username}: ${e.message}`;
+    log ? log(msg) : console.warn(msg);
     return [];
   }
 }
@@ -185,7 +189,7 @@ interface RichProfile extends BasicProfile {
   latest_posts: Array<{ likes: number; comments: number; views: number; type: string }>;
 }
 
-async function layer2EnrichOne(username: string): Promise<RichProfile | null> {
+async function layer2EnrichOne(username: string, log?: DiscoveryLogger): Promise<RichProfile | null> {
   try {
     // Reuse the existing instagram-profile edge function — guarantees identical
     // analytics to what the Instagram tab shows for the same user.
@@ -225,18 +229,19 @@ async function layer2EnrichOne(username: string): Promise<RichProfile | null> {
       latest_posts: data.latestPosts || [],
     };
   } catch (e: any) {
-    console.warn(`[L2] enrich ${username} failed:`, e.message);
+    const msg = `[WARN] [L2] enrich ${username} failed: ${e.message}`;
+    log ? log(msg) : console.warn(msg);
     return null;
   }
 }
 
-async function layer2EnrichBatch(profiles: BasicProfile[]): Promise<RichProfile[]> {
+async function layer2EnrichBatch(profiles: BasicProfile[], log?: DiscoveryLogger): Promise<RichProfile[]> {
   // Run in parallel batches of 3 to control concurrency and avoid Apify rate limits
   const BATCH_SIZE = 3;
   const enriched: RichProfile[] = [];
   for (let i = 0; i < profiles.length; i += BATCH_SIZE) {
     const chunk = profiles.slice(i, i + BATCH_SIZE);
-    const results = await Promise.all(chunk.map(p => layer2EnrichOne(p.username)));
+    const results = await Promise.all(chunk.map(p => layer2EnrichOne(p.username, log)));
     for (let j = 0; j < chunk.length; j++) {
       const rich = results[j];
       if (rich) {
@@ -251,7 +256,7 @@ async function layer2EnrichBatch(profiles: BasicProfile[]): Promise<RichProfile[
         });
       }
     }
-    console.log(`[L2] Enriched ${enriched.length}/${profiles.length}`);
+    log ? log(`[L2] Enriched ${enriched.length}/${profiles.length}`) : console.log(`[L2] Enriched ${enriched.length}/${profiles.length}`);
   }
   return enriched;
 }
@@ -399,6 +404,11 @@ async function runInstagramDiscovery(params: {
   manual_filters: any;
   custom_keywords: string[];
 }): Promise<{ prospects: any[]; stats: any; error?: string }> {
+  const debugLogs: string[] = [];
+  const log = (msg: string) => {
+    console.log(msg);
+    debugLogs.push(`[${new Date().toISOString().slice(11, 19)}] ${msg}`);
+  };
   const { briefing, reference_urls, manual_filters, custom_keywords } = params;
   const filters = {
     target_locations: manual_filters?.locations || [],
@@ -419,30 +429,30 @@ async function runInstagramDiscovery(params: {
   // ─── PATH A: reference-based ─────────────────────────────────────
   if (refUsernames.length > 0) {
     stats.used_path = "reference";
-    console.log(`[seed] References: ${refUsernames.join(", ")}`);
+    log(`[seed] References: ${refUsernames.join(", ")}`);
 
     // Quick scrape of references to verify they are public
-    const seedProfiles = await layer1Scrape(refUsernames);
+    const seedProfiles = await layer1Scrape(refUsernames, log);
     for (const seed of seedProfiles) {
       if (seed.is_private) {
         errorsDuringSeed.push(`Perfil @${seed.username} é privado e não pode ser usado como referência.`);
         continue;
       }
-      const following = await getFollowingList(seed.username, FOLLOWING_FETCH_PER_REF);
-      console.log(`[seed] @${seed.username} follows ${following.length} accounts`);
+      const following = await getFollowingList(seed.username, FOLLOWING_FETCH_PER_REF, log);
+      log(`[seed] @${seed.username} follows ${following.length} accounts`);
       candidateUsernames.push(...following);
     }
     candidateUsernames = [...new Set(candidateUsernames)].filter(u => !refUsernames.includes(u));
 
     if (candidateUsernames.length === 0 && errorsDuringSeed.length > 0) {
-      return { prospects: [], stats, error: errorsDuringSeed.join(" ") };
+      return { prospects: [], stats: { ...stats, debug_logs: debugLogs }, error: errorsDuringSeed.join(" ") };
     }
   }
 
   // ─── PATH B: briefing-based fallback ─────────────────────────────
   if (candidateUsernames.length === 0) {
     stats.used_path = "briefing";
-    console.log(`[fallback] Discovering via briefing + keywords`);
+    log(`[fallback] Discovering via briefing + keywords`);
     const keywords = [
       ...(custom_keywords || []).map(String).filter(Boolean),
       ...(filters.target_locations || []),
@@ -453,22 +463,22 @@ async function runInstagramDiscovery(params: {
     }
     const uniqueKeywords = [...new Set(keywords)].slice(0, 6);
     if (uniqueKeywords.length === 0) {
-      return { prospects: [], stats, error: "Forneça pelo menos uma referência, briefing, ou palavras-chave." };
+      return { prospects: [], stats: { ...stats, debug_logs: debugLogs }, error: "Forneça pelo menos uma referência, briefing, ou palavras-chave." };
     }
     candidateUsernames = await discoverViaFirecrawl(uniqueKeywords, MAX_CANDIDATES * 2);
   }
 
   candidateUsernames = candidateUsernames.slice(0, MAX_CANDIDATES);
   stats.layer1_total = candidateUsernames.length;
-  console.log(`[L1] Scraping ${candidateUsernames.length} candidates (cheap)`);
+  log(`[L1] Scraping ${candidateUsernames.length} candidates (cheap)`);
 
   if (candidateUsernames.length === 0) {
-    return { prospects: [], stats, error: "Nenhum candidato encontrado." };
+    return { prospects: [], stats: { ...stats, debug_logs: debugLogs }, error: "Nenhum candidato encontrado." };
   }
 
   // ─── LAYER 1: cheap scrape + hard filter ────────────────────────
-  const basicProfiles = await layer1Scrape(candidateUsernames);
-  console.log(`[L1] Got ${basicProfiles.length} basic profiles`);
+  const basicProfiles = await layer1Scrape(candidateUsernames, log);
+  log(`[L1] Got ${basicProfiles.length} basic profiles`);
 
   const wantedLocs = (filters.target_locations || []).filter((l: string) => l);
   const layer1Survivors = basicProfiles
@@ -478,20 +488,20 @@ async function runInstagramDiscovery(params: {
     .sort((a, b) => b.followers - a.followers)
     .slice(0, MAX_RICH_ENRICHMENTS);
   stats.layer1_passed = layer1Survivors.length;
-  console.log(`[L1→L2] ${layer1Survivors.length} profiles selected for rich enrichment`);
+  log(`[L1→L2] ${layer1Survivors.length} profiles selected for rich enrichment`);
 
   if (layer1Survivors.length === 0) {
     return {
       prospects: [],
-      stats,
+      stats: { ...stats, debug_logs: debugLogs },
       error: "Todos os candidatos foram filtrados. Tente ajustar os filtros ou usar outras referências.",
     };
   }
 
   // ─── LAYER 2: rich enrichment (calls instagram-profile fn) ─────
-  const richProfiles = await layer2EnrichBatch(layer1Survivors);
+  const richProfiles = await layer2EnrichBatch(layer1Survivors, log);
   stats.layer2_enriched = richProfiles.length;
-  console.log(`[L2] Enriched ${richProfiles.length} profiles with full analytics`);
+  log(`[L2] Enriched ${richProfiles.length} profiles with full analytics`);
 
   // ─── LAYER 3: AI qualification ──────────────────────────────────
   const qualified: any[] = [];
@@ -525,7 +535,7 @@ async function runInstagramDiscovery(params: {
   });
 
   if (errorsDuringSeed.length > 0) stats.warnings = errorsDuringSeed;
-  return { prospects: qualified, stats };
+  return { prospects: qualified, stats: { ...stats, debug_logs: debugLogs } };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
