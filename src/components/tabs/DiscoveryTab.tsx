@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -41,7 +42,7 @@ interface Prospect {
 interface DiscoveryResult {
   briefing_id: string;
   keywords: string[];
-  filters: any;
+  filters: Record<string, unknown>;
   total_scraped: number;
   total_qualified: number;
   total_spam: number;
@@ -59,6 +60,7 @@ export function DiscoveryTab() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [step, setStep] = useState<"input" | "expanding" | "scraping" | "enriching" | "scoring" | "done">("input");
+  const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(null);
 
   // Manual keywords (no auto-suggestion)
   const [customKeywords, setCustomKeywords] = useState<string[]>([]);
@@ -191,9 +193,10 @@ export function DiscoveryTab() {
       }
       setStep("done");
       toast({ title: t("disc.success"), description: `${data.total_qualified} ${t("disc.profiles_found")}` });
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Discovery error:", e);
-      toast({ title: t("disc.error"), description: e.message, variant: "destructive" });
+      const description = e instanceof Error ? e.message : "Erro inesperado no discovery.";
+      toast({ title: t("disc.error"), description, variant: "destructive" });
       setStep("input");
     } finally {
       setLoading(false);
@@ -623,7 +626,16 @@ export function DiscoveryTab() {
       {result && filteredProspects.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filteredProspects.map((p, i) => (
-            <div key={i} className="card-surface p-4 space-y-3 hover:border-primary/50 transition-colors">
+            <div
+              key={i}
+              role="button"
+              tabIndex={0}
+              onClick={() => setSelectedProspect(p)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") setSelectedProspect(p);
+              }}
+              className="card-surface p-4 space-y-3 hover:border-primary/50 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+            >
               <div className="flex items-start gap-3">
                 {p.avatar_url ? (
                   <img src={p.avatar_url} alt={p.username} className="w-10 h-10 rounded-full object-cover border border-border" />
@@ -699,7 +711,7 @@ export function DiscoveryTab() {
 
               <div className="flex gap-2 pt-1">
                 <Button variant="outline" size="sm" className="text-[10px] h-7 gap-1" asChild>
-                  <a href={p.profile_url} target="_blank" rel="noopener noreferrer">
+                  <a href={p.profile_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
                     <ExternalLink className="h-3 w-3" />{t("disc.view_profile")}
                   </a>
                 </Button>
@@ -708,6 +720,102 @@ export function DiscoveryTab() {
           ))}
         </div>
       )}
+
+      <Dialog open={!!selectedProspect} onOpenChange={(open) => !open && setSelectedProspect(null)}>
+        <DialogContent className="max-w-3xl max-h-[86vh] overflow-y-auto">
+          {selectedProspect && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-3 pr-8">
+                  {selectedProspect.avatar_url ? (
+                    <img src={selectedProspect.avatar_url} alt={selectedProspect.username} className="h-12 w-12 rounded-full object-cover border border-border" />
+                  ) : (
+                    <span className="h-12 w-12 rounded-full bg-secondary flex items-center justify-center text-sm font-mono text-muted-foreground">
+                      {selectedProspect.username.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                  <span className="min-w-0">
+                    <span className="block truncate">{selectedProspect.display_name || selectedProspect.username}</span>
+                    <span className="block text-xs font-mono font-normal text-muted-foreground">@{selectedProspect.username}</span>
+                  </span>
+                </DialogTitle>
+                <DialogDescription>
+                  Visão completa do influenciador, com métricas, score e evidências do discovery.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="rounded-md border border-border bg-secondary/30 p-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Match</p>
+                    <p className={`text-2xl font-bold font-mono ${getScoreColor(selectedProspect.match_score)}`}>{selectedProspect.match_score}%</p>
+                  </div>
+                  <div className="rounded-md border border-border bg-secondary/30 p-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Seguidores</p>
+                    <p className="text-lg font-semibold font-mono text-foreground">{(selectedProspect.followers || 0).toLocaleString("pt-BR")}</p>
+                  </div>
+                  <div className="rounded-md border border-border bg-secondary/30 p-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Views médias</p>
+                    <p className="text-lg font-semibold font-mono text-foreground">{(selectedProspect.avg_views || selectedProspect.median_views || 0).toLocaleString("pt-BR")}</p>
+                  </div>
+                  <div className="rounded-md border border-border bg-secondary/30 p-3">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Engajamento</p>
+                    <p className="text-lg font-semibold font-mono text-foreground">{typeof selectedProspect.engagement_rate === "number" ? `${selectedProspect.engagement_rate.toFixed(1)}%` : "-"}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Perfil</h4>
+                    <div className="rounded-md border border-border p-4 space-y-3">
+                      <p className="text-sm text-foreground whitespace-pre-wrap">{selectedProspect.bio || "Bio não disponível."}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline">{selectedProspect.platform}</Badge>
+                        {(selectedProspect.location_declared || selectedProspect.location_inferred) && <Badge variant="secondary"><MapPin className="h-3 w-3 mr-1" />{selectedProspect.location_declared || selectedProspect.location_inferred}</Badge>}
+                        {selectedProspect.gender_inferred && selectedProspect.gender_inferred !== "unknown" && <Badge variant="secondary">{selectedProspect.gender_inferred === "female" ? "Feminino" : "Masculino"}</Badge>}
+                        {selectedProspect.has_casino_content && <Badge><Gamepad2 className="h-3 w-3 mr-1" />Casino confirmado</Badge>}
+                        {selectedProspect.is_spam && <Badge variant="destructive">Spam</Badge>}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Score detalhado</h4>
+                    <div className="rounded-md border border-border p-4 space-y-3">
+                      {[
+                        { label: t("disc.score_location"), value: selectedProspect.score_breakdown?.location || 0, max: 30 },
+                        { label: t("disc.score_followers"), value: selectedProspect.score_breakdown?.followers || 0, max: 30 },
+                        { label: t("disc.score_frequency"), value: selectedProspect.score_breakdown?.frequency || 0, max: 20 },
+                        { label: t("disc.score_content"), value: selectedProspect.score_breakdown?.content || 0, max: 20 },
+                      ].map((item) => (
+                        <div key={item.label} className="space-y-1">
+                          <div className="flex justify-between text-xs"><span className="text-muted-foreground">{item.label}</span><span className="font-mono text-foreground">+{item.value}/{item.max}</span></div>
+                          <Progress value={(item.value / item.max) * 100} className="h-1.5" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {selectedProspect.score_breakdown?.reason && (
+                  <div className="rounded-md border border-border bg-secondary/20 p-4">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Racional da IA</h4>
+                    <p className="text-sm text-muted-foreground">{selectedProspect.score_breakdown.reason}</p>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                    <a href={selectedProspect.profile_url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5" />Abrir perfil
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {result && result.prospects.length === 0 && (
         <div className="card-surface p-8 text-center space-y-2">
