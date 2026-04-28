@@ -184,6 +184,11 @@ export function DiscoveryTab() {
         return;
       }
       setResult(data);
+      if (data?.stats?.debug_logs?.length) {
+        console.group("🔍 Discovery debug logs");
+        data.stats.debug_logs.forEach((log: string) => console.log(log));
+        console.groupEnd();
+      }
       setStep("done");
       toast({ title: t("disc.success"), description: `${data.total_qualified} ${t("disc.profiles_found")}` });
     } catch (e: any) {
