@@ -56,7 +56,13 @@ Tile (row=0, col=0) é o canto superior esquerdo. Tile (row=R-1, col=C-1) é o c
 
 A categoria/capítulo da Twitch é APENAS UM SINAL AUXILIAR DE CONTEXTO. Ela NÃO deve ser usada como prova principal, não deve gerar detecção sozinha e não deve substituir a análise visual dos tiles.
 
-PARA CADA tile que mostre visualmente conteúdo de cassino (slot, mesa, crash, live casino, navegador em site de aposta), retorne uma entrada.
+PROTOCOLO V11 — VISÃO HÍBRIDA:
+1) SOBERANIA DE URL: em cada tile, tente PRIMEIRO ler a barra de endereço/URL do navegador. Se a URL indicar transição de lobby para jogo (ex: /casino/lobby → /play/sweet-bonanza), a URL é a Fonte Primária da Verdade para jogo/provedora e marca início imediato da sessão.
+2) LOBBY/OCR: se a URL não estiver visível, faça OCR dos cards/thumbnails do lobby. Leia Nome do Jogo e Provedora nos textos abaixo das imagens. Identifique ícone de Play, hover, foco, clique ou destaque visual que indique onde o streamer iniciou o jogo.
+3) LOADING: telas intermediárias após URL/clique/play devem continuar atribuídas ao mesmo jogo/provedora anterior; não quebre o bloco durante carregamento.
+4) NOVOS JOGOS: se o nome/provedora não estiverem na base conhecida, mantenha o nome OCR e marque como novo jogo detectado via OCR.
+
+PARA CADA tile que mostre visualmente conteúdo de cassino (slot, mesa, crash, live casino, navegador em site de aposta), URL de jogo, lobby com intenção de play, ou loading após clique, retorne uma entrada.
 IGNORE tiles com Just Chatting puro, gameplay tradicional (FPS, MMO, etc), tela preta, intro/outro — mesmo que a categoria Twitch pareça relacionada a cassino.
 SEJA AGRESSIVO NA LEITURA VISUAL: thumbs são pequenos (220×124). Se vê reels coloridos, símbolos de fruta/diamante/coroa, layout 5×3 típico de slot, HUD com R$/$/€ — É CASSINO.
 
@@ -64,8 +70,8 @@ PROVEDORAS (lista parcial — identifique quando reconhecer): Pragmatic Play, PG
 
 JOGOS COMUNS: Sweet Bonanza, Gates of Olympus, Sugar Rush, Fortune Tiger (Jogo do Tigrinho), Aviator, Mines, Crazy Time, Monopoly Live.
 
-RESPONDA APENAS JSON ARRAY — uma entrada por TILE que tem cassino VISÍVEL:
-[{"row":0,"col":2,"game":"Gates of Olympus","provider":"Pragmatic Play","category":"slots","confidence":"high","evidence":"reels com símbolos coloridos, HUD de aposta visível"}]
+RESPONDA APENAS JSON ARRAY — uma entrada por TILE com cassino, URL de jogo, lobby com intenção de clique/play ou loading atribuído:
+[{"row":0,"col":2,"game":"Gates of Olympus","provider":"Pragmatic Play","category":"slots","confidence":"high","detection_type":"url|lobby_ocr|gameplay|loading","page_url":"https://.../play/gates-of-olympus","is_transition_start":true,"is_new_game_ocr":false,"evidence":"URL /play/gates-of-olympus visível; início do jogo"}]
 
 Se NENHUM tile tem cassino visível, responda exatamente: []
 `;
@@ -90,6 +96,46 @@ function parseAIBatch(content: string): any[] {
       return [];
     }
   } catch { return []; }
+}
+
+function slugify(value: string): string {
+  return (value || "unknown")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "unknown";
+}
+
+async function ensureOcrGame(sb: any, game: string, provider: string, evidence: any) {
+  const cleanGame = String(game || "Unknown Game").trim();
+  const cleanProvider = String(provider || "Unknown").trim();
+  if (!cleanGame || cleanGame === "Unknown") return;
+  const providerSlug = slugify(cleanProvider);
+  const { data: existing } = await sb
+    .from("game_visual_library")
+    .select("id")
+    .eq("game_name", cleanGame)
+    .eq("provider_slug", providerSlug)
+    .maybeSingle();
+  if (existing?.id) return;
+  await sb.from("game_visual_library").insert({
+    game_name: cleanGame,
+    provider_name: cleanProvider,
+    provider_slug: providerSlug,
+    training_status: "pending",
+    metadata: {
+      source: "vod_watcher_v11_ocr",
+      label: "Novo Jogo Detectado via OCR",
+      evidence,
+    },
+    visual_dna: {
+      source: "vod_watcher_v11_ocr",
+      provisional: true,
+      detection_type: evidence?.detection_type || null,
+      page_url: evidence?.page_url || null,
+    },
+  });
 }
 
 async function withRetry<T>(label: string, fn: () => Promise<T>, maxAttempts = MAX_RETRIES): Promise<T> {
