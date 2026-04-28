@@ -118,7 +118,9 @@ function normalizeBasic(raw: any): BasicProfile | null {
   };
 }
 
-async function layer1Scrape(usernames: string[]): Promise<BasicProfile[]> {
+type DiscoveryLogger = (msg: string) => void;
+
+async function layer1Scrape(usernames: string[], log?: DiscoveryLogger): Promise<BasicProfile[]> {
   if (usernames.length === 0) return [];
   try {
     const items = await callApify("apify~instagram-profile-scraper", {
@@ -126,12 +128,13 @@ async function layer1Scrape(usernames: string[]): Promise<BasicProfile[]> {
     }, 180);
     return items.map(normalizeBasic).filter((p: BasicProfile | null): p is BasicProfile => p !== null);
   } catch (e: any) {
-    console.warn(`[L1] batch scrape error:`, e.message);
+    const msg = `[WARN] [L1] batch scrape error: ${e.message}`;
+    log ? log(msg) : console.warn(msg);
     return [];
   }
 }
 
-async function getFollowingList(username: string, limit = FOLLOWING_FETCH_PER_REF): Promise<string[]> {
+async function getFollowingList(username: string, limit = FOLLOWING_FETCH_PER_REF, log?: DiscoveryLogger): Promise<string[]> {
   try {
     const items = await callApify("apify~instagram-follower-scraper", {
       usernames: [username],
@@ -143,7 +146,8 @@ async function getFollowingList(username: string, limit = FOLLOWING_FETCH_PER_RE
       .filter((u: string) => !!u && /^[A-Za-z0-9._]+$/.test(u))
       .slice(0, limit);
   } catch (e: any) {
-    console.warn(`[seed] following list failed for ${username}:`, e.message);
+    const msg = `[WARN] [seed] following list failed for ${username}: ${e.message}`;
+    log ? log(msg) : console.warn(msg);
     return [];
   }
 }
@@ -185,7 +189,7 @@ interface RichProfile extends BasicProfile {
   latest_posts: Array<{ likes: number; comments: number; views: number; type: string }>;
 }
 
-async function layer2EnrichOne(username: string): Promise<RichProfile | null> {
+async function layer2EnrichOne(username: string, log?: DiscoveryLogger): Promise<RichProfile | null> {
   try {
     // Reuse the existing instagram-profile edge function — guarantees identical
     // analytics to what the Instagram tab shows for the same user.
@@ -225,18 +229,19 @@ async function layer2EnrichOne(username: string): Promise<RichProfile | null> {
       latest_posts: data.latestPosts || [],
     };
   } catch (e: any) {
-    console.warn(`[L2] enrich ${username} failed:`, e.message);
+    const msg = `[WARN] [L2] enrich ${username} failed: ${e.message}`;
+    log ? log(msg) : console.warn(msg);
     return null;
   }
 }
 
-async function layer2EnrichBatch(profiles: BasicProfile[]): Promise<RichProfile[]> {
+async function layer2EnrichBatch(profiles: BasicProfile[], log?: DiscoveryLogger): Promise<RichProfile[]> {
   // Run in parallel batches of 3 to control concurrency and avoid Apify rate limits
   const BATCH_SIZE = 3;
   const enriched: RichProfile[] = [];
   for (let i = 0; i < profiles.length; i += BATCH_SIZE) {
     const chunk = profiles.slice(i, i + BATCH_SIZE);
-    const results = await Promise.all(chunk.map(p => layer2EnrichOne(p.username)));
+    const results = await Promise.all(chunk.map(p => layer2EnrichOne(p.username, log)));
     for (let j = 0; j < chunk.length; j++) {
       const rich = results[j];
       if (rich) {
@@ -251,7 +256,7 @@ async function layer2EnrichBatch(profiles: BasicProfile[]): Promise<RichProfile[
         });
       }
     }
-    console.log(`[L2] Enriched ${enriched.length}/${profiles.length}`);
+    log ? log(`[L2] Enriched ${enriched.length}/${profiles.length}`) : console.log(`[L2] Enriched ${enriched.length}/${profiles.length}`);
   }
   return enriched;
 }
