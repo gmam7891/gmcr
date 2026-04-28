@@ -24,6 +24,7 @@
 // ============================================================================
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { handleWrite } from "../_shared/scanner-actions.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -893,20 +894,9 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
 
   // Auto-sync: populate gameplay_blocks so the Scanner Dashboard picks up the new data
   try {
-    const pipelineUrl = `${SUPABASE_URL}/functions/v1/scanner-write`;
-    fetch(pipelineUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        action: "run_pipeline",
-        vod_id: audit.vod_id,
-        streamer_login: audit.streamer_login,
-        vod_duration_seconds: audit.vod_duration_seconds,
-      }),
-    }).catch((e) => console.warn("[Watcher] auto pipeline sync failed:", e));
+    await handleWrite(sb, { action: "validate_vod", vod_id: audit.vod_id });
+    await handleWrite(sb, { action: "consolidate_vod", vod_id: audit.vod_id });
+    await handleWrite(sb, { action: "compute_metrics", vod_id: audit.vod_id, vod_duration_seconds: audit.vod_duration_seconds });
     console.log(`[Watcher ${audit.id}] Auto pipeline sync triggered for vod_id=${audit.vod_id}`);
   } catch (e) {
     console.warn("[Watcher] pipeline sync error:", e);
