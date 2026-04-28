@@ -7,6 +7,7 @@ import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
@@ -59,6 +60,7 @@ export function DiscoveryTab() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [step, setStep] = useState<"input" | "expanding" | "scraping" | "enriching" | "scoring" | "done">("input");
+  const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(null);
 
   // Manual keywords (no auto-suggestion)
   const [customKeywords, setCustomKeywords] = useState<string[]>([]);
