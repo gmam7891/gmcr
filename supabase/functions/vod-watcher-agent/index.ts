@@ -515,6 +515,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
 
       // ── SSoT: write detections into stream_snapshots ──────────────────────
       const snapshotRows: any[] = [];
+      const rawEvidenceRows: any[] = [];
       const provisionalGames: Array<{ game: string; provider: string; evidence: any }> = [];
       for (const det of detections) {
         const row = Number(det.row);
@@ -540,6 +541,18 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         if (transitionEvidence.is_new_game_ocr && gameName) {
           provisionalGames.push({ game: gameName, provider: providerName || "Unknown", evidence: transitionEvidence });
         }
+        const commonMetadata = {
+          category: det.category || null,
+          chapter_category: chapterCategory,
+          mosaic_url: mosaic.url,
+          tile_row: row,
+          tile_col: col,
+          detection_type: detectionType,
+          page_url: det.page_url || null,
+          is_transition_start: Boolean(det.is_transition_start),
+          is_new_game_ocr: transitionEvidence.is_new_game_ocr,
+          transition_evidence: transitionEvidence,
+        };
         snapshotRows.push({
           streamer_login: audit.streamer_login,
           vod_id: audit.vod_id,
@@ -557,18 +570,23 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           timestamp_seconds: tile.ts,
           processing_batch_id: batchId,
           viewer_count: 0,
-          extra_metadata: {
-            category: det.category || null,
-            chapter_category: chapterCategory,
-            mosaic_url: mosaic.url,
-            tile_row: row,
-            tile_col: col,
-            detection_type: detectionType,
-            page_url: det.page_url || null,
-            is_transition_start: Boolean(det.is_transition_start),
-            is_new_game_ocr: transitionEvidence.is_new_game_ocr,
-            transition_evidence: transitionEvidence,
-          },
+          extra_metadata: commonMetadata,
+        });
+        rawEvidenceRows.push({
+          vod_id: audit.vod_id,
+          source_id: audit.vod_id,
+          streamer_login: audit.streamer_login,
+          platform: "twitch",
+          source_type: "vod",
+          timestamp_seconds: tile.ts,
+          frame_index: mIdx * (mosaic.cols * mosaic.rows) + (row * mosaic.cols + col),
+          game_detected: gameName || null,
+          provider_detected: providerName,
+          confidence_score: conf,
+          is_valid: true,
+          validation_status: "pending",
+          processing_batch_id: batchId,
+          extra_metadata: commonMetadata,
         });
       }
       for (const item of provisionalGames) {
@@ -577,6 +595,8 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       if (snapshotRows.length > 0) {
         const { error: snapErr } = await sb.from("stream_snapshots").insert(snapshotRows);
         if (snapErr) console.warn("[Watcher] snapshot insert failed:", snapErr.message);
+        const { error: rawErr } = await sb.from("raw_evidences").insert(rawEvidenceRows);
+        if (rawErr) console.warn("[Watcher] raw evidence insert failed:", rawErr.message);
         else {
           totalDetectionsThisChunk += snapshotRows.length;
           framesSinceCheckpoint += snapshotRows.length;
