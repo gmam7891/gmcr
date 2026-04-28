@@ -13,6 +13,16 @@ function fmt(sec: number): string {
   return h > 0 ? `${h}h${m.toString().padStart(2, "0")}m` : `${m}m`;
 }
 
+function fmtTimestamp(sec?: number): string {
+  if (typeof sec !== "number") return "--:--";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  return h > 0
+    ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+    : `${m}:${s.toString().padStart(2, "0")}`;
+}
+
 // Palette built from semantic tokens to keep theme consistency (HSL).
 const CHART_HSL = [
   "hsl(var(--primary))",
@@ -143,6 +153,7 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
   const durationPrecision = Math.round(((report.vod_duration_seconds || 0) / frameCount) / 2);
   const confirmedGames = report.games.filter((g) => g.status !== "suspect");
   const suspectGames = report.games.filter((g) => g.status === "suspect");
+  const visualProofs = report.games.filter((g) => g.proof?.proof_image_url).slice(0, 6);
 
   return (
     <div className="space-y-3">
@@ -241,6 +252,33 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
         )}
 
         <p className="text-sm text-foreground leading-relaxed">{report.summary}</p>
+
+        {visualProofs.length > 0 && (
+          <div className="space-y-2 pt-3 border-t border-border">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">Prova visual da intenção</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {visualProofs.map((g, i) => (
+                <div key={`${g.game}-${i}`} className="rounded border border-border bg-secondary/30 overflow-hidden">
+                  <img
+                    src={g.proof?.proof_image_url || ""}
+                    alt={`Prova visual de ${g.game}`}
+                    className="w-full h-36 object-cover"
+                    loading="lazy"
+                  />
+                  <div className="p-2 space-y-1 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium truncate">{g.game}</span>
+                      <Badge variant="outline" className="text-[9px] font-mono shrink-0">{fmtTimestamp(g.proof?.timestamp_seconds)}</Badge>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground font-mono truncate">{g.provider} · {g.proof?.detection_type || "visual"}</p>
+                    {g.proof?.page_url && <p className="text-[10px] text-primary font-mono truncate">{g.proof.page_url}</p>}
+                    {g.proof?.evidence && <p className="text-[10px] text-muted-foreground line-clamp-2">{g.proof.evidence}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Metrics row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-border">
