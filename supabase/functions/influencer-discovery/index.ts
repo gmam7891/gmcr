@@ -445,7 +445,7 @@ async function runInstagramDiscovery(params: {
     candidateUsernames = [...new Set(candidateUsernames)].filter(u => !refUsernames.includes(u));
 
     if (candidateUsernames.length === 0 && errorsDuringSeed.length > 0) {
-      return { prospects: [], stats, error: errorsDuringSeed.join(" ") };
+      return { prospects: [], stats: { ...stats, debug_logs: debugLogs }, error: errorsDuringSeed.join(" ") };
     }
   }
 
@@ -463,7 +463,7 @@ async function runInstagramDiscovery(params: {
     }
     const uniqueKeywords = [...new Set(keywords)].slice(0, 6);
     if (uniqueKeywords.length === 0) {
-      return { prospects: [], stats, error: "Forneça pelo menos uma referência, briefing, ou palavras-chave." };
+      return { prospects: [], stats: { ...stats, debug_logs: debugLogs }, error: "Forneça pelo menos uma referência, briefing, ou palavras-chave." };
     }
     candidateUsernames = await discoverViaFirecrawl(uniqueKeywords, MAX_CANDIDATES * 2);
   }
@@ -473,7 +473,7 @@ async function runInstagramDiscovery(params: {
   log(`[L1] Scraping ${candidateUsernames.length} candidates (cheap)`);
 
   if (candidateUsernames.length === 0) {
-    return { prospects: [], stats, error: "Nenhum candidato encontrado." };
+    return { prospects: [], stats: { ...stats, debug_logs: debugLogs }, error: "Nenhum candidato encontrado." };
   }
 
   // ─── LAYER 1: cheap scrape + hard filter ────────────────────────
@@ -493,7 +493,7 @@ async function runInstagramDiscovery(params: {
   if (layer1Survivors.length === 0) {
     return {
       prospects: [],
-      stats,
+      stats: { ...stats, debug_logs: debugLogs },
       error: "Todos os candidatos foram filtrados. Tente ajustar os filtros ou usar outras referências.",
     };
   }
