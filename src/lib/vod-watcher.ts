@@ -15,6 +15,17 @@ export interface AuditReportGame {
   seconds: number;
   avgConfidence: number;
   status?: "confirmed" | "suspect";
+  proof?: {
+    proof_image_url?: string | null;
+    timestamp_seconds?: number;
+    detection_type?: "url" | "lobby_ocr" | "gameplay" | "loading" | string;
+    page_url?: string | null;
+    evidence?: string | null;
+    tile_row?: number;
+    tile_col?: number;
+    is_transition_start?: boolean;
+    is_new_game_ocr?: boolean;
+  } | null;
 }
 
 export interface AuditReport {

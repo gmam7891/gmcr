@@ -24,6 +24,7 @@
 // ============================================================================
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { handleWrite } from "../_shared/scanner-actions.ts";
 
 declare const EdgeRuntime: { waitUntil: (promise: Promise<unknown>) => void };
 
@@ -56,7 +57,13 @@ Tile (row=0, col=0) é o canto superior esquerdo. Tile (row=R-1, col=C-1) é o c
 
 A categoria/capítulo da Twitch é APENAS UM SINAL AUXILIAR DE CONTEXTO. Ela NÃO deve ser usada como prova principal, não deve gerar detecção sozinha e não deve substituir a análise visual dos tiles.
 
-PARA CADA tile que mostre visualmente conteúdo de cassino (slot, mesa, crash, live casino, navegador em site de aposta), retorne uma entrada.
+PROTOCOLO V11 — VISÃO HÍBRIDA:
+1) SOBERANIA DE URL: em cada tile, tente PRIMEIRO ler a barra de endereço/URL do navegador. Se a URL indicar transição de lobby para jogo (ex: /casino/lobby → /play/sweet-bonanza), a URL é a Fonte Primária da Verdade para jogo/provedora e marca início imediato da sessão.
+2) LOBBY/OCR: se a URL não estiver visível, faça OCR dos cards/thumbnails do lobby. Leia Nome do Jogo e Provedora nos textos abaixo das imagens. Identifique ícone de Play, hover, foco, clique ou destaque visual que indique onde o streamer iniciou o jogo.
+3) LOADING: telas intermediárias após URL/clique/play devem continuar atribuídas ao mesmo jogo/provedora anterior; não quebre o bloco durante carregamento.
+4) NOVOS JOGOS: se o nome/provedora não estiverem na base conhecida, mantenha o nome OCR e marque como novo jogo detectado via OCR.
+
+PARA CADA tile que mostre visualmente conteúdo de cassino (slot, mesa, crash, live casino, navegador em site de aposta), URL de jogo, lobby com intenção de play, ou loading após clique, retorne uma entrada.
 IGNORE tiles com Just Chatting puro, gameplay tradicional (FPS, MMO, etc), tela preta, intro/outro — mesmo que a categoria Twitch pareça relacionada a cassino.
 SEJA AGRESSIVO NA LEITURA VISUAL: thumbs são pequenos (220×124). Se vê reels coloridos, símbolos de fruta/diamante/coroa, layout 5×3 típico de slot, HUD com R$/$/€ — É CASSINO.
 
@@ -64,8 +71,8 @@ PROVEDORAS (lista parcial — identifique quando reconhecer): Pragmatic Play, PG
 
 JOGOS COMUNS: Sweet Bonanza, Gates of Olympus, Sugar Rush, Fortune Tiger (Jogo do Tigrinho), Aviator, Mines, Crazy Time, Monopoly Live.
 
-RESPONDA APENAS JSON ARRAY — uma entrada por TILE que tem cassino VISÍVEL:
-[{"row":0,"col":2,"game":"Gates of Olympus","provider":"Pragmatic Play","category":"slots","confidence":"high","evidence":"reels com símbolos coloridos, HUD de aposta visível"}]
+RESPONDA APENAS JSON ARRAY — uma entrada por TILE com cassino, URL de jogo, lobby com intenção de clique/play ou loading atribuído:
+[{"row":0,"col":2,"game":"Gates of Olympus","provider":"Pragmatic Play","category":"slots","confidence":"high","detection_type":"url|lobby_ocr|gameplay|loading","page_url":"https://.../play/gates-of-olympus","is_transition_start":true,"is_new_game_ocr":false,"evidence":"URL /play/gates-of-olympus visível; início do jogo"}]
 
 Se NENHUM tile tem cassino visível, responda exatamente: []
 `;
@@ -90,6 +97,46 @@ function parseAIBatch(content: string): any[] {
       return [];
     }
   } catch { return []; }
+}
+
+function slugify(value: string): string {
+  return (value || "unknown")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "unknown";
+}
+
+async function ensureOcrGame(sb: any, game: string, provider: string, evidence: any) {
+  const cleanGame = String(game || "Unknown Game").trim();
+  const cleanProvider = String(provider || "Unknown").trim();
+  if (!cleanGame || cleanGame === "Unknown") return;
+  const providerSlug = slugify(cleanProvider);
+  const { data: existing } = await sb
+    .from("game_visual_library")
+    .select("id")
+    .eq("game_name", cleanGame)
+    .eq("provider_slug", providerSlug)
+    .maybeSingle();
+  if (existing?.id) return;
+  await sb.from("game_visual_library").insert({
+    game_name: cleanGame,
+    provider_name: cleanProvider,
+    provider_slug: providerSlug,
+    training_status: "pending",
+    metadata: {
+      source: "vod_watcher_v11_ocr",
+      label: "Novo Jogo Detectado via OCR",
+      evidence,
+    },
+    visual_dna: {
+      source: "vod_watcher_v11_ocr",
+      provisional: true,
+      detection_type: evidence?.detection_type || null,
+      page_url: evidence?.page_url || null,
+    },
+  });
 }
 
 async function withRetry<T>(label: string, fn: () => Promise<T>, maxAttempts = MAX_RETRIES): Promise<T> {
@@ -469,6 +516,8 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
 
       // ── SSoT: write detections into stream_snapshots ──────────────────────
       const snapshotRows: any[] = [];
+      const rawEvidenceRows: any[] = [];
+      const provisionalGames: Array<{ game: string; provider: string; evidence: any }> = [];
       for (const det of detections) {
         const row = Number(det.row);
         const col = Number(det.col);
@@ -476,15 +525,44 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         const tile = mosaic.tiles.find((t: any) => t.row === row && t.col === col);
         if (!tile) continue;
         const conf = det.confidence === "high" ? 0.95 : det.confidence === "medium" ? 0.7 : 0.4;
+        const detectionType = String(det.detection_type || "gameplay");
+        const gameName = det.game || chapterCategory;
+        const providerName = det.provider || null;
+        const transitionEvidence = {
+          detection_type: detectionType,
+          page_url: det.page_url || null,
+          is_transition_start: Boolean(det.is_transition_start),
+          is_new_game_ocr: Boolean(det.is_new_game_ocr) || detectionType === "lobby_ocr" || detectionType === "url",
+          proof_image_url: mosaic.url,
+          tile_row: row,
+          tile_col: col,
+          timestamp_seconds: tile.ts,
+          evidence: det.evidence || null,
+        };
+        if (transitionEvidence.is_new_game_ocr && gameName) {
+          provisionalGames.push({ game: gameName, provider: providerName || "Unknown", evidence: transitionEvidence });
+        }
+        const commonMetadata = {
+          category: det.category || null,
+          chapter_category: chapterCategory,
+          mosaic_url: mosaic.url,
+          tile_row: row,
+          tile_col: col,
+          detection_type: detectionType,
+          page_url: det.page_url || null,
+          is_transition_start: Boolean(det.is_transition_start),
+          is_new_game_ocr: transitionEvidence.is_new_game_ocr,
+          transition_evidence: transitionEvidence,
+        };
         snapshotRows.push({
           streamer_login: audit.streamer_login,
           vod_id: audit.vod_id,
           source: "storyboard",
           captured_at: new Date(Date.now() - (audit.vod_duration_seconds - tile.ts) * 1000).toISOString(),
           is_live: false,
-          game_name: det.game || chapterCategory,
-          game_detected: det.game || null,
-          provider_detected: det.provider || null,
+          game_name: gameName,
+          game_detected: gameName || null,
+          provider_detected: providerName,
           confidence_score: conf,
           ai_confidence: conf,
           ai_evidence: det.evidence || null,
@@ -493,18 +571,33 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           timestamp_seconds: tile.ts,
           processing_batch_id: batchId,
           viewer_count: 0,
-          extra_metadata: {
-            category: det.category || null,
-            chapter_category: chapterCategory,
-            mosaic_url: mosaic.url,
-            tile_row: row,
-            tile_col: col,
-          },
+          extra_metadata: commonMetadata,
         });
+        rawEvidenceRows.push({
+          vod_id: audit.vod_id,
+          source_id: audit.vod_id,
+          streamer_login: audit.streamer_login,
+          platform: "twitch",
+          source_type: "vod",
+          timestamp_seconds: tile.ts,
+          frame_index: mIdx * (mosaic.cols * mosaic.rows) + (row * mosaic.cols + col),
+          game_detected: gameName || null,
+          provider_detected: providerName,
+          confidence_score: conf,
+          is_valid: true,
+          validation_status: "pending",
+          processing_batch_id: batchId,
+          extra_metadata: commonMetadata,
+        });
+      }
+      for (const item of provisionalGames) {
+        await ensureOcrGame(sb, item.game, item.provider, item.evidence).catch((e) => console.warn("[Watcher] provisional OCR game insert failed:", e?.message || e));
       }
       if (snapshotRows.length > 0) {
         const { error: snapErr } = await sb.from("stream_snapshots").insert(snapshotRows);
         if (snapErr) console.warn("[Watcher] snapshot insert failed:", snapErr.message);
+        const { error: rawErr } = await sb.from("raw_evidences").insert(rawEvidenceRows);
+        if (rawErr) console.warn("[Watcher] raw evidence insert failed:", rawErr.message);
         else {
           totalDetectionsThisChunk += snapshotRows.length;
           framesSinceCheckpoint += snapshotRows.length;
@@ -569,7 +662,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
     // 1) Try storyboard-source detections first (vod_id-bound, AI-verified).
     const { data: storyboardSnaps } = await sb
       .from("stream_snapshots")
-      .select("game_detected, provider_detected, confidence_score, ai_confidence, timestamp_seconds, is_ai_verified")
+      .select("game_detected, provider_detected, confidence_score, ai_confidence, timestamp_seconds, is_ai_verified, extra_metadata, ai_evidence")
       .eq("vod_id", audit.vod_id)
       .eq("source", "storyboard")
       .not("game_detected", "is", null);
@@ -579,9 +672,9 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
         : 39;
 
-    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; pendingFrames: number; status?: "confirmed" | "suspect"; }>();
+    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; pendingFrames: number; status?: "confirmed" | "suspect"; proof?: any; }>();
 
-    const pushDetection = (game: string, provider: string, conf: number, secs: number) => {
+    const pushDetection = (game: string, provider: string, conf: number, secs: number, proof?: any) => {
       const key = `${game}|${provider}`;
       const existing = byGame.get(key);
       if (existing) {
@@ -589,12 +682,14 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         existing.seconds += secs;
         existing.avgConfidence = (existing.avgConfidence * (existing.frames - 1) + conf) / existing.frames;
         if (conf < 0.85) existing.pendingFrames += 1;
+        if (!existing.proof && proof) existing.proof = proof;
       } else {
         byGame.set(key, {
           game, provider,
           frames: 1, seconds: secs,
           avgConfidence: conf,
           pendingFrames: conf < 0.85 ? 1 : 0,
+          proof,
         });
       }
     };
@@ -605,6 +700,12 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         s.provider_detected || "Unknown",
         Number(s.ai_confidence ?? s.confidence_score ?? 0),
         interval,
+        (s.extra_metadata as any)?.transition_evidence || {
+          proof_image_url: (s.extra_metadata as any)?.mosaic_url || null,
+          timestamp_seconds: s.timestamp_seconds,
+          detection_type: (s.extra_metadata as any)?.detection_type || "gameplay",
+          evidence: s.ai_evidence || null,
+        },
       );
     }
 
@@ -793,20 +894,9 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
 
   // Auto-sync: populate gameplay_blocks so the Scanner Dashboard picks up the new data
   try {
-    const pipelineUrl = `${SUPABASE_URL}/functions/v1/scanner-write`;
-    fetch(pipelineUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${ANON_KEY}`,
-      },
-      body: JSON.stringify({
-        action: "run_pipeline",
-        vod_id: audit.vod_id,
-        streamer_login: audit.streamer_login,
-        vod_duration_seconds: audit.vod_duration_seconds,
-      }),
-    }).catch((e) => console.warn("[Watcher] auto pipeline sync failed:", e));
+    await handleWrite(sb, { action: "validate_vod", vod_id: audit.vod_id });
+    await handleWrite(sb, { action: "consolidate_vod", vod_id: audit.vod_id });
+    await handleWrite(sb, { action: "compute_metrics", vod_id: audit.vod_id, vod_duration_seconds: audit.vod_duration_seconds });
     console.log(`[Watcher ${audit.id}] Auto pipeline sync triggered for vod_id=${audit.vod_id}`);
   } catch (e) {
     console.warn("[Watcher] pipeline sync error:", e);
