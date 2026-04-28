@@ -641,7 +641,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
     // 1) Try storyboard-source detections first (vod_id-bound, AI-verified).
     const { data: storyboardSnaps } = await sb
       .from("stream_snapshots")
-      .select("game_detected, provider_detected, confidence_score, ai_confidence, timestamp_seconds, is_ai_verified")
+      .select("game_detected, provider_detected, confidence_score, ai_confidence, timestamp_seconds, is_ai_verified, extra_metadata, ai_evidence")
       .eq("vod_id", audit.vod_id)
       .eq("source", "storyboard")
       .not("game_detected", "is", null);
@@ -651,9 +651,9 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
         : 39;
 
-    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; pendingFrames: number; status?: "confirmed" | "suspect"; }>();
+    const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; pendingFrames: number; status?: "confirmed" | "suspect"; proof?: any; }>();
 
-    const pushDetection = (game: string, provider: string, conf: number, secs: number) => {
+    const pushDetection = (game: string, provider: string, conf: number, secs: number, proof?: any) => {
       const key = `${game}|${provider}`;
       const existing = byGame.get(key);
       if (existing) {
@@ -661,12 +661,14 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         existing.seconds += secs;
         existing.avgConfidence = (existing.avgConfidence * (existing.frames - 1) + conf) / existing.frames;
         if (conf < 0.85) existing.pendingFrames += 1;
+        if (!existing.proof && proof) existing.proof = proof;
       } else {
         byGame.set(key, {
           game, provider,
           frames: 1, seconds: secs,
           avgConfidence: conf,
           pendingFrames: conf < 0.85 ? 1 : 0,
+          proof,
         });
       }
     };
@@ -677,6 +679,12 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         s.provider_detected || "Unknown",
         Number(s.ai_confidence ?? s.confidence_score ?? 0),
         interval,
+        (s.extra_metadata as any)?.transition_evidence || {
+          proof_image_url: (s.extra_metadata as any)?.mosaic_url || null,
+          timestamp_seconds: s.timestamp_seconds,
+          detection_type: (s.extra_metadata as any)?.detection_type || "gameplay",
+          evidence: s.ai_evidence || null,
+        },
       );
     }
 
