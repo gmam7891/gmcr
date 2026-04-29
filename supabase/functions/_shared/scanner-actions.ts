@@ -314,7 +314,10 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
   if (action === "consolidate_vod") {
     const { vod_id } = body;
     const { data: evidences } = await supabase.from("raw_evidences").select("*")
-      .eq("vod_id", vod_id).eq("is_valid", true).order("timestamp_seconds", { ascending: true });
+      .eq("vod_id", vod_id)
+      .eq("is_valid", true)
+      .or("screen_state.eq.gameplay,screen_state.is.null")
+      .order("timestamp_seconds", { ascending: true });
     if (!evidences?.length) return { blocks: 0 };
 
     // Fetch audit metadata for interval calculation
