@@ -3,6 +3,81 @@
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
+const RAPIDAPI_KEY = Deno.env.get("RAPIDAPI_KEY") || "";
+const TWITCH_SCRAPER_HOST = "twitch-scraper-v2.p.rapidapi.com";
+
+/**
+ * Resposta normalizada do status de live de um canal Twitch.
+ * Não importa se vem do Apify, Helix ou RapidAPI — todos preenchem isso.
+ */
+export interface TwitchLiveStatus {
+  user_id: string;
+  is_live: boolean;
+  stream_id: string | null;
+  game_id: string | null;
+  game_name: string | null;
+  game_slug: string | null;
+  started_at: string | null;
+  source: "rapidapi" | "helix" | "apify";
+}
+
+/**
+ * Consulta status de live de um streamer Twitch via RapidAPI.
+ * Endpoint testado: GET /user/info?login={username}
+ *
+ * @returns null se RAPIDAPI_KEY não estiver configurada ou se a chamada falhar.
+ */
+export async function getTwitchLiveStatusViaRapidAPI(
+  login: string
+): Promise<TwitchLiveStatus | null> {
+  if (!RAPIDAPI_KEY) {
+    console.warn("[twitch-scraper-v2] RAPIDAPI_KEY não configurada");
+    return null;
+  }
+
+  try {
+    const url = `https://${TWITCH_SCRAPER_HOST}/user/info?login=${encodeURIComponent(login)}`;
+    console.log(`[twitch-scraper-v2] Calling: ${url}`);
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "x-rapidapi-host": TWITCH_SCRAPER_HOST,
+        "x-rapidapi-key": RAPIDAPI_KEY,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`[twitch-scraper-v2] HTTP ${res.status} para login=${login}`);
+      return null;
+    }
+
+    const json = await res.json();
+    if (json?.status !== "ok" || !json?.data?.user) {
+      console.warn("[twitch-scraper-v2] Response inesperado:", json);
+      return null;
+    }
+
+    const user = json.data.user;
+    const stream = user.stream;
+
+    return {
+      user_id: String(user.id || ""),
+      is_live: !!stream,
+      stream_id: stream?.id ? String(stream.id) : null,
+      game_id: stream?.game?.id ? String(stream.game.id) : null,
+      game_name: stream?.game?.name || null,
+      game_slug: stream?.game?.slug || null,
+      started_at: stream?.createdAt || null,
+      source: "rapidapi",
+    };
+  } catch (e: any) {
+    console.warn(`[twitch-scraper-v2] Error fetching ${login}:`, e.message);
+    return null;
+  }
+}
+
 export const READ_ACTIONS = new Set([
   "get_status",
   "get_dashboard",
@@ -15,6 +90,7 @@ export const READ_ACTIONS = new Set([
   "get_vod_audit_detail",
   "get_queue",
   "get_chat_stats",
+  "test_rapidapi_twitch",
 ]);
 
 export const WRITE_ACTIONS = new Set([
@@ -35,6 +111,13 @@ export const WRITE_ACTIONS = new Set([
 // ─────────────── READS ───────────────
 export async function handleRead(supabase: SupabaseClient, body: any) {
   const { action } = body;
+
+  if (action === "test_rapidapi_twitch") {
+    const { login } = body;
+    if (!login) return { error: "login é obrigatório" };
+    const status = await getTwitchLiveStatusViaRapidAPI(String(login));
+    return { login, status, raw_secret_configured: !!Deno.env.get("RAPIDAPI_KEY") };
+  }
 
   if (action === "get_status") {
     const [audits, blocks, queue] = await Promise.all([

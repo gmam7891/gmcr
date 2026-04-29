@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { authenticate, corsHeaders, handleRead, jsonResponse, READ_ACTIONS } from "../_shared/scanner-actions.ts";
+import { authenticate, corsHeaders, getTwitchLiveStatusViaRapidAPI, handleRead, jsonResponse, READ_ACTIONS } from "../_shared/scanner-actions.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -11,6 +11,20 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
     const { action } = body;
+    if (action === "test_rapidapi_twitch") {
+      const { login } = body;
+      if (!login) {
+        return new Response(
+          JSON.stringify({ error: "login é obrigatório" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      const status = await getTwitchLiveStatusViaRapidAPI(String(login));
+      return new Response(
+        JSON.stringify({ login, status, raw_secret_configured: !!Deno.env.get("RAPIDAPI_KEY") }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     if (!READ_ACTIONS.has(action)) {
       return jsonResponse({ error: `Action '${action}' is not a read action` }, 400);
     }
