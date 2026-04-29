@@ -130,7 +130,7 @@ export async function getTwitchChannelInfoViaRapidAPI(
     }
 
     const json = await res.json();
-    console.log(`[twitch-scraper-v2] channel info raw response:`, JSON.stringify(json).slice(0, 500));
+    console.log(`[twitch-scraper-v2] channel info FULL response:`, JSON.stringify(json));
 
     const root = json?.data?.user
       ?? json?.data?.channel
