@@ -23,7 +23,7 @@ export interface TwitchLiveStatus {
 
 /**
  * Consulta status de live de um streamer Twitch via RapidAPI.
- * Endpoint testado: GET /user/info?login={username}
+ * Endpoint testado: GET /api/channels/stream/info?channel={username}
  *
  * @returns null se RAPIDAPI_KEY não estiver configurada ou se a chamada falhar.
  */
@@ -36,7 +36,7 @@ export async function getTwitchLiveStatusViaRapidAPI(
   }
 
   try {
-    const url = `https://${TWITCH_SCRAPER_HOST}/user/info?login=${encodeURIComponent(login)}`;
+    const url = `https://${TWITCH_SCRAPER_HOST}/api/channels/stream/info?channel=${encodeURIComponent(login)}`;
     console.log(`[twitch-scraper-v2] Calling: ${url}`);
 
     const res = await fetch(url, {
