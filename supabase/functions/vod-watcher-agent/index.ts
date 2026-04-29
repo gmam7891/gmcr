@@ -246,8 +246,18 @@ async function fetchStoryboardPlan(vodId: string): Promise<
   }).catch(() => []);
   if (!Array.isArray(variants) || variants.length === 0) return null;
 
-  // Prefer "high" quality, fall back to anything available
-  const variant = variants.find((v) => v.quality === "high") ?? variants[variants.length - 1];
+  // Pick the variant with the MOST tiles (highest count), not just "high" quality.
+  // Twitch sometimes returns variants where "medium" or "low" have more tiles than "high".
+  // Falls back to last variant if all counts are zero/missing.
+  const variant = variants.reduce((best: any, v: any) => {
+    const bestCount = best?.count || 0;
+    const vCount = v?.count || 0;
+    return vCount > bestCount ? v : best;
+  }, null) ?? variants[variants.length - 1];
+  console.log(
+    `[storyboard] VOD: ${variants.length} variants available. ` +
+    `Selected "${variant.quality}" with ${variant.count} tiles, interval ${variant.interval}s.`
+  );
   const { count, cols, rows, width, height, interval, images } = variant;
   if (!count || !cols || !rows || !width || !height || !interval || !Array.isArray(images)) return null;
 
@@ -349,6 +359,16 @@ Deno.serve(async (req) => {
     }
 
     const totalFrames = storyboard.total_tiles;
+    // Sanity check: VOD recente pode estar com storyboard ainda processando.
+    // Threshold: pelo menos 1 tile a cada 60s do VOD.
+    const minExpectedTiles = Math.max(20, Math.floor(vod_duration_seconds / 60));
+    if (totalFrames < minExpectedTiles) {
+      console.warn(
+        `[storyboard] VOD ${vod_id}: only ${totalFrames} tiles for ${vod_duration_seconds}s VOD. ` +
+        `Expected at least ${minExpectedTiles}. Storyboard may still be processing on Twitch's side. ` +
+        `Proceeding anyway, but precision will be lower.`
+      );
+    }
 
     const auditPayload = {
       vod_id,
