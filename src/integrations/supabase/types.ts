@@ -733,6 +733,7 @@ export type Database = {
       }
       raw_evidences: {
         Row: {
+          casino_brand: string | null
           confidence_score: number
           created_at: string
           discard_reason: string | null
@@ -756,6 +757,7 @@ export type Database = {
           vod_id: string
         }
         Insert: {
+          casino_brand?: string | null
           confidence_score?: number
           created_at?: string
           discard_reason?: string | null
@@ -779,6 +781,7 @@ export type Database = {
           vod_id: string
         }
         Update: {
+          casino_brand?: string | null
           confidence_score?: number
           created_at?: string
           discard_reason?: string | null
