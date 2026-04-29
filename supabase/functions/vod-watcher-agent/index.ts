@@ -960,8 +960,61 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
 
     // ── 2) Fallback: live monitor snapshots (Twitch category-based) ─────────
     if (byGame.size === 0) {
-      const lookbackDays = 30;
-      const since = new Date(Date.now() - lookbackDays * 24 * 3600 * 1000).toISOString();
+      // =================================================================
+      // FALLBACK: stream_snapshots — filtrar pela janela temporal real do VOD
+      // =================================================================
+      // Bug fix: antes pegava snapshots dos últimos 30 dias do streamer inteiro.
+      // Agora restringe à janela [vod_created_at .. vod_created_at + duration].
+      let vodStartIso: string | null = null;
+      let vodEndIso: string | null = null;
+      let windowSource: "audit_field" | "twitch_api" | "approximation" = "approximation";
+
+      if ((audit as any).vod_created_at) {
+        vodStartIso = new Date((audit as any).vod_created_at).toISOString();
+        windowSource = "audit_field";
+      }
+
+      if (!vodStartIso) {
+        try {
+          const twitchRes = await fetch(`${SUPABASE_URL}/functions/v1/twitch-api`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${SERVICE_KEY}`,
+            },
+            body: JSON.stringify({ action: "get_vod", vod_id: audit.vod_id }),
+          });
+          if (twitchRes.ok) {
+            const vodData = await twitchRes.json();
+            const createdAt = vodData?.created_at || vodData?.data?.[0]?.created_at;
+            if (createdAt) {
+              vodStartIso = new Date(createdAt).toISOString();
+              windowSource = "twitch_api";
+            }
+          }
+        } catch (e: any) {
+          console.warn(`[fallback] Twitch API lookup failed: ${e.message}`);
+        }
+      }
+
+      if (!vodStartIso) {
+        const approximateStart = new Date(Date.now() - audit.vod_duration_seconds * 1000);
+        vodStartIso = approximateStart.toISOString();
+        windowSource = "approximation";
+        console.warn(
+          `[fallback] Using approximate VOD start time. Results may be ` +
+          `inaccurate if audit was run long after the live ended.`
+        );
+      }
+
+      const vodStart = new Date(vodStartIso);
+      const vodEnd = new Date(vodStart.getTime() + (audit.vod_duration_seconds + 90) * 1000);
+      vodEndIso = vodEnd.toISOString();
+
+      console.log(
+        `[fallback] VOD window: ${vodStartIso} → ${vodEndIso} ` +
+        `(source: ${windowSource}, duration=${audit.vod_duration_seconds}s)`
+      );
 
       const { data: liveSnaps } = await sb
         .from("stream_snapshots")
@@ -969,8 +1022,26 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         .eq("streamer_login", audit.streamer_login)
         .eq("is_live", true)
         .eq("source", "live")
-        .gte("captured_at", since)
+        .gte("captured_at", vodStartIso)
+        .lte("captured_at", vodEndIso)
         .not("game_name", "is", null);
+
+      console.log(
+        `[fallback] Found ${liveSnaps?.length || 0} snapshots in VOD window ` +
+        `(streamer=${audit.streamer_login})`
+      );
+
+      const maxPossibleSnapshots = Math.ceil(audit.vod_duration_seconds / 15) + 10;
+      if ((liveSnaps?.length || 0) > maxPossibleSnapshots) {
+        console.warn(
+          `[fallback] Anomaly: ${liveSnaps?.length} snapshots found but max ` +
+          `possible is ${maxPossibleSnapshots}. Capping at max.`
+        );
+        liveSnaps?.sort((a, b) =>
+          new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime()
+        );
+        liveSnaps?.splice(maxPossibleSnapshots);
+      }
 
       snapshotsFound = (liveSnaps || []).length;
 
