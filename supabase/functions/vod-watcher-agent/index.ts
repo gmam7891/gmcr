@@ -554,10 +554,15 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         if (!Number.isInteger(row) || !Number.isInteger(col)) continue;
         const tile = mosaic.tiles.find((t: any) => t.row === row && t.col === col);
         if (!tile) continue;
-        const conf = det.confidence === "high" ? 0.95 : det.confidence === "medium" ? 0.7 : 0.4;
-        const detectionType = String(det.detection_type || "gameplay");
-        const gameName = det.game || chapterCategory;
-        const providerName = det.provider || null;
+        const rawConfidence = Number(det.confidence);
+        const conf = Number.isFinite(rawConfidence)
+          ? Math.max(0, Math.min(1, rawConfidence))
+          : det.confidence === "high" ? 0.95 : det.confidence === "medium" ? 0.7 : 0.4;
+        const rawScreenState = String(det.screen_state || (det.detection_type === "loading" ? "loading" : "gameplay")).toLowerCase();
+        const screenState = ["lobby", "loading", "gameplay", "other"].includes(rawScreenState) ? rawScreenState : "other";
+        const detectionType = String(det.detection_type || screenState);
+        const gameName = screenState === "gameplay" ? (det.game_name || det.game || chapterCategory) : null;
+        const providerName = screenState === "gameplay" ? (det.provider_name || det.provider || null) : null;
         const transitionEvidence = {
           detection_type: detectionType,
           page_url: det.page_url || null,
@@ -575,6 +580,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         const commonMetadata = {
           category: det.category || null,
           chapter_category: chapterCategory,
+          screen_state: screenState,
           mosaic_url: mosaic.url,
           tile_row: row,
           tile_col: col,
@@ -614,7 +620,8 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           game_detected: gameName || null,
           provider_detected: providerName,
           confidence_score: conf,
-          is_valid: true,
+          screen_state: screenState,
+          is_valid: screenState === "gameplay" && !!gameName,
           validation_status: "pending",
           processing_batch_id: batchId,
           extra_metadata: commonMetadata,
