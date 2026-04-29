@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { authenticate, corsHeaders, getTwitchLiveStatusViaRapidAPI, handleRead, jsonResponse, READ_ACTIONS } from "../_shared/scanner-actions.ts";
+import { authenticate, corsHeaders, getTwitchChannelInfoViaRapidAPI, getTwitchLiveStatusViaRapidAPI, handleRead, jsonResponse, READ_ACTIONS } from "../_shared/scanner-actions.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -19,9 +19,12 @@ Deno.serve(async (req) => {
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      const status = await getTwitchLiveStatusViaRapidAPI(String(login));
+      const [liveStatus, channelInfo] = await Promise.all([
+        getTwitchLiveStatusViaRapidAPI(String(login)),
+        getTwitchChannelInfoViaRapidAPI(String(login)),
+      ]);
       return new Response(
-        JSON.stringify({ login, status, raw_secret_configured: !!Deno.env.get("RAPIDAPI_KEY") }),
+        JSON.stringify({ login, live_status: liveStatus, channel_info: channelInfo, raw_secret_configured: !!Deno.env.get("RAPIDAPI_KEY") }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
