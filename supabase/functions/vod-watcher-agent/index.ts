@@ -415,6 +415,11 @@ async function fetchStoryboardPlan(vodId: string): Promise<
   }).catch(() => []);
   if (!Array.isArray(variants) || variants.length === 0) return null;
 
+  console.log(
+    `[storyboard] All variants for VOD ${vodId}: ` +
+    variants.map((v: any) => `${v.quality}(${v.count}t,${v.interval}s)`).join(", ")
+  );
+
   // Pick the variant with the MOST tiles (highest count), not just "high" quality.
   // Twitch sometimes returns variants where "medium" or "low" have more tiles than "high".
   // Falls back to last variant if all counts are zero/missing.
@@ -688,6 +693,15 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         ] },
       ]);
 
+      console.log(
+        `[Watcher ${audit.id}] AI mosaic ${mIdx + 1}/${plan.mosaics.length} ` +
+        `(tiles=${mosaic.tiles.length} ${mosaic.cols}x${mosaic.rows} ` +
+        `tile_size=${mosaic.tile_w}x${mosaic.tile_h}): ` +
+        `ok=${ai.ok} status=${ai.status} ` +
+        `items=${ai.items?.length ?? 0} ` +
+        `raw_preview="${(ai.raw || "").slice(0, 500).replace(/\s+/g, " ")}"`
+      );
+
       let detections = ai.items;
 
       const casinoHints = ["virtual casino", "slots", "casino", "gambling"];
@@ -700,6 +714,14 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
             { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
           ] },
         ]);
+        console.log(
+          `[Watcher ${audit.id}] AI mosaic ${mIdx + 1}/${plan.mosaics.length} ` +
+          `(tiles=${mosaic.tiles.length} ${mosaic.cols}x${mosaic.rows} ` +
+          `tile_size=${mosaic.tile_w}x${mosaic.tile_h}): ` +
+          `ok=${retry.ok} status=${retry.status} ` +
+          `items=${retry.items?.length ?? 0} ` +
+          `raw_preview="${(retry.raw || "").slice(0, 500).replace(/\s+/g, " ")}"`
+        );
         if (retry.items.length > 0) {
           detections = retry.items;
         } else {
