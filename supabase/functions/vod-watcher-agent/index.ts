@@ -47,8 +47,8 @@ const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || "";
 
 // Forensic prompt tailored for mosaic analysis. The model receives ONE image
-// (the storyboard) and must return per-tile detections referenced by row/col.
-const MOSAIC_PROMPT = `Você é um auditor forense de iGaming/Casino analisando mosaicos de thumbnails de VODs Twitch.
+// (the storyboard) and must return per-tile state classifications referenced by row/col.
+const MOSAIC_PROMPT = `Você está analisando frames de VOD da Twitch de streamers brasileiros de cassino online.
 
 A IMAGEM enviada é um STORYBOARD: um grid de THUMBNAILS pequenos (tiles) extraídos do VOD.
 Você receberá GRID_COLS, GRID_ROWS, TILE_COUNT e o TIMESTAMP de cada tile.
@@ -57,24 +57,34 @@ Tile (row=0, col=0) é o canto superior esquerdo. Tile (row=R-1, col=C-1) é o c
 
 A categoria/capítulo da Twitch é APENAS UM SINAL AUXILIAR DE CONTEXTO. Ela NÃO deve ser usada como prova principal, não deve gerar detecção sozinha e não deve substituir a análise visual dos tiles.
 
+Para CADA tile, identifique:
+
+1. SCREEN_STATE — O estado da tela. Escolha APENAS UM:
+   - "lobby": Tela mostra GRADE/LISTA de múltiplos jogos para o streamer escolher (thumbnails de jogos lado a lado, geralmente com nomes embaixo). NÃO está jogando ativamente.
+   - "loading": Tela de carregamento, splash screen do jogo, transição entre lobby e jogo, ou anúncio fullscreen. Pode mostrar logo grande do jogo mas SEM interface de gameplay (rolos, mesa, controles).
+   - "gameplay": Streamer está JOGANDO ATIVAMENTE — interface completa do jogo visível com rolos/mesa/cartas/controles de aposta. Botões de "spin", "bet", "deal" presentes.
+   - "other": Just Chatting, navegador, desktop, IRL, qualquer coisa que NÃO seja cassino.
+
+2. GAME_NAME — Se SCREEN_STATE = "gameplay", identifique o jogo específico (ex: "Sweet Bonanza", "Crazy Time", "Gates of Olympus"). Se for "lobby", "loading" ou "other", deixe null.
+3. PROVIDER_NAME — Provedora do jogo (Pragmatic Play, Evolution, etc.) APENAS se SCREEN_STATE = "gameplay". Caso contrário, null.
+4. CONFIDENCE — 0.0 a 1.0, sua confiança na classificação.
+
 PROTOCOLO V11 — VISÃO HÍBRIDA:
 1) SOBERANIA DE URL: em cada tile, tente PRIMEIRO ler a barra de endereço/URL do navegador. Se a URL indicar transição de lobby para jogo (ex: /casino/lobby → /play/sweet-bonanza), a URL é a Fonte Primária da Verdade para jogo/provedora e marca início imediato da sessão.
 2) LOBBY/OCR: se a URL não estiver visível, faça OCR dos cards/thumbnails do lobby. Leia Nome do Jogo e Provedora nos textos abaixo das imagens. Identifique ícone de Play, hover, foco, clique ou destaque visual que indique onde o streamer iniciou o jogo.
 3) LOADING: telas intermediárias após URL/clique/play devem continuar atribuídas ao mesmo jogo/provedora anterior; não quebre o bloco durante carregamento.
 4) NOVOS JOGOS: se o nome/provedora não estiverem na base conhecida, mantenha o nome OCR e marque como novo jogo detectado via OCR.
 
-PARA CADA tile que mostre visualmente conteúdo de cassino (slot, mesa, crash, live casino, navegador em site de aposta), URL de jogo, lobby com intenção de play, ou loading após clique, retorne uma entrada.
-IGNORE tiles com Just Chatting puro, gameplay tradicional (FPS, MMO, etc), tela preta, intro/outro — mesmo que a categoria Twitch pareça relacionada a cassino.
 SEJA AGRESSIVO NA LEITURA VISUAL: thumbs são pequenos (220×124). Se vê reels coloridos, símbolos de fruta/diamante/coroa, layout 5×3 típico de slot, HUD com R$/$/€ — É CASSINO.
 
 PROVEDORAS (lista parcial — identifique quando reconhecer): Pragmatic Play, PG Soft, Hacksaw, Push Gaming, Relax Gaming, NetEnt, Play'n GO, Nolimit City, Red Tiger, Yggdrasil, Evolution, BGaming, Spribe (Aviator), Turbo Games, ELK, Big Time Gaming, 3 Oaks Gaming.
 
 JOGOS COMUNS: Sweet Bonanza, Gates of Olympus, Sugar Rush, Fortune Tiger (Jogo do Tigrinho), Aviator, Mines, Crazy Time, Monopoly Live.
 
-RESPONDA APENAS JSON ARRAY — uma entrada por TILE com cassino, URL de jogo, lobby com intenção de clique/play ou loading atribuído:
-[{"row":0,"col":2,"game":"Gates of Olympus","provider":"Pragmatic Play","category":"slots","confidence":"high","detection_type":"url|lobby_ocr|gameplay|loading","page_url":"https://.../play/gates-of-olympus","is_transition_start":true,"is_new_game_ocr":false,"evidence":"URL /play/gates-of-olympus visível; início do jogo"}]
+RESPONDA APENAS JSON ARRAY — uma entrada por TILE analisado:
+[{"row":0,"col":2,"screen_state":"gameplay","game_name":"Gates of Olympus","provider_name":"Pragmatic Play","game":"Gates of Olympus","provider":"Pragmatic Play","category":"slots","confidence":0.95,"detection_type":"url|lobby_ocr|gameplay|loading|other","page_url":"https://.../play/gates-of-olympus","is_transition_start":true,"is_new_game_ocr":false,"evidence":"interface de gameplay com rolos e botão spin visível"}]
 
-Se NENHUM tile tem cassino visível, responda exatamente: []
+Se um tile for lobby/loading/other, retorne game_name, provider_name, game e provider como null.
 `;
 
 function jsonResponse(data: unknown, status = 200) {
