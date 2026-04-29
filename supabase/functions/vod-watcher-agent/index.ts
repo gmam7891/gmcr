@@ -1012,25 +1012,11 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       }
 
       if (!vodStartIso) {
-        try {
-          const twitchRes = await fetch(`${SUPABASE_URL}/functions/v1/twitch-api`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${SERVICE_KEY}`,
-            },
-            body: JSON.stringify({ action: "get_vod", vod_id: audit.vod_id }),
-          });
-          if (twitchRes.ok) {
-            const vodData = await twitchRes.json();
-            const createdAt = vodData?.created_at || vodData?.data?.[0]?.created_at;
-            if (createdAt) {
-              vodStartIso = new Date(createdAt).toISOString();
-              windowSource = "twitch_api";
-            }
-          }
-        } catch (e: any) {
-          console.warn(`[fallback] Twitch API lookup failed: ${e.message}`);
+        const createdAt = await fetchVodCreatedAt(audit.vod_id);
+        if (createdAt) {
+          vodStartIso = createdAt;
+          windowSource = "twitch_api";
+          await sb.from("vod_audits").update({ vod_created_at: createdAt }).eq("id", audit.id);
         }
       }
 
