@@ -427,17 +427,21 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     variants.map((v: any) => `${v.quality}(${v.count}t,${v.interval}s)`).join(", ")
   );
 
-  // Pick the variant with the MOST tiles (highest count), not just "high" quality.
-  // Twitch sometimes returns variants where "medium" or "low" have more tiles than "high".
-  // Falls back to last variant if all counts are zero/missing.
+  // Pick the variant with most tiles. Tiebreaker: largest tile area.
   const variant = variants.reduce((best: any, v: any) => {
+    if (!best) return v;
     const bestCount = best?.count || 0;
     const vCount = v?.count || 0;
-    return vCount > bestCount ? v : best;
+    if (vCount > bestCount) return v;
+    if (vCount < bestCount) return best;
+
+    const bestArea = (best?.width || 0) * (best?.height || 0);
+    const vArea = (v?.width || 0) * (v?.height || 0);
+    return vArea > bestArea ? v : best;
   }, null) ?? variants[variants.length - 1];
   console.log(
-    `[storyboard] VOD: ${variants.length} variants available. ` +
-    `Selected "${variant.quality}" with ${variant.count} tiles, interval ${variant.interval}s.`
+    `[storyboard] Selected "${variant.quality}" with ${variant.count} tiles, ` +
+    `interval ${variant.interval}s, tile ${variant.width}x${variant.height}.`
   );
   const { count, cols, rows, width, height, interval, images } = variant;
   if (!count || !cols || !rows || !width || !height || !interval || !Array.isArray(images)) return null;
