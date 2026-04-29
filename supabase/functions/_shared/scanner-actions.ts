@@ -301,7 +301,8 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
     if (!evidences?.length) return { validated: 0 };
     let valid = 0, discarded = 0;
     for (const ev of evidences) {
-      const isValid = ((ev as any).confidence_score || 0) >= 0.3;
+      const screenState = (ev as any).screen_state || "gameplay";
+      const isValid = screenState === "gameplay" && !!(ev as any).game_detected && ((ev as any).confidence_score || 0) >= 0.3;
       await supabase.from("raw_evidences").update({
         is_valid: isValid, validation_status: isValid ? "valid" : "discarded",
         discard_reason: isValid ? null : "low_confidence",
@@ -314,7 +315,10 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
   if (action === "consolidate_vod") {
     const { vod_id } = body;
     const { data: evidences } = await supabase.from("raw_evidences").select("*")
-      .eq("vod_id", vod_id).eq("is_valid", true).order("timestamp_seconds", { ascending: true });
+      .eq("vod_id", vod_id)
+      .eq("is_valid", true)
+      .or("screen_state.eq.gameplay,screen_state.is.null")
+      .order("timestamp_seconds", { ascending: true });
     if (!evidences?.length) return { blocks: 0 };
 
     // Fetch audit metadata for interval calculation

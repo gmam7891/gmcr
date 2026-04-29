@@ -747,6 +747,7 @@ export type Database = {
           processing_batch_id: string | null
           provider_detected: string | null
           provider_id: string | null
+          screen_state: string | null
           source_id: string | null
           source_type: string
           streamer_login: string
@@ -769,6 +770,7 @@ export type Database = {
           processing_batch_id?: string | null
           provider_detected?: string | null
           provider_id?: string | null
+          screen_state?: string | null
           source_id?: string | null
           source_type?: string
           streamer_login: string
@@ -791,6 +793,7 @@ export type Database = {
           processing_batch_id?: string | null
           provider_detected?: string | null
           provider_id?: string | null
+          screen_state?: string | null
           source_id?: string | null
           source_type?: string
           streamer_login?: string

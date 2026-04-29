@@ -35,6 +35,12 @@ export interface AuditReport {
   vod_duration_seconds: number;
   total_casino_seconds: number;
   total_other_seconds: number;
+  state_breakdown?: {
+    gameplay_seconds?: number;
+    lobby_seconds?: number;
+    loading_seconds?: number;
+    other_seconds?: number;
+  };
   games: AuditReportGame[];
   summary: string;
   sullygnome: any;
