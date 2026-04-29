@@ -989,6 +989,7 @@ export type Database = {
           total_evidences: number | null
           updated_at: string
           valid_evidences: number | null
+          vod_created_at: string | null
           vod_duration_seconds: number | null
           vod_id: string
         }
@@ -1029,6 +1030,7 @@ export type Database = {
           total_evidences?: number | null
           updated_at?: string
           valid_evidences?: number | null
+          vod_created_at?: string | null
           vod_duration_seconds?: number | null
           vod_id: string
         }
@@ -1069,6 +1071,7 @@ export type Database = {
           total_evidences?: number | null
           updated_at?: string
           valid_evidences?: number | null
+          vod_created_at?: string | null
           vod_duration_seconds?: number | null
           vod_id?: string
         }

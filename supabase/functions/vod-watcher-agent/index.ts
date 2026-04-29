@@ -303,10 +303,17 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
-function parseAIBatch(content: string): any[] {
+function parseAIBatch(raw: string): any[] {
+  if (!raw || typeof raw !== "string") return [];
+
+  // Strip markdown code fences if present (Gemini Flash often wraps in ```json...```)
+  let cleaned = raw.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, "");
+  cleaned = cleaned.replace(/\n?\s*```\s*$/i, "");
+  cleaned = cleaned.trim();
+
   try {
-    const clean = content.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-    const match = clean.match(/\[[\s\S]*\]/);
+    const match = cleaned.match(/\[[\s\S]*\]/);
     if (!match) return [];
     try { return JSON.parse(match[0]); } catch {
       const lastBrace = match[0].lastIndexOf("}");
@@ -384,6 +391,26 @@ async function fetchChapters(vodId: string): Promise<any[]> {
   }
 }
 
+async function fetchVodCreatedAt(vodId: string): Promise<string | null> {
+  try {
+    const twitchRes = await fetch(`${SUPABASE_URL}/functions/v1/twitch-api`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SERVICE_KEY}`,
+      },
+      body: JSON.stringify({ action: "get_vod", vod_id: vodId }),
+    });
+    if (!twitchRes.ok) return null;
+    const vodData = await twitchRes.json();
+    const createdAt = vodData?.created_at || vodData?.data?.[0]?.created_at;
+    return createdAt ? new Date(createdAt).toISOString() : null;
+  } catch (e) {
+    console.warn("[Watcher] VOD created_at fetch failed:", e);
+    return null;
+  }
+}
+
 // Fetch the storyboard descriptor + URLs.
 // Returns null when storyboards are unavailable (very fresh VOD, deleted, etc).
 async function fetchStoryboardPlan(vodId: string): Promise<
@@ -420,17 +447,21 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     variants.map((v: any) => `${v.quality}(${v.count}t,${v.interval}s)`).join(", ")
   );
 
-  // Pick the variant with the MOST tiles (highest count), not just "high" quality.
-  // Twitch sometimes returns variants where "medium" or "low" have more tiles than "high".
-  // Falls back to last variant if all counts are zero/missing.
+  // Pick the variant with most tiles. Tiebreaker: largest tile area.
   const variant = variants.reduce((best: any, v: any) => {
+    if (!best) return v;
     const bestCount = best?.count || 0;
     const vCount = v?.count || 0;
-    return vCount > bestCount ? v : best;
+    if (vCount > bestCount) return v;
+    if (vCount < bestCount) return best;
+
+    const bestArea = (best?.width || 0) * (best?.height || 0);
+    const vArea = (v?.width || 0) * (v?.height || 0);
+    return vArea > bestArea ? v : best;
   }, null) ?? variants[variants.length - 1];
   console.log(
-    `[storyboard] VOD: ${variants.length} variants available. ` +
-    `Selected "${variant.quality}" with ${variant.count} tiles, interval ${variant.interval}s.`
+    `[storyboard] Selected "${variant.quality}" with ${variant.count} tiles, ` +
+    `interval ${variant.interval}s, tile ${variant.width}x${variant.height}.`
   );
   const { count, cols, rows, width, height, interval, images } = variant;
   if (!count || !cols || !rows || !width || !height || !interval || !Array.isArray(images)) return null;
@@ -492,8 +523,8 @@ Deno.serve(async (req) => {
 
     const totalMinutes = Math.round(vod_duration_seconds / 60);
 
-    // Fetch storyboard plan + chapters in parallel
-    const [storyboard, chapters] = await Promise.all([
+    // Fetch storyboard plan + chapters + VOD created_at in parallel
+    const [storyboard, chapters, vodCreatedAt] = await Promise.all([
       Promise.race([
         fetchStoryboardPlan(vod_id),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
@@ -501,6 +532,10 @@ Deno.serve(async (req) => {
       Promise.race([
         fetchChapters(vod_id),
         new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+      ]),
+      Promise.race([
+        fetchVodCreatedAt(vod_id),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
       ]),
     ]);
 
@@ -512,6 +547,7 @@ Deno.serve(async (req) => {
         platform: "twitch",
         status: "failed" as const,
         vod_duration_seconds: Math.round(vod_duration_seconds),
+        vod_created_at: vodCreatedAt,
         expected_frames: 0,
         processed_frames: 0,
         started_at: new Date().toISOString(),
@@ -550,6 +586,7 @@ Deno.serve(async (req) => {
       platform: "twitch",
       status: "processing" as const,
       vod_duration_seconds: Math.round(vod_duration_seconds),
+      vod_created_at: vodCreatedAt,
       expected_frames: totalFrames,
       processed_frames: 0,
       started_at: new Date().toISOString(),
@@ -975,25 +1012,11 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       }
 
       if (!vodStartIso) {
-        try {
-          const twitchRes = await fetch(`${SUPABASE_URL}/functions/v1/twitch-api`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${SERVICE_KEY}`,
-            },
-            body: JSON.stringify({ action: "get_vod", vod_id: audit.vod_id }),
-          });
-          if (twitchRes.ok) {
-            const vodData = await twitchRes.json();
-            const createdAt = vodData?.created_at || vodData?.data?.[0]?.created_at;
-            if (createdAt) {
-              vodStartIso = new Date(createdAt).toISOString();
-              windowSource = "twitch_api";
-            }
-          }
-        } catch (e: any) {
-          console.warn(`[fallback] Twitch API lookup failed: ${e.message}`);
+        const createdAt = await fetchVodCreatedAt(audit.vod_id);
+        if (createdAt) {
+          vodStartIso = createdAt;
+          windowSource = "twitch_api";
+          await sb.from("vod_audits").update({ vod_created_at: createdAt }).eq("id", audit.id);
         }
       }
 
