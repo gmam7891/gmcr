@@ -253,6 +253,15 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
 
         <p className="text-sm text-foreground leading-relaxed">{report.summary}</p>
 
+        {report?.state_breakdown && (
+          <div className="flex flex-wrap gap-3 text-[11px] font-mono text-muted-foreground mt-2">
+            <span>🎮 Gameplay: {fmt(report.state_breakdown.gameplay_seconds || 0)}</span>
+            <span>🎰 Lobby: {fmt(report.state_breakdown.lobby_seconds || 0)}</span>
+            <span>⏳ Loading: {fmt(report.state_breakdown.loading_seconds || 0)}</span>
+            <span>💬 Outro: {fmt(report.state_breakdown.other_seconds || 0)}</span>
+          </div>
+        )}
+
         {visualProofs.length > 0 && (
           <div className="space-y-2 pt-3 border-t border-border">
             <p className="text-xs uppercase tracking-wider text-muted-foreground">Prova visual da intenção</p>
