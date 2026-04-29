@@ -78,6 +78,91 @@ export async function getTwitchLiveStatusViaRapidAPI(
   }
 }
 
+/**
+ * Resposta normalizada com dados completos de um canal Twitch.
+ */
+export interface TwitchChannelInfo {
+  user_id: string;
+  login: string;
+  display_name: string;
+  description: string;
+  profile_image_url: string;
+  offline_image_url: string;
+  view_count: number;
+  follower_count: number;
+  created_at: string | null;
+  is_partner: boolean;
+  is_affiliate: boolean;
+  broadcaster_type: string;
+  source: "rapidapi";
+}
+
+/**
+ * Busca dados completos de um canal Twitch via RapidAPI.
+ * Endpoint: GET /api/channels/info/{login}
+ *
+ * @returns null se RAPIDAPI_KEY não estiver configurada ou se a chamada falhar.
+ */
+export async function getTwitchChannelInfoViaRapidAPI(
+  login: string
+): Promise<TwitchChannelInfo | null> {
+  if (!RAPIDAPI_KEY) {
+    console.warn("[twitch-scraper-v2] RAPIDAPI_KEY não configurada");
+    return null;
+  }
+
+  try {
+    const url = `https://${TWITCH_SCRAPER_HOST}/api/channels/info/${encodeURIComponent(login)}`;
+    console.log(`[twitch-scraper-v2] Calling channel info: ${url}`);
+
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "x-rapidapi-host": TWITCH_SCRAPER_HOST,
+        "x-rapidapi-key": RAPIDAPI_KEY,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`[twitch-scraper-v2] HTTP ${res.status} para channel info ${login}`);
+      return null;
+    }
+
+    const json = await res.json();
+    console.log(`[twitch-scraper-v2] channel info raw response:`, JSON.stringify(json).slice(0, 500));
+
+    const root = json?.data?.user
+      ?? json?.data?.channel
+      ?? json?.data
+      ?? json;
+
+    if (!root || typeof root !== "object") {
+      console.warn("[twitch-scraper-v2] channel info: raiz não encontrada");
+      return null;
+    }
+
+    return {
+      user_id: String(root.id || root.userId || root.user_id || ""),
+      login: String(root.login || root.username || login),
+      display_name: String(root.displayName || root.display_name || root.name || login),
+      description: String(root.description || root.bio || ""),
+      profile_image_url: String(root.profileImageURL || root.profile_image_url || root.avatar || ""),
+      offline_image_url: String(root.offlineImageURL || root.offline_image_url || ""),
+      view_count: Number(root.viewCount || root.view_count || root.totalViews || 0),
+      follower_count: Number(root.followers || root.follower_count || root.followerCount || 0),
+      created_at: root.createdAt || root.created_at || null,
+      is_partner: !!(root.isPartner || root.is_partner || root.partner),
+      is_affiliate: !!(root.isAffiliate || root.is_affiliate || root.affiliate),
+      broadcaster_type: String(root.broadcasterType || root.broadcaster_type || ""),
+      source: "rapidapi",
+    };
+  } catch (e: any) {
+    console.warn(`[twitch-scraper-v2] Error fetching channel info ${login}:`, e.message);
+    return null;
+  }
+}
+
 export const READ_ACTIONS = new Set([
   "get_status",
   "get_dashboard",
