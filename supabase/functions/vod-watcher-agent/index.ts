@@ -391,6 +391,26 @@ async function fetchChapters(vodId: string): Promise<any[]> {
   }
 }
 
+async function fetchVodCreatedAt(vodId: string): Promise<string | null> {
+  try {
+    const twitchRes = await fetch(`${SUPABASE_URL}/functions/v1/twitch-api`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SERVICE_KEY}`,
+      },
+      body: JSON.stringify({ action: "get_vod", vod_id: vodId }),
+    });
+    if (!twitchRes.ok) return null;
+    const vodData = await twitchRes.json();
+    const createdAt = vodData?.created_at || vodData?.data?.[0]?.created_at;
+    return createdAt ? new Date(createdAt).toISOString() : null;
+  } catch (e) {
+    console.warn("[Watcher] VOD created_at fetch failed:", e);
+    return null;
+  }
+}
+
 // Fetch the storyboard descriptor + URLs.
 // Returns null when storyboards are unavailable (very fresh VOD, deleted, etc).
 async function fetchStoryboardPlan(vodId: string): Promise<
