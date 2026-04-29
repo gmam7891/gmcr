@@ -523,8 +523,8 @@ Deno.serve(async (req) => {
 
     const totalMinutes = Math.round(vod_duration_seconds / 60);
 
-    // Fetch storyboard plan + chapters in parallel
-    const [storyboard, chapters] = await Promise.all([
+    // Fetch storyboard plan + chapters + VOD created_at in parallel
+    const [storyboard, chapters, vodCreatedAt] = await Promise.all([
       Promise.race([
         fetchStoryboardPlan(vod_id),
         new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
@@ -532,6 +532,10 @@ Deno.serve(async (req) => {
       Promise.race([
         fetchChapters(vod_id),
         new Promise<any[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+      ]),
+      Promise.race([
+        fetchVodCreatedAt(vod_id),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
       ]),
     ]);
 
@@ -543,6 +547,7 @@ Deno.serve(async (req) => {
         platform: "twitch",
         status: "failed" as const,
         vod_duration_seconds: Math.round(vod_duration_seconds),
+        vod_created_at: vodCreatedAt,
         expected_frames: 0,
         processed_frames: 0,
         started_at: new Date().toISOString(),
@@ -581,6 +586,7 @@ Deno.serve(async (req) => {
       platform: "twitch",
       status: "processing" as const,
       vod_duration_seconds: Math.round(vod_duration_seconds),
+      vod_created_at: vodCreatedAt,
       expected_frames: totalFrames,
       processed_frames: 0,
       started_at: new Date().toISOString(),
