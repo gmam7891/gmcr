@@ -200,8 +200,11 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
   if (action === "test_rapidapi_twitch") {
     const { login } = body;
     if (!login) return { error: "login é obrigatório" };
-    const status = await getTwitchLiveStatusViaRapidAPI(String(login));
-    return { login, status, raw_secret_configured: !!Deno.env.get("RAPIDAPI_KEY") };
+    const [liveStatus, channelInfo] = await Promise.all([
+      getTwitchLiveStatusViaRapidAPI(String(login)),
+      getTwitchChannelInfoViaRapidAPI(String(login)),
+    ]);
+    return { login, live_status: liveStatus, channel_info: channelInfo, raw_secret_configured: !!Deno.env.get("RAPIDAPI_KEY") };
   }
 
   if (action === "get_status") {
