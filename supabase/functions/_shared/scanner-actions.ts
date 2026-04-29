@@ -301,7 +301,8 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
     if (!evidences?.length) return { validated: 0 };
     let valid = 0, discarded = 0;
     for (const ev of evidences) {
-      const isValid = ((ev as any).confidence_score || 0) >= 0.3;
+      const screenState = (ev as any).screen_state || "gameplay";
+      const isValid = screenState === "gameplay" && !!(ev as any).game_detected && ((ev as any).confidence_score || 0) >= 0.3;
       await supabase.from("raw_evidences").update({
         is_valid: isValid, validation_status: isValid ? "valid" : "discarded",
         discard_reason: isValid ? null : "low_confidence",
