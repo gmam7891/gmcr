@@ -303,10 +303,17 @@ function jsonResponse(data: unknown, status = 200) {
   });
 }
 
-function parseAIBatch(content: string): any[] {
+function parseAIBatch(raw: string): any[] {
+  if (!raw || typeof raw !== "string") return [];
+
+  // Strip markdown code fences if present (Gemini Flash often wraps in ```json...```)
+  let cleaned = raw.trim();
+  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, "");
+  cleaned = cleaned.replace(/\n?\s*```\s*$/i, "");
+  cleaned = cleaned.trim();
+
   try {
-    const clean = content.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-    const match = clean.match(/\[[\s\S]*\]/);
+    const match = cleaned.match(/\[[\s\S]*\]/);
     if (!match) return [];
     try { return JSON.parse(match[0]); } catch {
       const lastBrace = match[0].lastIndexOf("}");
