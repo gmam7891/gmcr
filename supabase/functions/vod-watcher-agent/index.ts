@@ -51,40 +51,249 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUB
 const MOSAIC_PROMPT = `Você está analisando frames de VOD da Twitch de streamers brasileiros de cassino online.
 
 A IMAGEM enviada é um STORYBOARD: um grid de THUMBNAILS pequenos (tiles) extraídos do VOD.
+
 Você receberá GRID_COLS, GRID_ROWS, TILE_COUNT e o TIMESTAMP de cada tile.
+
 Ordem dos tiles: linha por linha, da esquerda para a direita, de cima para baixo.
-Tile (row=0, col=0) é o canto superior esquerdo. Tile (row=R-1, col=C-1) é o canto inferior direito.
+
+Tile (row=0, col=0) é o canto superior esquerdo.
 
 A categoria/capítulo da Twitch é APENAS UM SINAL AUXILIAR DE CONTEXTO. Ela NÃO deve ser usada como prova principal, não deve gerar detecção sozinha e não deve substituir a análise visual dos tiles.
 
-Para CADA tile, identifique:
+Para CADA tile, classifique o que está acontecendo na tela.
 
-1. SCREEN_STATE — O estado da tela. Escolha APENAS UM:
-   - "lobby": Tela mostra GRADE/LISTA de múltiplos jogos para o streamer escolher (thumbnails de jogos lado a lado, geralmente com nomes embaixo). NÃO está jogando ativamente.
-   - "loading": Tela de carregamento, splash screen do jogo, transição entre lobby e jogo, ou anúncio fullscreen. Pode mostrar logo grande do jogo mas SEM interface de gameplay (rolos, mesa, controles).
-   - "gameplay": Streamer está JOGANDO ATIVAMENTE — interface completa do jogo visível com rolos/mesa/cartas/controles de aposta. Botões de "spin", "bet", "deal" presentes.
-   - "other": Just Chatting, navegador, desktop, IRL, qualquer coisa que NÃO seja cassino.
+═══════════════════════════════════════════════════════════════
 
-2. GAME_NAME — Se SCREEN_STATE = "gameplay", identifique o jogo específico (ex: "Sweet Bonanza", "Crazy Time", "Gates of Olympus"). Se for "lobby", "loading" ou "other", deixe null.
-3. PROVIDER_NAME — Provedora do jogo (Pragmatic Play, Evolution, etc.) APENAS se SCREEN_STATE = "gameplay". Caso contrário, null.
-4. CONFIDENCE — 0.0 a 1.0, sua confiança na classificação.
+1. SCREEN_STATE — Estado da tela (escolha APENAS UM):
 
-PROTOCOLO V11 — VISÃO HÍBRIDA:
-1) SOBERANIA DE URL: em cada tile, tente PRIMEIRO ler a barra de endereço/URL do navegador. Se a URL indicar transição de lobby para jogo (ex: /casino/lobby → /play/sweet-bonanza), a URL é a Fonte Primária da Verdade para jogo/provedora e marca início imediato da sessão.
-2) LOBBY/OCR: se a URL não estiver visível, faça OCR dos cards/thumbnails do lobby. Leia Nome do Jogo e Provedora nos textos abaixo das imagens. Identifique ícone de Play, hover, foco, clique ou destaque visual que indique onde o streamer iniciou o jogo.
-3) LOADING: telas intermediárias após URL/clique/play devem continuar atribuídas ao mesmo jogo/provedora anterior; não quebre o bloco durante carregamento.
-4) NOVOS JOGOS: se o nome/provedora não estiverem na base conhecida, mantenha o nome OCR e marque como novo jogo detectado via OCR.
+═══════════════════════════════════════════════════════════════
 
-SEJA AGRESSIVO NA LEITURA VISUAL: thumbs são pequenos (220×124). Se vê reels coloridos, símbolos de fruta/diamante/coroa, layout 5×3 típico de slot, HUD com R$/$/€ — É CASSINO.
+- "lobby": Tela mostra GRADE/LISTA de múltiplos jogos para o streamer escolher (thumbnails de jogos lado a lado, geralmente com nomes embaixo). NÃO está jogando ativamente. Pode ter logo de casa de aposta no topo (SeuBet, Pixbet, etc.).
 
-PROVEDORAS (lista parcial — identifique quando reconhecer): Pragmatic Play, PG Soft, Hacksaw, Push Gaming, Relax Gaming, NetEnt, Play'n GO, Nolimit City, Red Tiger, Yggdrasil, Evolution, BGaming, Spribe (Aviator), Turbo Games, ELK, Big Time Gaming, 3 Oaks Gaming.
+- "loading": Tela de carregamento com logo grande de provedora (PRAGMATIC PLAY, PG SOFT, etc.) e barra de progresso. Pode mostrar nome do jogo no canto superior. SEM interface de gameplay (sem rolos, sem mesa, sem controles de aposta visíveis).
 
-JOGOS COMUNS: Sweet Bonanza, Gates of Olympus, Sugar Rush, Fortune Tiger (Jogo do Tigrinho), Aviator, Mines, Crazy Time, Monopoly Live.
+- "gameplay": Streamer está JOGANDO ATIVAMENTE. Interface completa do jogo visível: rolos com símbolos (slots), mesa de aposta (table games), controles "spin"/"bet"/"deal", valores R$ aposta/saldo no rodapé.
 
-RESPONDA APENAS JSON ARRAY — uma entrada por TILE analisado:
-[{"row":0,"col":2,"screen_state":"gameplay","game_name":"Gates of Olympus","provider_name":"Pragmatic Play","game":"Gates of Olympus","provider":"Pragmatic Play","category":"slots","confidence":0.95,"detection_type":"url|lobby_ocr|gameplay|loading|other","page_url":"https://.../play/gates-of-olympus","is_transition_start":true,"is_new_game_ocr":false,"evidence":"interface de gameplay com rolos e botão spin visível"}]
+- "other": Just Chatting (só webcam grande), navegador genérico, desktop, IRL, qualquer coisa que NÃO seja cassino.
 
-Se um tile for lobby/loading/other, retorne game_name, provider_name, game e provider como null.
+═══════════════════════════════════════════════════════════════
+
+2. GAME_NAME — Nome do jogo (APENAS para "gameplay"):
+
+═══════════════════════════════════════════════════════════════
+
+- Se SCREEN_STATE = "gameplay": identifique o jogo específico
+
+  (ex: "Sweet Bonanza", "Gates of Olympus 1000", "Crazy Time")
+
+- Se SCREEN_STATE = "loading": pode incluir o jogo SE o nome estiver
+
+  legível no canto superior da tela. Caso contrário, null.
+
+- Se SCREEN_STATE = "lobby" ou "other": SEMPRE null. Nunca atribua jogos
+
+  do lobby como "jogados" — eles são apenas opções, não atividade real.
+
+═══════════════════════════════════════════════════════════════
+
+3. PROVIDER_NAME — Provedora do jogo:
+
+═══════════════════════════════════════════════════════════════
+
+Se identificou GAME_NAME, retorne a provedora correspondente.
+
+Se for "loading" mostrando logo grande de provedora, retorne ela.
+
+Caso contrário, null.
+
+Provedoras conhecidas: Pragmatic Play, PG Soft, Hacksaw, Push Gaming,
+
+Relax Gaming, NetEnt, Play'n GO, Nolimit City, Red Tiger, Yggdrasil,
+
+Evolution, BGaming, Spribe (Aviator), Turbo Games, ELK, Big Time Gaming,
+
+3 Oaks Gaming, Games Global, Pyromania, PG Soft.
+
+═══════════════════════════════════════════════════════════════
+
+4. CASINO_BRAND — Casa de aposta visível na tela:
+
+═══════════════════════════════════════════════════════════════
+
+Procure logos/marcas no canto da tela (geralmente topo). Se identificar
+
+uma casa de aposta visível no frame, retorne o nome dela. Caso contrário, null.
+
+Casas conhecidas no Brasil: SeuBet, Pixbet, KTO, Bet7K, Stake, Betano,
+
+Sportingbet, Betfair, Galera.bet, Esportes da Sorte, Bet Nacional,
+
+Lotogreen, F12 Bet, Betpix, Blaze, Estrela Bet.
+
+Esse campo é IMPORTANTE — vale para lobby, loading e gameplay.
+
+Em "other", deixe null.
+
+═══════════════════════════════════════════════════════════════
+
+5. CONFIDENCE — Confiança da classificação (0.0 a 1.0):
+
+═══════════════════════════════════════════════════════════════
+
+- 0.9+ : Evidência visual clara (HUD completo, nome do jogo legível, logo nítido)
+
+- 0.7-0.9 : Reconheço o padrão visual mas detalhes pequenos
+
+- 0.5-0.7 : Provavelmente é isso, mas thumb pequena dificulta
+
+- < 0.5 : Chute educado
+
+═══════════════════════════════════════════════════════════════
+
+6. EVIDENCE — Justificativa em 1 frase curta (pt-BR):
+
+═══════════════════════════════════════════════════════════════
+
+Ex: "rolos 6x5 com símbolos coloridos e logo Pragmatic"
+
+    "barra de carregamento com logo Pragmatic Play"
+
+    "grade de thumbnails com SeuBet no topo"
+
+    "webcam ocupando tela inteira, sem cassino visível"
+
+═══════════════════════════════════════════════════════════════
+
+DICAS VISUAIS PARA SLOTS DE CASSINO:
+
+═══════════════════════════════════════════════════════════════
+
+- Layout de rolos: 5×3, 6×5, 7×7 (Pragmatic Play tem 6×5 com cluster)
+
+- HUD inferior: botão de spin redondo + valores R$ aposta/saldo
+
+- Cores temáticas: Olympus (roxo+dourado), Sweet Bonanza (rosa+azul),
+
+  Sugar Rush (rosa pastel), Tigrinho (vermelho+dourado)
+
+- Multiplicadores: bolas com "5x", "10x", "25x" (Pragmatic estilo)
+
+- Símbolos típicos: frutas, gemas, coroas, sinos, ouro
+
+═══════════════════════════════════════════════════════════════
+
+DICAS PARA DISTINGUIR LOBBY DE GAMEPLAY:
+
+═══════════════════════════════════════════════════════════════
+
+LOBBY tem MÚLTIPLOS jogos visíveis lado a lado, com nomes pequenos
+
+embaixo de cada thumb. Sem rolos girando, sem botão de spin grande.
+
+GAMEPLAY tem UM jogo ocupando a tela toda, com rolos grandes e
+
+controles de aposta no rodapé.
+
+Se o tile mostra grade 4×N de thumbnails de jogos = LOBBY.
+
+Se mostra rolos grandes ocupando a tela = GAMEPLAY.
+
+═══════════════════════════════════════════════════════════════
+
+JOGOS COMUNS (referência rápida):
+
+═══════════════════════════════════════════════════════════════
+
+Sweet Bonanza, Sweet Bonanza 1000, Gates of Olympus, Gates of Olympus 1000,
+
+Gates of Olympus Super Scatter, Sugar Rush, Sugar Rush 1000, Starlight Princess,
+
+Starlight Princess Super Scatter, Big Bass Bonanza, Big Bass Splash, Sweet Rush
+
+Bonanza, Fortune Tiger (Jogo do Tigrinho), Fortune Mouse, Fortune Ox, Aviator,
+
+Mines, Crazy Time, Monopoly Live, Lightning Roulette, Pinata Wins.
+
+═══════════════════════════════════════════════════════════════
+
+FORMATO DA RESPOSTA — JSON ARRAY (uma entrada por tile analisado):
+
+═══════════════════════════════════════════════════════════════
+
+[
+
+  {
+
+    "row": 0,
+
+    "col": 2,
+
+    "screen_state": "gameplay",
+
+    "game_name": "Gates of Olympus 1000",
+
+    "provider_name": "Pragmatic Play",
+
+    "casino_brand": "SeuBet",
+
+    "confidence": 0.95,
+
+    "evidence": "rolos 6x5 com Zeus à direita, multiplicador 5x visível, logo SeuBet no topo"
+
+  },
+
+  {
+
+    "row": 0,
+
+    "col": 3,
+
+    "screen_state": "loading",
+
+    "game_name": "Gates of Olympus 1000",
+
+    "provider_name": "Pragmatic Play",
+
+    "casino_brand": "SeuBet",
+
+    "confidence": 0.85,
+
+    "evidence": "logo grande Pragmatic Play com barra de progresso, nome no canto"
+
+  },
+
+  {
+
+    "row": 1,
+
+    "col": 0,
+
+    "screen_state": "lobby",
+
+    "game_name": null,
+
+    "provider_name": null,
+
+    "casino_brand": "SeuBet",
+
+    "confidence": 0.9,
+
+    "evidence": "grade de thumbnails de slots, header com SeuBet"
+
+  }
+
+]
+
+REGRAS ABSOLUTAS:
+
+- NÃO INVENTE URLs, cliques de mouse ou transições. Você não vê isso.
+
+- NÃO atribua jogos do LOBBY como "jogados". Lobby = null em game_name.
+
+- Apenas tiles em estado "gameplay" contam como tempo jogado de fato.
+
+- Se não tem certeza do jogo, prefira null com confidence baixa a inventar.
+
 `;
 
 function jsonResponse(data: unknown, status = 200) {
@@ -107,46 +316,6 @@ function parseAIBatch(content: string): any[] {
       return [];
     }
   } catch { return []; }
-}
-
-function slugify(value: string): string {
-  return (value || "unknown")
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "unknown";
-}
-
-async function ensureOcrGame(sb: any, game: string, provider: string, evidence: any) {
-  const cleanGame = String(game || "Unknown Game").trim();
-  const cleanProvider = String(provider || "Unknown").trim();
-  if (!cleanGame || cleanGame === "Unknown") return;
-  const providerSlug = slugify(cleanProvider);
-  const { data: existing } = await sb
-    .from("game_visual_library")
-    .select("id")
-    .eq("game_name", cleanGame)
-    .eq("provider_slug", providerSlug)
-    .maybeSingle();
-  if (existing?.id) return;
-  await sb.from("game_visual_library").insert({
-    game_name: cleanGame,
-    provider_name: cleanProvider,
-    provider_slug: providerSlug,
-    training_status: "pending",
-    metadata: {
-      source: "vod_watcher_v11_ocr",
-      label: "Novo Jogo Detectado via OCR",
-      evidence,
-    },
-    visual_dna: {
-      source: "vod_watcher_v11_ocr",
-      provisional: true,
-      detection_type: evidence?.detection_type || null,
-      page_url: evidence?.page_url || null,
-    },
-  });
 }
 
 async function withRetry<T>(label: string, fn: () => Promise<T>, maxAttempts = MAX_RETRIES): Promise<T> {
