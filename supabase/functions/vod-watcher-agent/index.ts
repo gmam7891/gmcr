@@ -709,6 +709,22 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
         : 39;
 
+    const { data: allEvidences } = await sb.from("raw_evidences").select("screen_state")
+      .eq("vod_id", audit.vod_id);
+    const stateBreakdown = {
+      gameplay_seconds: 0,
+      lobby_seconds: 0,
+      loading_seconds: 0,
+      other_seconds: 0,
+    };
+    for (const ev of (allEvidences || [])) {
+      const state = (ev.screen_state || "gameplay") as "gameplay" | "lobby" | "loading" | "other";
+      const key = `${state}_seconds` as keyof typeof stateBreakdown;
+      if (stateBreakdown[key] !== undefined) {
+        stateBreakdown[key] += interval;
+      }
+    }
+
     const byGame = new Map<string, { game: string; provider: string; frames: number; seconds: number; avgConfidence: number; pendingFrames: number; status?: "confirmed" | "suspect"; proof?: any; }>();
 
     const pushDetection = (game: string, provider: string, conf: number, secs: number, proof?: any) => {
@@ -818,6 +834,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       vod_duration_seconds: vodDuration,
       total_casino_seconds: totalCasinoSeconds,
       total_other_seconds: otherSeconds,
+      state_breakdown: stateBreakdown,
       games,
       summary,
       sullygnome: audit.sullygnome_snapshot,
