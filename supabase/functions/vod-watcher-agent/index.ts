@@ -595,6 +595,60 @@ Deno.serve(async (req) => {
     let framesSinceCheckpoint = 0;
     const batchId = `${audit_id}-${Date.now()}`;
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Load game_visual_library once per resume chunk and compact it into
+    // the prompt so the AI matches against our known catalog instead of
+    // hallucinating famous game names.
+    // ─────────────────────────────────────────────────────────────────────
+    console.log(`[Watcher ${audit.id}] Loading game_visual_library...`);
+    const { data: libraryRows, error: libErr } = await sb
+      .from("game_visual_library")
+      .select("game_name, provider_name, visual_dna")
+      .eq("training_status", "trained");
+
+    if (libErr) {
+      console.warn(`[Watcher ${audit.id}] Failed to load library: ${libErr.message}`);
+    }
+
+    const gameLibrary: Array<{
+      name: string;
+      provider: string;
+      keywords: string[];
+    }> = (libraryRows || []).map((row: any) => {
+      const dna = row.visual_dna || {};
+      const provider = normalizeProviderName(
+        dna.provider_canonical || row.provider_name || "Unknown",
+      );
+      const keywords = Array.isArray(dna.detection_keywords)
+        ? dna.detection_keywords.slice(0, 6).map((k: any) => String(k))
+        : [];
+      return { name: row.game_name, provider, keywords };
+    });
+
+    console.log(
+      `[Watcher ${audit.id}] Library loaded: ${gameLibrary.length} games, ` +
+      `providers=${new Set(gameLibrary.map((g) => g.provider)).size}`,
+    );
+
+    // Compact library: "GameName|Provider|kw1,kw2,kw3,kw4" per line
+    const libraryContext = gameLibrary
+      .map((g) => `${g.name}|${g.provider}|${g.keywords.slice(0, 4).join(",")}`)
+      .join("\n");
+
+    console.log(
+      `[Watcher ${audit.id}] Library context: ${libraryContext.length} chars, ` +
+      `~${Math.round(libraryContext.length / 4)} tokens`,
+    );
+
+    const mosaicPrompt = buildMosaicPrompt(libraryContext);
+
+    // Index para validação rápida (case-insensitive) por nome do jogo
+    const libraryIndex = new Map<string, { name: string; provider: string }>();
+    for (const g of gameLibrary) {
+      libraryIndex.set(g.name.toLowerCase(), { name: g.name, provider: g.provider });
+    }
+
+
     // Helper to persist a checkpoint (so a timeout mid-chunk doesn't lose state)
     const checkpoint = async (currentMosaic: number, label: string) => {
       plan.processed_mosaic = currentMosaic;
