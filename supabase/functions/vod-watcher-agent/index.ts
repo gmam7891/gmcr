@@ -752,15 +752,38 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           ? rawScreenState
           : "other";
 
-        // game_name SOMENTE em gameplay ou loading com jogo identificável
-        // NUNCA atribuir jogos do lobby como "jogados"
-        const gameName = (screenState === "gameplay" || screenState === "loading")
-          ? (det.game_name || null)
-          : null;
+        // ── Validação contra game_visual_library (anti-alucinação) ──────────
+        const isUnknownGame = !!det.is_unknown_game;
+        let validatedGameName: string | null = null;
+        let validatedProvider: string | null = null;
+        let libraryMatched = false;
 
-        const providerName = (screenState === "gameplay" || screenState === "loading")
-          ? (det.provider_name || null)
-          : null;
+        if (det.game_name && (screenState === "gameplay" || screenState === "loading")) {
+          const rawGame = String(det.game_name).trim();
+          const match = libraryIndex.get(rawGame.toLowerCase());
+
+          if (match) {
+            // Match canônico na biblioteca
+            validatedGameName = match.name;
+            validatedProvider = match.provider;
+            libraryMatched = true;
+          } else if (isUnknownGame && conf >= 0.5) {
+            // Fora da biblioteca, mas Gemini admitiu — aceita com flag
+            validatedGameName = rawGame.slice(0, 80);
+            validatedProvider = det.provider_name
+              ? normalizeProviderName(String(det.provider_name).trim().slice(0, 50))
+              : null;
+          } else {
+            // Tentou retornar jogo fora da biblioteca SEM admitir incerteza → alucinação
+            console.warn(
+              `[Watcher ${audit.id}] Discarding hallucinated game: "${rawGame}" ` +
+              `(not in library, is_unknown_game=${isUnknownGame})`,
+            );
+          }
+        }
+
+        const gameName = validatedGameName;
+        const providerName = validatedProvider;
 
         // casino_brand pode aparecer em qualquer estado (exceto "other")
         const casinoBrand = screenState !== "other"
@@ -775,7 +798,10 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           tile_row: row,
           tile_col: col,
           evidence: det.evidence || null,
+          is_unknown_game: isUnknownGame,
+          library_matched: libraryMatched,
         };
+
 
         snapshotRows.push({
           streamer_login: audit.streamer_login,
