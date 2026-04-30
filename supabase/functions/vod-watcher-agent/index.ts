@@ -682,7 +682,7 @@ Timestamps por tile: ${tileLabel}.
 Use a categoria Twitch apenas como contexto secundário; identifique cassino somente quando houver evidência visual no tile.`;
 
       const ai = await callAI([
-        { role: "system", content: MOSAIC_PROMPT },
+        { role: "system", content: mosaicPrompt },
         { role: "user", content: [
           { type: "text", text: userText },
           { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
