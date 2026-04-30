@@ -910,7 +910,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
 
     // ── SSoT: stream_snapshots is the single source of truth ────────────────
     // 1) Try storyboard-source detections first (vod_id-bound, AI-verified).
-    const { data: storyboardSnaps } = await sb
+    const { data: rawStoryboardSnaps } = await sb
       .from("stream_snapshots")
       .select("game_detected, provider_detected, confidence_score, ai_confidence, timestamp_seconds, is_ai_verified, extra_metadata, ai_evidence")
       .eq("vod_id", audit.vod_id)
@@ -922,15 +922,67 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         ? Math.max(1, Math.round(audit.vod_duration_seconds / audit.expected_frames))
         : 39;
 
-    const { data: allEvidences } = await sb.from("raw_evidences").select("screen_state")
+    // =================================================================
+    // DEDUP POR TIMESTAMP — bug fix: stream_snapshots pode ter múltiplas
+    // rows para o mesmo timestamp (uma por mosaico). Mantemos apenas a
+    // row com maior confiança por timestamp para não inflar a contagem.
+    // =================================================================
+    const snapDedupMap = new Map<number, any>();
+    let snapDuplicatesFound = 0;
+    for (const snap of (rawStoryboardSnaps || [])) {
+      const ts = Number(snap.timestamp_seconds);
+      if (!Number.isFinite(ts)) continue;
+      const existing = snapDedupMap.get(ts);
+      if (!existing) {
+        snapDedupMap.set(ts, snap);
+      } else {
+        snapDuplicatesFound++;
+        const existingConf = Number(existing.ai_confidence ?? existing.confidence_score ?? 0);
+        const newConf = Number(snap.ai_confidence ?? snap.confidence_score ?? 0);
+        if (newConf > existingConf) snapDedupMap.set(ts, snap);
+      }
+    }
+    const storyboardSnaps = Array.from(snapDedupMap.values());
+    console.log(
+      `[report] VOD ${audit.vod_id}: dedup snapshots ` +
+      `${rawStoryboardSnaps?.length || 0} → ${storyboardSnaps.length} ` +
+      `(${snapDuplicatesFound} duplicates removed)`
+    );
+
+    const { data: rawEvidences } = await sb.from("raw_evidences")
+      .select("screen_state, timestamp_seconds, confidence_score")
       .eq("vod_id", audit.vod_id);
+
+    // Dedup evidences by timestamp (same bug pattern: 234 rows for ~158 unique ts)
+    const evDedupMap = new Map<number, any>();
+    let evDuplicatesFound = 0;
+    for (const ev of (rawEvidences || [])) {
+      const ts = Number(ev.timestamp_seconds);
+      if (!Number.isFinite(ts)) continue;
+      const existing = evDedupMap.get(ts);
+      if (!existing) {
+        evDedupMap.set(ts, ev);
+      } else {
+        evDuplicatesFound++;
+        const existingConf = Number(existing.confidence_score || 0);
+        const newConf = Number(ev.confidence_score || 0);
+        if (newConf > existingConf) evDedupMap.set(ts, ev);
+      }
+    }
+    const allEvidences = Array.from(evDedupMap.values());
+    console.log(
+      `[report] VOD ${audit.vod_id}: dedup evidences ` +
+      `${rawEvidences?.length || 0} → ${allEvidences.length} ` +
+      `(${evDuplicatesFound} duplicates removed)`
+    );
+
     const stateBreakdown = {
       gameplay_seconds: 0,
       lobby_seconds: 0,
       loading_seconds: 0,
       other_seconds: 0,
     };
-    for (const ev of (allEvidences || [])) {
+    for (const ev of allEvidences) {
       const state = (ev.screen_state || "gameplay") as "gameplay" | "lobby" | "loading" | "other";
       const key = `${state}_seconds` as keyof typeof stateBreakdown;
       if (stateBreakdown[key] !== undefined) {
