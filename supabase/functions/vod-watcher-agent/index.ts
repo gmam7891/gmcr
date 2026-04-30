@@ -48,253 +48,158 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUB
 
 // Forensic prompt tailored for mosaic analysis. The model receives ONE image
 // (the storyboard) and must return per-tile state classifications referenced by row/col.
-const MOSAIC_PROMPT = `Você está analisando frames de VOD da Twitch de streamers brasileiros de cassino online.
+//
+// The MOSAIC_PROMPT is built dynamically per-audit by appending the compacted
+// game_visual_library context (see buildMosaicPrompt). This forces the AI to
+// match against our known catalog instead of hallucinating famous game names.
+
+const MOSAIC_PROMPT_BASE = `Você está analisando frames de VOD da Twitch de streamers brasileiros de cassino online.
 
 A IMAGEM enviada é um STORYBOARD: um grid de THUMBNAILS pequenos (tiles) extraídos do VOD.
-
 Você receberá GRID_COLS, GRID_ROWS, TILE_COUNT e o TIMESTAMP de cada tile.
-
 Ordem dos tiles: linha por linha, da esquerda para a direita, de cima para baixo.
-
-Tile (row=0, col=0) é o canto superior esquerdo.
 
 A categoria/capítulo da Twitch é APENAS UM SINAL AUXILIAR DE CONTEXTO. Ela NÃO deve ser usada como prova principal, não deve gerar detecção sozinha e não deve substituir a análise visual dos tiles.
 
-Para CADA tile, classifique o que está acontecendo na tela.
+Para CADA tile, classifique:
 
 ═══════════════════════════════════════════════════════════════
-
-1. SCREEN_STATE — Estado da tela (escolha APENAS UM):
+1. SCREEN_STATE (escolha APENAS UM):
+═══════════════════════════════════════════════════════════════
+- "lobby": Grade/lista de múltiplos jogos para escolher (thumbnails lado a lado com nomes embaixo). NÃO está jogando ativamente.
+- "loading": Tela de carregamento com logo grande de jogo/provedora. Pode ter barra de progresso. SEM rolos girando ou interface de aposta.
+- "gameplay": JOGANDO ATIVAMENTE. Interface completa: rolos com símbolos, mesa de aposta, controles "spin"/"bet"/"deal", valores R$ visíveis.
+- "other": Just Chatting, navegador, desktop, IRL, ou qualquer coisa NÃO-cassino.
 
 ═══════════════════════════════════════════════════════════════
+2. GAME_NAME (REGRA CRÍTICA — leia com atenção)
+═══════════════════════════════════════════════════════════════
+Eu te dou abaixo a BIBLIOTECA OFICIAL de jogos conhecidos no formato:
+  NomeDoJogo|Provedora|palavra1,palavra2,palavra3
 
-- "lobby": Tela mostra GRADE/LISTA de múltiplos jogos para o streamer escolher (thumbnails de jogos lado a lado, geralmente com nomes embaixo). NÃO está jogando ativamente. Pode ter logo de casa de aposta no topo (SeuBet, Pixbet, etc.).
+REGRAS DE IDENTIFICAÇÃO:
+a) Se SCREEN_STATE = "gameplay" OU "loading":
+   - Tente identificar o jogo procurando na BIBLIOTECA OFICIAL abaixo
+   - Use os símbolos visuais, layout, cores e textos visíveis no tile
+   - Compare contra as "palavras" de cada jogo (são pistas visuais únicas)
+   - Se ENCONTRAR um jogo da biblioteca: retorne game_name EXATAMENTE como está na biblioteca
+   - Se NÃO encontrar nada parecido na biblioteca: retorne game_name = null
 
-- "loading": Tela de carregamento com logo grande de provedora (PRAGMATIC PLAY, PG SOFT, etc.) e barra de progresso. Pode mostrar nome do jogo no canto superior. SEM interface de gameplay (sem rolos, sem mesa, sem controles de aposta visíveis).
+b) NUNCA retorne um game_name que NÃO ESTÁ na biblioteca abaixo
+   - Exceção: se você lê CLARAMENTE o nome do jogo no canto da tela (texto legível)
+     e ele não está na biblioteca, retorne o nome lido com confidence baixa (0.4-0.6)
+     e marque is_unknown_game=true
 
-- "gameplay": Streamer está JOGANDO ATIVAMENTE. Interface completa do jogo visível: rolos com símbolos (slots), mesa de aposta (table games), controles "spin"/"bet"/"deal", valores R$ aposta/saldo no rodapé.
+c) Em caso de dúvida entre 2 jogos parecidos: retorne null com confidence baixa
+   - Prefira ADMITIR INCERTEZA a chutar
+   - "Tema parecido" NÃO é match (ex: 2 jogos egípcios diferentes não são o mesmo)
 
-- "other": Just Chatting (só webcam grande), navegador genérico, desktop, IRL, qualquer coisa que NÃO seja cassino.
+d) Se SCREEN_STATE = "lobby" ou "other": SEMPRE game_name = null
+   - Lobby mostra jogos disponíveis, mas o streamer NÃO está jogando eles ainda
 
 ═══════════════════════════════════════════════════════════════
-
-2. GAME_NAME — Nome do jogo (APENAS para "gameplay"):
+3. PROVIDER_NAME
+═══════════════════════════════════════════════════════════════
+- Se identificou GAME_NAME da biblioteca: retorne a provedora EXATA da biblioteca
+- Se for "loading" mostrando logo grande de provedora (ex: PRAGMATIC PLAY): retorne ela
+- Se vê logo de provedora visível (ex: PG SOFT no canto inferior): retorne ela
+- Caso contrário: null
 
 ═══════════════════════════════════════════════════════════════
-
-- Se SCREEN_STATE = "gameplay": identifique o jogo específico
-
-  (ex: "Sweet Bonanza", "Gates of Olympus 1000", "Crazy Time")
-
-- Se SCREEN_STATE = "loading": pode incluir o jogo SE o nome estiver
-
-  legível no canto superior da tela. Caso contrário, null.
-
-- Se SCREEN_STATE = "lobby" ou "other": SEMPRE null. Nunca atribua jogos
-
-  do lobby como "jogados" — eles são apenas opções, não atividade real.
+4. CASINO_BRAND (casa de aposta visível)
+═══════════════════════════════════════════════════════════════
+Procure logos no topo da tela ou rodapé. Casas brasileiras conhecidas:
+SeuBet, Pixbet, KTO, Bet7K, Stake, Betano, Sportingbet, Betfair,
+Galera.bet, Esportes da Sorte, Bet Nacional, Lotogreen, F12 Bet,
+Betpix, Blaze, Estrela Bet.
+Se identificar, retorne. Caso contrário, null.
 
 ═══════════════════════════════════════════════════════════════
-
-3. PROVIDER_NAME — Provedora do jogo:
+5. CONFIDENCE (0.0 a 1.0)
+═══════════════════════════════════════════════════════════════
+- 0.9+ : Match claro com jogo da biblioteca, símbolos/cores/HUD batem
+- 0.7-0.9 : Provavelmente é o jogo X da biblioteca, mas thumb pequena
+- 0.5-0.7 : Reconheço categoria (slot/crash/roleta) mas não o jogo específico
+- < 0.5 : Chute educado — PREFIRA retornar null com confidence baixa
 
 ═══════════════════════════════════════════════════════════════
-
-Se identificou GAME_NAME, retorne a provedora correspondente.
-
-Se for "loading" mostrando logo grande de provedora, retorne ela.
-
-Caso contrário, null.
-
-Provedoras conhecidas: Pragmatic Play, PG Soft, Hacksaw, Push Gaming,
-
-Relax Gaming, NetEnt, Play'n GO, Nolimit City, Red Tiger, Yggdrasil,
-
-Evolution, BGaming, Spribe (Aviator), Turbo Games, ELK, Big Time Gaming,
-
-3 Oaks Gaming, Games Global, Pyromania, PG Soft.
+6. EVIDENCE — justificativa em 1 frase curta (pt-BR)
+═══════════════════════════════════════════════════════════════
+Ex: "logo PUNK ROCKER em neon rosa, fundo escuro = Punk Rocker (Nolimit City)"
+    "rolos 6x5 com símbolos coloridos roxo+dourado, multiplicadores tumblers = Gates of Olympus 1000"
+    "logo SeuBet no topo, grade de slots = lobby"
+    "tela com logo grande Pragmatic Play e barra carregando"
 
 ═══════════════════════════════════════════════════════════════
+DICAS PARA RECONHECER PROVEDORAS DE NICHO (não estão na biblioteca):
+═══════════════════════════════════════════════════════════════
+Existem provedoras NÃO cobertas pela biblioteca que aparecem em VODs
+brasileiros. NÃO chute jogos famosos quando ver essas — retorne null:
+- Slingshot Studios (sub de Games Global): "Wacky Panda", "Area Link Bank Boss",
+  "Area Link Phoenix Firestorm" — costumam ter logo "SLINGSHOT" no loading
+- PearFiction Studios: "Squealin Riches", "Treasures of Mjolnir",
+  "VoltedUP WildSurge" — logo "Pear Fiction studios" no rodapé
+- 3 Oaks Gaming: "Inca Queen" e outros — costumam ter design tropical
+- Spribe: jogos de crash (não slots) — Aviator, Mines, etc.
 
-4. CASINO_BRAND — Casa de aposta visível na tela:
+Se o frame mostra jogo de uma dessas provedoras, retorne game_name=null
+mas marque o provider_name se conseguir identificar pelo logo.
 
 ═══════════════════════════════════════════════════════════════
-
-Procure logos/marcas no canto da tela (geralmente topo). Se identificar
-
-uma casa de aposta visível no frame, retorne o nome dela. Caso contrário, null.
-
-Casas conhecidas no Brasil: SeuBet, Pixbet, KTO, Bet7K, Stake, Betano,
-
-Sportingbet, Betfair, Galera.bet, Esportes da Sorte, Bet Nacional,
-
-Lotogreen, F12 Bet, Betpix, Blaze, Estrela Bet.
-
-Esse campo é IMPORTANTE — vale para lobby, loading e gameplay.
-
-Em "other", deixe null.
-
+FORMATO DA RESPOSTA — JSON ARRAY puro (SEM \`\`\`json wrapper):
 ═══════════════════════════════════════════════════════════════
-
-5. CONFIDENCE — Confiança da classificação (0.0 a 1.0):
-
-═══════════════════════════════════════════════════════════════
-
-- 0.9+ : Evidência visual clara (HUD completo, nome do jogo legível, logo nítido)
-
-- 0.7-0.9 : Reconheço o padrão visual mas detalhes pequenos
-
-- 0.5-0.7 : Provavelmente é isso, mas thumb pequena dificulta
-
-- < 0.5 : Chute educado
-
-═══════════════════════════════════════════════════════════════
-
-6. EVIDENCE — Justificativa em 1 frase curta (pt-BR):
-
-═══════════════════════════════════════════════════════════════
-
-Ex: "rolos 6x5 com símbolos coloridos e logo Pragmatic"
-
-    "barra de carregamento com logo Pragmatic Play"
-
-    "grade de thumbnails com SeuBet no topo"
-
-    "webcam ocupando tela inteira, sem cassino visível"
-
-═══════════════════════════════════════════════════════════════
-
-DICAS VISUAIS PARA SLOTS DE CASSINO:
-
-═══════════════════════════════════════════════════════════════
-
-- Layout de rolos: 5×3, 6×5, 7×7 (Pragmatic Play tem 6×5 com cluster)
-
-- HUD inferior: botão de spin redondo + valores R$ aposta/saldo
-
-- Cores temáticas: Olympus (roxo+dourado), Sweet Bonanza (rosa+azul),
-
-  Sugar Rush (rosa pastel), Tigrinho (vermelho+dourado)
-
-- Multiplicadores: bolas com "5x", "10x", "25x" (Pragmatic estilo)
-
-- Símbolos típicos: frutas, gemas, coroas, sinos, ouro
-
-═══════════════════════════════════════════════════════════════
-
-DICAS PARA DISTINGUIR LOBBY DE GAMEPLAY:
-
-═══════════════════════════════════════════════════════════════
-
-LOBBY tem MÚLTIPLOS jogos visíveis lado a lado, com nomes pequenos
-
-embaixo de cada thumb. Sem rolos girando, sem botão de spin grande.
-
-GAMEPLAY tem UM jogo ocupando a tela toda, com rolos grandes e
-
-controles de aposta no rodapé.
-
-Se o tile mostra grade 4×N de thumbnails de jogos = LOBBY.
-
-Se mostra rolos grandes ocupando a tela = GAMEPLAY.
-
-═══════════════════════════════════════════════════════════════
-
-JOGOS COMUNS (referência rápida):
-
-═══════════════════════════════════════════════════════════════
-
-Sweet Bonanza, Sweet Bonanza 1000, Gates of Olympus, Gates of Olympus 1000,
-
-Gates of Olympus Super Scatter, Sugar Rush, Sugar Rush 1000, Starlight Princess,
-
-Starlight Princess Super Scatter, Big Bass Bonanza, Big Bass Splash, Sweet Rush
-
-Bonanza, Fortune Tiger (Jogo do Tigrinho), Fortune Mouse, Fortune Ox, Aviator,
-
-Mines, Crazy Time, Monopoly Live, Lightning Roulette, Pinata Wins.
-
-═══════════════════════════════════════════════════════════════
-
-FORMATO DA RESPOSTA — JSON ARRAY (uma entrada por tile analisado):
-
-═══════════════════════════════════════════════════════════════
-
 [
-
   {
-
-    "row": 0,
-
-    "col": 2,
-
+    "row": 0, "col": 2,
     "screen_state": "gameplay",
-
     "game_name": "Gates of Olympus 1000",
-
     "provider_name": "Pragmatic Play",
-
     "casino_brand": "SeuBet",
-
+    "is_unknown_game": false,
     "confidence": 0.95,
-
-    "evidence": "rolos 6x5 com Zeus à direita, multiplicador 5x visível, logo SeuBet no topo"
-
+    "evidence": "rolos 6x5 com Zeus à direita, multiplicadores 5x, logo SeuBet no topo"
   },
-
   {
-
-    "row": 0,
-
-    "col": 3,
-
+    "row": 0, "col": 3,
     "screen_state": "loading",
-
-    "game_name": "Gates of Olympus 1000",
-
-    "provider_name": "Pragmatic Play",
-
+    "game_name": "Wacky Panda Power Combo",
+    "provider_name": "Games Global",
     "casino_brand": "SeuBet",
-
-    "confidence": 0.85,
-
-    "evidence": "logo grande Pragmatic Play com barra de progresso, nome no canto"
-
-  },
-
-  {
-
-    "row": 1,
-
-    "col": 0,
-
-    "screen_state": "lobby",
-
-    "game_name": null,
-
-    "provider_name": null,
-
-    "casino_brand": "SeuBet",
-
-    "confidence": 0.9,
-
-    "evidence": "grade de thumbnails de slots, header com SeuBet"
-
+    "is_unknown_game": true,
+    "confidence": 0.6,
+    "evidence": "logo Wacky Panda visível, mas jogo não está na biblioteca oficial"
   }
-
 ]
 
 REGRAS ABSOLUTAS:
+- NÃO INVENTE jogos. Use APENAS a biblioteca abaixo, ou null.
+- NÃO atribua jogos do LOBBY como "jogados". Lobby = game_name null.
+- Se não tem certeza ABSOLUTA, retorne null com confidence baixa.
+- Frames muito borrados/pequenos: retorne screen_state="other" com confidence baixa.
 
-- NÃO INVENTE URLs, cliques de mouse ou transições. Você não vê isso.
-
-- NÃO atribua jogos do LOBBY como "jogados". Lobby = null em game_name.
-
-- Apenas tiles em estado "gameplay" contam como tempo jogado de fato.
-
-- Se não tem certeza do jogo, prefira null com confidence baixa a inventar.
-
+═══════════════════════════════════════════════════════════════
+BIBLIOTECA OFICIAL DE JOGOS (formato: nome|provedora|pistas visuais):
+═══════════════════════════════════════════════════════════════
 `;
+
+function buildMosaicPrompt(libraryContext: string): string {
+  return MOSAIC_PROMPT_BASE + libraryContext;
+}
+
+// Normaliza variantes conhecidas de nomes de provedora.
+function normalizeProviderName(name: string | null | undefined): string {
+  if (!name) return "Unknown";
+  const normalized = String(name).trim();
+  if (!normalized) return "Unknown";
+  const aliases: Record<string, string> = {
+    "hacksaw gaming": "Hacksaw",
+    "hacksaw": "Hacksaw",
+    "nolimit city": "Nolimit City",
+    "no limit city": "Nolimit City",
+    "pragmatic": "Pragmatic Play",
+  };
+  return aliases[normalized.toLowerCase()] || normalized;
+}
 
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -690,6 +595,60 @@ Deno.serve(async (req) => {
     let framesSinceCheckpoint = 0;
     const batchId = `${audit_id}-${Date.now()}`;
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Load game_visual_library once per resume chunk and compact it into
+    // the prompt so the AI matches against our known catalog instead of
+    // hallucinating famous game names.
+    // ─────────────────────────────────────────────────────────────────────
+    console.log(`[Watcher ${audit.id}] Loading game_visual_library...`);
+    const { data: libraryRows, error: libErr } = await sb
+      .from("game_visual_library")
+      .select("game_name, provider_name, visual_dna")
+      .eq("training_status", "trained");
+
+    if (libErr) {
+      console.warn(`[Watcher ${audit.id}] Failed to load library: ${libErr.message}`);
+    }
+
+    const gameLibrary: Array<{
+      name: string;
+      provider: string;
+      keywords: string[];
+    }> = (libraryRows || []).map((row: any) => {
+      const dna = row.visual_dna || {};
+      const provider = normalizeProviderName(
+        dna.provider_canonical || row.provider_name || "Unknown",
+      );
+      const keywords = Array.isArray(dna.detection_keywords)
+        ? dna.detection_keywords.slice(0, 6).map((k: any) => String(k))
+        : [];
+      return { name: row.game_name, provider, keywords };
+    });
+
+    console.log(
+      `[Watcher ${audit.id}] Library loaded: ${gameLibrary.length} games, ` +
+      `providers=${new Set(gameLibrary.map((g) => g.provider)).size}`,
+    );
+
+    // Compact library: "GameName|Provider|kw1,kw2,kw3,kw4" per line
+    const libraryContext = gameLibrary
+      .map((g) => `${g.name}|${g.provider}|${g.keywords.slice(0, 4).join(",")}`)
+      .join("\n");
+
+    console.log(
+      `[Watcher ${audit.id}] Library context: ${libraryContext.length} chars, ` +
+      `~${Math.round(libraryContext.length / 4)} tokens`,
+    );
+
+    const mosaicPrompt = buildMosaicPrompt(libraryContext);
+
+    // Index para validação rápida (case-insensitive) por nome do jogo
+    const libraryIndex = new Map<string, { name: string; provider: string }>();
+    for (const g of gameLibrary) {
+      libraryIndex.set(g.name.toLowerCase(), { name: g.name, provider: g.provider });
+    }
+
+
     // Helper to persist a checkpoint (so a timeout mid-chunk doesn't lose state)
     const checkpoint = async (currentMosaic: number, label: string) => {
       plan.processed_mosaic = currentMosaic;
@@ -723,7 +682,7 @@ Timestamps por tile: ${tileLabel}.
 Use a categoria Twitch apenas como contexto secundário; identifique cassino somente quando houver evidência visual no tile.`;
 
       const ai = await callAI([
-        { role: "system", content: MOSAIC_PROMPT },
+        { role: "system", content: mosaicPrompt },
         { role: "user", content: [
           { type: "text", text: userText },
           { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
@@ -745,7 +704,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       const isCasinoChapter = casinoHints.some((k) => chapterCategory.toLowerCase().includes(k));
       if (isCasinoChapter && detections.length === 0) {
         const retry = await callAI([
-          { role: "system", content: MOSAIC_PROMPT + "\n\nESTE MOSAICO COBRE PERÍODO CONFIRMADO COMO CASSINO. Identifique TODOS os tiles que tenham slot/cassino visível, mesmo se a thumb for baixa resolução." },
+          { role: "system", content: mosaicPrompt + "\n\nESTE MOSAICO COBRE PERÍODO CONFIRMADO COMO CASSINO. Identifique TODOS os tiles que tenham slot/cassino visível, mesmo se a thumb for baixa resolução." },
           { role: "user", content: [
             { type: "text", text: userText },
             { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
@@ -793,15 +752,38 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           ? rawScreenState
           : "other";
 
-        // game_name SOMENTE em gameplay ou loading com jogo identificável
-        // NUNCA atribuir jogos do lobby como "jogados"
-        const gameName = (screenState === "gameplay" || screenState === "loading")
-          ? (det.game_name || null)
-          : null;
+        // ── Validação contra game_visual_library (anti-alucinação) ──────────
+        const isUnknownGame = !!det.is_unknown_game;
+        let validatedGameName: string | null = null;
+        let validatedProvider: string | null = null;
+        let libraryMatched = false;
 
-        const providerName = (screenState === "gameplay" || screenState === "loading")
-          ? (det.provider_name || null)
-          : null;
+        if (det.game_name && (screenState === "gameplay" || screenState === "loading")) {
+          const rawGame = String(det.game_name).trim();
+          const match = libraryIndex.get(rawGame.toLowerCase());
+
+          if (match) {
+            // Match canônico na biblioteca
+            validatedGameName = match.name;
+            validatedProvider = match.provider;
+            libraryMatched = true;
+          } else if (isUnknownGame && conf >= 0.5) {
+            // Fora da biblioteca, mas Gemini admitiu — aceita com flag
+            validatedGameName = rawGame.slice(0, 80);
+            validatedProvider = det.provider_name
+              ? normalizeProviderName(String(det.provider_name).trim().slice(0, 50))
+              : null;
+          } else {
+            // Tentou retornar jogo fora da biblioteca SEM admitir incerteza → alucinação
+            console.warn(
+              `[Watcher ${audit.id}] Discarding hallucinated game: "${rawGame}" ` +
+              `(not in library, is_unknown_game=${isUnknownGame})`,
+            );
+          }
+        }
+
+        const gameName = validatedGameName;
+        const providerName = validatedProvider;
 
         // casino_brand pode aparecer em qualquer estado (exceto "other")
         const casinoBrand = screenState !== "other"
@@ -816,7 +798,10 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           tile_row: row,
           tile_col: col,
           evidence: det.evidence || null,
+          is_unknown_game: isUnknownGame,
+          library_matched: libraryMatched,
         };
+
 
         snapshotRows.push({
           streamer_login: audit.streamer_login,
