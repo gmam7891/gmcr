@@ -76,9 +76,6 @@ const Index = () => {
       <header className="border-b border-border px-3 sm:px-6 py-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <h1 className="text-sm sm:text-base font-semibold tracking-tight text-foreground cursor-pointer hover:opacity-80 transition-opacity truncate" onClick={() => navigate("/")}>{t("app.name")}</h1>
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono hidden sm:inline">
-            {t("app.subtitle")}
-          </span>
         </div>
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           <ThemeToggle />
