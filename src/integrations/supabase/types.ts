@@ -14,6 +14,75 @@ export type Database = {
   }
   public: {
     Tables: {
+      _backup_stream_snapshots_20260430: {
+        Row: {
+          ai_confidence: number | null
+          ai_evidence: string | null
+          captured_at: string | null
+          confidence_score: number | null
+          extra_metadata: Json | null
+          frame_index: number | null
+          game_detected: string | null
+          game_id: string | null
+          game_name: string | null
+          id: string | null
+          is_ai_verified: boolean | null
+          is_live: boolean | null
+          processing_batch_id: string | null
+          provider_detected: string | null
+          source: string | null
+          stream_title: string | null
+          streamer_login: string | null
+          timestamp_seconds: number | null
+          viewer_count: number | null
+          vod_id: string | null
+        }
+        Insert: {
+          ai_confidence?: number | null
+          ai_evidence?: string | null
+          captured_at?: string | null
+          confidence_score?: number | null
+          extra_metadata?: Json | null
+          frame_index?: number | null
+          game_detected?: string | null
+          game_id?: string | null
+          game_name?: string | null
+          id?: string | null
+          is_ai_verified?: boolean | null
+          is_live?: boolean | null
+          processing_batch_id?: string | null
+          provider_detected?: string | null
+          source?: string | null
+          stream_title?: string | null
+          streamer_login?: string | null
+          timestamp_seconds?: number | null
+          viewer_count?: number | null
+          vod_id?: string | null
+        }
+        Update: {
+          ai_confidence?: number | null
+          ai_evidence?: string | null
+          captured_at?: string | null
+          confidence_score?: number | null
+          extra_metadata?: Json | null
+          frame_index?: number | null
+          game_detected?: string | null
+          game_id?: string | null
+          game_name?: string | null
+          id?: string | null
+          is_ai_verified?: boolean | null
+          is_live?: boolean | null
+          processing_batch_id?: string | null
+          provider_detected?: string | null
+          source?: string | null
+          stream_title?: string | null
+          streamer_login?: string | null
+          timestamp_seconds?: number | null
+          viewer_count?: number | null
+          vod_id?: string | null
+        }
+        Relationships: []
+      }
       access_packages: {
         Row: {
           allowed_tabs: string[]

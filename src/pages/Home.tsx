@@ -40,9 +40,6 @@ const Home = () => {
       <header className="border-b border-border px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-base font-semibold tracking-tight text-foreground">{t("app.name")}</h1>
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
-            {t("app.subtitle")}
-          </span>
         </div>
         <div className="flex items-center gap-2">
           <Button
