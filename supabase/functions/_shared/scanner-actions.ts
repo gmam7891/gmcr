@@ -467,16 +467,23 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
 
   if (action === "validate_vod") {
     const { vod_id } = body;
+    // Re-validate ALL evidences for this VOD, not just the pending ones.
+    // Otherwise stale rows from earlier runs (or rows the agent inserted with
+    // is_valid already set) keep their old status and the consolidate step sees
+    // an inconsistent mix of validation rules.
     const { data: evidences } = await supabase.from("raw_evidences").select("*")
-      .eq("vod_id", vod_id).eq("validation_status", "pending");
+      .eq("vod_id", vod_id);
     if (!evidences?.length) return { validated: 0 };
     let valid = 0, discarded = 0;
     for (const ev of evidences) {
       const screenState = (ev as any).screen_state || "gameplay";
       const isValid = screenState === "gameplay" && !!(ev as any).game_detected && ((ev as any).confidence_score || 0) >= 0.3;
       await supabase.from("raw_evidences").update({
-        is_valid: isValid, validation_status: isValid ? "valid" : "discarded",
-        discard_reason: isValid ? null : "low_confidence",
+        is_valid: isValid,
+        validation_status: isValid ? "valid" : "discarded",
+        discard_reason: isValid
+          ? null
+          : (screenState !== "gameplay" ? `not_gameplay:${screenState}` : "low_confidence"),
       }).eq("id", (ev as any).id);
       if (isValid) valid++; else discarded++;
     }
@@ -576,6 +583,11 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
         status: isLowConfidence ? "suspect" : "confirmed",
       };
     });
+    // Replace existing blocks for this VOD instead of appending. Without the
+    // delete, every re-run of the pipeline (agent finalize, watchdog re-invoke,
+    // manual re-scan) duplicated rows in gameplay_blocks, inflating durations
+    // and detection counts in the dashboard/audit views.
+    await supabase.from("gameplay_blocks").delete().eq("vod_id", vod_id);
     if (rows.length) await supabase.from("gameplay_blocks").insert(rows);
     return { confirmed: rows.filter((r) => r.status === "confirmed").length, suspect: rows.filter((r) => r.status === "suspect").length };
   }
