@@ -603,8 +603,7 @@ Deno.serve(async (req) => {
     console.log(`[Watcher ${audit.id}] Loading game_visual_library...`);
     const { data: libraryRows, error: libErr } = await sb
       .from("game_visual_library")
-      .select("game_name, provider_name, visual_dna")
-      .eq("training_status", "trained");
+      .select("game_name, provider_name, visual_dna, training_status");
 
     if (libErr) {
       console.warn(`[Watcher ${audit.id}] Failed to load library: ${libErr.message}`);
@@ -614,6 +613,7 @@ Deno.serve(async (req) => {
       name: string;
       provider: string;
       keywords: string[];
+      trained: boolean;
     }> = (libraryRows || []).map((row: any) => {
       const dna = row.visual_dna || {};
       const provider = normalizeProviderName(
@@ -622,18 +622,41 @@ Deno.serve(async (req) => {
       const keywords = Array.isArray(dna.detection_keywords)
         ? dna.detection_keywords.slice(0, 6).map((k: any) => String(k))
         : [];
-      return { name: row.game_name, provider, keywords };
+      return {
+        name: row.game_name,
+        provider,
+        keywords,
+        trained: row.training_status === "trained" && keywords.length > 0,
+      };
     });
 
+    const trainedGames = gameLibrary.filter((g) => g.trained);
+    const nameOnlyGames = gameLibrary.filter((g) => !g.trained);
+
     console.log(
-      `[Watcher ${audit.id}] Library loaded: ${gameLibrary.length} games, ` +
+      `[Watcher ${audit.id}] Library loaded: ${gameLibrary.length} total ` +
+      `(${trainedGames.length} trained w/ keywords, ${nameOnlyGames.length} name-only), ` +
       `providers=${new Set(gameLibrary.map((g) => g.provider)).size}`,
     );
 
-    // Compact library: "GameName|Provider|kw1,kw2,kw3,kw4" per line
-    const libraryContext = gameLibrary
+    // Trained section (with keywords): "GameName|Provider|kw1,kw2,kw3,kw4"
+    const trainedContext = trainedGames
       .map((g) => `${g.name}|${g.provider}|${g.keywords.slice(0, 4).join(",")}`)
       .join("\n");
+
+    // Name-only section: just "GameName|Provider", no keywords. Helps the AI
+    // know these games EXIST without leading it to over-confident matches.
+    const nameOnlyContext = nameOnlyGames
+      .map((g) => `${g.name}|${g.provider}`)
+      .join("\n");
+
+    const libraryContext = trainedContext +
+      (nameOnlyContext
+        ? `\n\n═══════════════════════════════════════════════════════════════
+OUTROS JOGOS CATALOGADOS (apenas nome — confirme visualmente antes de retornar):
+═══════════════════════════════════════════════════════════════
+${nameOnlyContext}`
+        : "");
 
     console.log(
       `[Watcher ${audit.id}] Library context: ${libraryContext.length} chars, ` +
@@ -642,7 +665,9 @@ Deno.serve(async (req) => {
 
     const mosaicPrompt = buildMosaicPrompt(libraryContext);
 
-    // Index para validação rápida (case-insensitive) por nome do jogo
+    // Index para validação rápida (case-insensitive) por nome do jogo.
+    // Inclui TODOS os jogos catalogados (trained + name-only) para que o
+    // matching contra a biblioteca aceite também jogos sem visual_dna.
     const libraryIndex = new Map<string, { name: string; provider: string }>();
     for (const g of gameLibrary) {
       libraryIndex.set(g.name.toLowerCase(), { name: g.name, provider: g.provider });
@@ -753,6 +778,13 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           : "other";
 
         // ── Validação contra game_visual_library (anti-alucinação) ──────────
+        // Confidence floor: a library match alone is NOT enough — Gemini
+        // routinely defaults to popular library entries (Big Bass Bonanza,
+        // Candy Blitz, Mochimon, Inca Queen, etc.) whenever it sees a slot
+        // it can't actually read. Require ≥ 0.75 confidence for the match
+        // to count, otherwise treat it as a guess and discard.
+        const LIBRARY_MATCH_CONF_FLOOR = 0.75;
+        const UNKNOWN_GAME_CONF_FLOOR = 0.6;
         const isUnknownGame = !!det.is_unknown_game;
         let validatedGameName: string | null = null;
         let validatedProvider: string | null = null;
@@ -762,12 +794,18 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           const rawGame = String(det.game_name).trim();
           const match = libraryIndex.get(rawGame.toLowerCase());
 
-          if (match) {
-            // Match canônico na biblioteca
+          if (match && conf >= LIBRARY_MATCH_CONF_FLOOR) {
+            // Match canônico na biblioteca COM confiança suficiente
             validatedGameName = match.name;
             validatedProvider = match.provider;
             libraryMatched = true;
-          } else if (isUnknownGame && conf >= 0.5) {
+          } else if (match) {
+            // Está na biblioteca mas confiança baixa → provavelmente chute
+            console.warn(
+              `[Watcher ${audit.id}] Discarding low-confidence library guess: "${rawGame}" ` +
+              `(conf=${conf.toFixed(2)} < ${LIBRARY_MATCH_CONF_FLOOR}). evidence="${det.evidence || ""}"`,
+            );
+          } else if (isUnknownGame && conf >= UNKNOWN_GAME_CONF_FLOOR) {
             // Fora da biblioteca, mas Gemini admitiu — aceita com flag
             validatedGameName = rawGame.slice(0, 80);
             validatedProvider = det.provider_name
@@ -777,7 +815,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
             // Tentou retornar jogo fora da biblioteca SEM admitir incerteza → alucinação
             console.warn(
               `[Watcher ${audit.id}] Discarding hallucinated game: "${rawGame}" ` +
-              `(not in library, is_unknown_game=${isUnknownGame})`,
+              `(not in library, is_unknown_game=${isUnknownGame}, conf=${conf.toFixed(2)})`,
             );
           }
         }
@@ -1122,10 +1160,23 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       }
     }
 
+    // Stricter confirmation: a single frame OR avg confidence < 0.7 means
+    // the AI didn't really see the game, just guessed once. Anything below
+    // that bar is "suspect" and excluded from the headline totals so the
+    // dashboard doesn't show inflated detections of games the streamer
+    // never actually played.
     const games = Array.from(byGame.values())
-      .map((g) => ({ ...g, status: g.frames === 1 || g.avgConfidence < 0.5 ? "suspect" as const : "confirmed" as const }))
+      .map((g) => ({
+        ...g,
+        status: (g.frames < 2 || g.avgConfidence < 0.7)
+          ? "suspect" as const
+          : "confirmed" as const,
+      }))
       .sort((a, b) => b.seconds - a.seconds);
-    const totalCasinoSeconds = games.reduce((s, g) => s + g.seconds, 0);
+    const confirmedGames = games.filter((g) => g.status === "confirmed");
+    // Headline totals only count CONFIRMED detections — suspects still show
+    // in the per-game list (with the suspect badge) for human review.
+    const totalCasinoSeconds = confirmedGames.reduce((s, g) => s + g.seconds, 0);
     const totalPendingFrames = games.reduce((s, g) => s + g.pendingFrames, 0);
     const vodDuration = audit.vod_duration_seconds || 0;
     const otherSeconds = Math.max(0, vodDuration - totalCasinoSeconds);
@@ -1136,8 +1187,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       return h > 0 ? `${h}h${m.toString().padStart(2, "0")}m` : `${m}m`;
     };
 
-    const summaryLines = games
-      .filter((g) => g.frames >= 2)
+    const summaryLines = confirmedGames
       .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" && g.provider !== "Twitch Category" ? ` (${g.provider})` : ""}`)
       .slice(0, 10);
 

@@ -4,6 +4,11 @@
 // Receives a base64 image (or URL), runs it through Gemini Vision with the
 // forensic prompt and returns the raw + parsed result. Optionally saves to
 // game_visual_library as a new DNA entry.
+//
+// Actions:
+//   - test:                    one-off vision call on a single image
+//   - save_dna:                manual upsert of a Visual DNA row
+//   - train_from_screenshots:  one-shot training from 1-5 user screenshots
 // ============================================================================
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.49.4";
@@ -46,6 +51,58 @@ Schema obrigatório:
   "evidence": "string"
 }`;
 
+const DNA_TRAINING_PROMPT = `Você é um especialista em análise visual de jogos de cassino online (slots e similares).
+Você vai receber 1 a 5 screenshots do MESMO jogo, em momentos diferentes (lobby, gameplay, bônus, paytable, etc.).
+
+Sua tarefa: extrair o "Visual DNA" desse jogo — um conjunto compacto de pistas visuais
+que permitam a outro modelo identificar esse jogo em thumbnails pequenas (storyboard) no futuro.
+
+REGRAS DE RESPOSTA (CRÍTICO):
+- Responda APENAS com um objeto JSON puro.
+- NÃO inclua texto antes ou depois do JSON.
+- NÃO use blocos de código markdown (sem \`\`\`json, sem \`\`\`).
+- NÃO escreva nada fora do JSON.
+
+Schema obrigatório:
+{
+  "detected_game_name": "string (nome canônico do jogo)",
+  "provider_canonical": "string (nome canônico da provedora)",
+  "unique_visual_traits": [
+    "frase curta descrevendo um traço único",
+    "outra frase curta",
+    "..."
+  ],
+  "hud_layout": {
+    "reels": "ex: 6x5 cluster pays / 5x3 paylines / etc",
+    "balance_position": "ex: bottom-left",
+    "bet_position": "ex: bottom-center",
+    "spin_button_position": "ex: bottom-right",
+    "logo_position": "ex: top-center"
+  },
+  "color_palette": ["#hex1", "#hex2", "#hex3", "#hex4", "#hex5"],
+  "detection_keywords": [
+    "palavra/símbolo único 1",
+    "palavra/símbolo único 2",
+    "palavra/símbolo único 3",
+    "palavra/símbolo único 4",
+    "palavra/símbolo único 5",
+    "palavra/símbolo único 6"
+  ],
+  "volatility_indicators": ["ex: multiplicadores 5x-100x", "free spins com sticky wilds", "..."],
+  "browser_title_pattern": "ex: Gates of Olympus 1000 - Pragmatic Play"
+}
+
+DIRETRIZES:
+- "unique_visual_traits": 3-6 frases curtas e ESPECÍFICAS (símbolos icônicos, personagem central,
+  estilo de arte, fundo característico). Evite genéricos como "tem rolos" ou "tem botões".
+- "detection_keywords": 4-6 termos curtos (1-3 palavras cada), em pt-BR ou inglês,
+  que apareceriam visualmente nesse jogo (nome, símbolo principal, cor dominante,
+  elemento icônico). Esses termos viram "pistas" para o modelo de detecção.
+- "color_palette": 4-6 cores HEX dominantes (sem alpha).
+- "hud_layout": use null em campos que você não consegue ver claramente.
+- Se as imagens mostram o jogo em estados diferentes (lobby, bônus etc), CONSOLIDE em
+  um único Visual DNA representando o jogo todo.`;
+
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -53,7 +110,41 @@ function json(data: unknown, status = 200) {
   });
 }
 
-async function callVision(imageDataUrl: string) {
+// Robust JSON extraction: strips markdown fences, leading/trailing prose, and
+// falls back to extracting the largest balanced { ... } block.
+function robustJsonParse(content: string): any {
+  if (!content || typeof content !== "string") return { parse_error: true, reason: "empty" };
+  let txt = content.trim();
+  txt = txt.replace(/^```(?:json|JSON)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+  try { return JSON.parse(txt); } catch (_) { /* fall through */ }
+  const start = txt.indexOf("{");
+  const end = txt.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    const candidate = txt.slice(start, end + 1);
+    try { return JSON.parse(candidate); } catch (_) { /* fall through */ }
+    const noTrailing = candidate.replace(/,(\s*[}\]])/g, "$1");
+    try { return JSON.parse(noTrailing); } catch (_) { /* fall through */ }
+  }
+  return { parse_error: true, reason: "invalid_json", raw_preview: txt.slice(0, 200) };
+}
+
+/**
+ * Generic vision call. Accepts one or more images plus a system prompt and
+ * an optional user-text segment. Returns the raw content + parsed JSON.
+ */
+async function callVision(
+  imageUrls: string | string[],
+  systemPrompt: string = FORENSIC_PROMPT,
+  userText: string = "",
+) {
+  const urls = Array.isArray(imageUrls) ? imageUrls : [imageUrls];
+  const userContent: any[] = [];
+  if (userText) userContent.push({ type: "text", text: userText });
+  const imageContent = urls.map((url) => ({
+    type: "image_url",
+    image_url: { url },
+  }));
+
   const res = await fetch(AI_GATEWAY, {
     method: "POST",
     headers: {
@@ -63,13 +154,8 @@ async function callVision(imageDataUrl: string) {
     body: JSON.stringify({
       model: "google/gemini-2.5-flash",
       messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: FORENSIC_PROMPT },
-            { type: "image_url", image_url: { url: imageDataUrl } },
-          ],
-        },
+        { role: "system", content: systemPrompt },
+        { role: "user", content: [...userContent, ...imageContent] },
       ],
     }),
   });
@@ -81,28 +167,6 @@ async function callVision(imageDataUrl: string) {
   const content = body?.choices?.[0]?.message?.content || "";
   const parsed = robustJsonParse(content);
   return { raw: content, parsed, usage: body?.usage };
-}
-
-// Robust JSON extraction: strips markdown fences, leading/trailing prose, and
-// falls back to extracting the largest balanced { ... } block.
-function robustJsonParse(content: string): any {
-  if (!content || typeof content !== "string") return { parse_error: true, reason: "empty" };
-  let txt = content.trim();
-  // 1. Strip markdown code fences
-  txt = txt.replace(/^```(?:json|JSON)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-  // 2. Direct parse
-  try { return JSON.parse(txt); } catch (_) { /* fall through */ }
-  // 3. Extract largest {...} block via brace matching
-  const start = txt.indexOf("{");
-  const end = txt.lastIndexOf("}");
-  if (start !== -1 && end !== -1 && end > start) {
-    const candidate = txt.slice(start, end + 1);
-    try { return JSON.parse(candidate); } catch (_) { /* fall through */ }
-    // 4. Try removing trailing commas
-    const noTrailing = candidate.replace(/,(\s*[}\]])/g, "$1");
-    try { return JSON.parse(noTrailing); } catch (_) { /* fall through */ }
-  }
-  return { parse_error: true, reason: "invalid_json", raw_preview: txt.slice(0, 200) };
 }
 
 Deno.serve(async (req) => {
@@ -179,6 +243,101 @@ Deno.serve(async (req) => {
         .single();
       if (error) return json({ error: error.message }, 500);
       return json({ ok: true, entry: data });
+    }
+
+    if (action === "train_from_screenshots") {
+      // One-shot training: receives 1-5 screenshots + game/provider names,
+      // extracts Visual DNA via Gemini, and upserts the library row as
+      // training_status="trained". Used by the upload-print flow in the UI.
+      const { game_name, provider_name, image_data_urls } = body;
+      if (!game_name || !provider_name) {
+        return json({ error: "game_name e provider_name obrigatórios" }, 400);
+      }
+      const urls: string[] = Array.isArray(image_data_urls) ? image_data_urls : [];
+      if (urls.length === 0) {
+        return json({ error: "image_data_urls (array) obrigatório" }, 400);
+      }
+      if (urls.length > 5) {
+        return json({ error: "máximo 5 imagens por treinamento" }, 400);
+      }
+
+      const t0 = Date.now();
+      const userText = `Jogo: "${game_name}"
+Provedora: "${provider_name}"
+Use estes nomes EXATAMENTE em "detected_game_name" e "provider_canonical".
+Extraia o Visual DNA olhando as ${urls.length} imagem(ns) enviadas.`;
+
+      let result;
+      try {
+        result = await callVision(urls, DNA_TRAINING_PROMPT, userText);
+      } catch (e: any) {
+        return json({ error: `IA falhou: ${e.message}` }, 502);
+      }
+
+      const dna: any = result.parsed;
+      if (!dna || dna.parse_error) {
+        return json({
+          error: "IA não retornou JSON válido",
+          raw: result.raw,
+        }, 502);
+      }
+
+      // Force user-provided names to overrule any AI deviation
+      dna.detected_game_name = game_name;
+      dna.provider_canonical = provider_name;
+
+      const slug = String(provider_name).toLowerCase().replace(/[^a-z0-9]+/g, "_");
+
+      // Upsert: if the (game_name, provider_slug) pair already exists, update
+      // it instead of creating a duplicate. Otherwise insert new row.
+      const { data: existing } = await supabase
+        .from("game_visual_library")
+        .select("id")
+        .eq("game_name", game_name)
+        .eq("provider_slug", slug)
+        .maybeSingle();
+
+      const payload = {
+        game_name,
+        provider_name,
+        provider_slug: slug,
+        visual_dna: dna,
+        training_status: "trained" as const,
+        error_message: null,
+        metadata: {
+          source: "screenshot_upload",
+          saved_at: new Date().toISOString(),
+          screenshot_count: urls.length,
+        },
+      };
+
+      let entry: any;
+      if (existing?.id) {
+        const { data, error } = await supabase
+          .from("game_visual_library")
+          .update(payload)
+          .eq("id", existing.id)
+          .select()
+          .single();
+        if (error) return json({ error: error.message }, 500);
+        entry = data;
+      } else {
+        const { data, error } = await supabase
+          .from("game_visual_library")
+          .insert(payload)
+          .select()
+          .single();
+        if (error) return json({ error: error.message }, 500);
+        entry = data;
+      }
+
+      return json({
+        ok: true,
+        elapsed_ms: Date.now() - t0,
+        entry,
+        visual_dna: dna,
+        updated: !!existing?.id,
+      });
     }
 
     return json({ error: "action inválida" }, 400);
