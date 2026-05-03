@@ -9,10 +9,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Loader2, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, Clock, Zap,
-  ChevronDown, ChevronUp, Upload, PlayCircle,
+  ChevronDown, ChevronUp, Upload, PlayCircle, Camera,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { BulkImportTab } from "./BulkImportTab";
+import { ScreenshotTrainingTab } from "./ScreenshotTrainingTab";
 
 interface VisualDNA {
   detected_game_name?: string;
@@ -185,6 +186,10 @@ export function GameLibraryTab() {
         <TabsTrigger value="bulk" className="text-xs font-mono uppercase tracking-wider px-3 py-1.5 flex items-center gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
           <Upload className="h-3.5 w-3.5" />
           {t("scan.bulk_tab")}
+        </TabsTrigger>
+        <TabsTrigger value="screenshots" className="text-xs font-mono uppercase tracking-wider px-3 py-1.5 flex items-center gap-1.5 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+          <Camera className="h-3.5 w-3.5" />
+          Treinar com Prints
         </TabsTrigger>
       </TabsList>
 
@@ -450,6 +455,10 @@ export function GameLibraryTab() {
 
       <TabsContent value="bulk">
         <BulkImportTab onComplete={fetchLibrary} />
+      </TabsContent>
+
+      <TabsContent value="screenshots">
+        <ScreenshotTrainingTab onTrained={fetchLibrary} />
       </TabsContent>
     </Tabs>
   );
