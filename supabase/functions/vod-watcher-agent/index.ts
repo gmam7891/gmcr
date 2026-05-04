@@ -349,21 +349,27 @@ async function fetchStoryboardPlan(vodId: string): Promise<
 
   console.log(
     `[storyboard] All variants for VOD ${vodId}: ` +
-    variants.map((v: any) => `${v.quality}(${v.count}t,${v.interval}s)`).join(", ")
+    variants.map((v: any) => `${v.quality}(${v.count}t,${v.interval}s,${v.width}x${v.height})`).join(", ")
   );
 
-  // Pick the variant with most tiles. Tiebreaker: largest tile area.
-  const variant = variants.reduce((best: any, v: any) => {
-    if (!best) return v;
-    const bestCount = best?.count || 0;
-    const vCount = v?.count || 0;
-    if (vCount > bestCount) return v;
-    if (vCount < bestCount) return best;
-
-    const bestArea = (best?.width || 0) * (best?.height || 0);
-    const vArea = (v?.width || 0) * (v?.height || 0);
-    return vArea > bestArea ? v : best;
-  }, null) ?? variants[variants.length - 1];
+  // Pick the variant with the LARGEST TILE AREA. Vision AI cannot read tiles
+  // smaller than ~200px wide — the "low" variant (≈80×45 px) makes Gemini
+  // hallucinate or skip frames entirely. Prefer the explicitly named "high"
+  // quality, then fall back to "medium", then to whichever has the largest
+  // tile area as a last resort.
+  const byQuality = (q: string) => variants.find((v: any) => String(v.quality).toLowerCase() === q);
+  const variant =
+    byQuality("high") ??
+    byQuality("medium") ??
+    variants.reduce((best: any, v: any) => {
+      if (!best) return v;
+      const bestArea = (best?.width || 0) * (best?.height || 0);
+      const vArea = (v?.width || 0) * (v?.height || 0);
+      if (vArea > bestArea) return v;
+      if (vArea < bestArea) return best;
+      return (v?.count || 0) > (best?.count || 0) ? v : best;
+    }, null) ??
+    variants[variants.length - 1];
   console.log(
     `[storyboard] Selected "${variant.quality}" with ${variant.count} tiles, ` +
     `interval ${variant.interval}s, tile ${variant.width}x${variant.height}.`
@@ -484,6 +490,15 @@ Deno.serve(async (req) => {
         `Proceeding anyway, but precision will be lower.`
       );
     }
+
+    // Wipe any stale data for this VOD so re-scans don't accumulate duplicates
+    // in raw_evidences / stream_snapshots / gameplay_blocks. Without this, every
+    // re-run inflates frame counts and game durations.
+    await Promise.all([
+      sb.from("raw_evidences").delete().eq("vod_id", vod_id),
+      sb.from("stream_snapshots").delete().eq("vod_id", vod_id).eq("source", "storyboard"),
+      sb.from("gameplay_blocks").delete().eq("vod_id", vod_id),
+    ]);
 
     const auditPayload = {
       vod_id,
