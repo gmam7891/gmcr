@@ -491,6 +491,15 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Wipe any stale data for this VOD so re-scans don't accumulate duplicates
+    // in raw_evidences / stream_snapshots / gameplay_blocks. Without this, every
+    // re-run inflates frame counts and game durations.
+    await Promise.all([
+      sb.from("raw_evidences").delete().eq("vod_id", vod_id),
+      sb.from("stream_snapshots").delete().eq("vod_id", vod_id).eq("source", "storyboard"),
+      sb.from("gameplay_blocks").delete().eq("vod_id", vod_id),
+    ]);
+
     const auditPayload = {
       vod_id,
       streamer_login,
