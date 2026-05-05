@@ -365,7 +365,7 @@ export function DiscoveryTab() {
             </Button>
           </div>
           <p className="text-[10px] text-muted-foreground/70">
-            <code className="font-mono">#hashtag</code> para Instagram · termos sem # para Twitch.
+            Use <code className="font-mono">#hashtag</code> ou termos livres. O agente combina seus termos com os que ele inferir do briefing.
           </p>
         </div>
 
