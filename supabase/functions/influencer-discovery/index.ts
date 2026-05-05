@@ -838,11 +838,11 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        error: "Twitch discovery está em manutenção. Use Instagram por enquanto.",
+        error: "Plataforma não suportada. Apenas Instagram está ativo no momento.",
         briefing_id: briefingId,
         prospects: [],
       }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error: any) {
