@@ -69,8 +69,6 @@ type Gender = "any" | "female" | "male";
 export function DiscoveryTab() {
   const { t } = useLanguage();
   const [briefing, setBriefing] = useState("");
-  const [useAiExpansion, setUseAiExpansion] = useState(false); // OFF by default — user has full control
-  const [platforms, setPlatforms] = useState<string[]>(["twitch", "instagram"]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [step, setStep] = useState<"input" | "expanding" | "scraping" | "enriching" | "scoring" | "done">("input");
