@@ -16,9 +16,11 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "
 //  CONFIG — Cost & quality knobs
 // ═══════════════════════════════════════════════════════════════════════
 
-const MAX_CANDIDATES = 30;        // Layer 1: cheap scrape this many
-const MAX_RICH_ENRICHMENTS = 15;  // Layer 2: rich enrichment only on the top 15 survivors
-const FOLLOWING_FETCH_PER_REF = 60; // How many "followings" to pull per reference profile
+const MAX_CANDIDATES = 60;
+const MAX_RICH_ENRICHMENTS = 40;
+const FOLLOWING_FETCH_PER_REF = 80;
+const QUALIFICATION_THRESHOLD = 0.7;
+const MAX_SEMANTIC_PRESELECT = MAX_RICH_ENRICHMENTS;
 
 // ═══════════════════════════════════════════════════════════════════════
 //  APIFY HELPERS
@@ -370,6 +372,143 @@ async function discoverViaFirecrawl(keywords: string[], limit = 60): Promise<str
   return Array.from(usernames);
 }
 
+interface SearchPlan {
+  intent: string;
+  vertical: string;
+  audience_tier: string;
+  target_signals: string[];
+  anti_signals: string[];
+  refined_keywords: string[];
+  reasoning: string;
+}
+
+async function planSearchStrategy(params: {
+  briefing: string;
+  custom_keywords: string[];
+  reference_urls: string[];
+  manual_filters: any;
+}): Promise<SearchPlan | null> {
+  if (!LOVABLE_API_KEY) return null;
+  const { briefing, custom_keywords, reference_urls, manual_filters } = params;
+  const hasInput = briefing.trim() || custom_keywords.length || reference_urls.length;
+  if (!hasInput) return null;
+
+  const filtersSummary = {
+    locations: manual_filters?.locations || [],
+    gender: manual_filters?.gender || "any",
+    min_followers: manual_filters?.min_followers || 0,
+    max_followers: manual_filters?.max_followers || 0,
+    min_engagement: manual_filters?.min_engagement || 0,
+  };
+
+  const systemPrompt = `Você é um agente de prospecção de influenciadores.
+Sua tarefa: ler TODO o input do usuário (briefing + filtros + referências + termos)
+e produzir um PLANO DE BUSCA estruturado para guiar o pipeline.
+
+REGRAS:
+- Os FILTROS MANUAIS do usuário SEMPRE ganham. NÃO sugira faixas que conflitem.
+- O briefing é só um INCREMENTO ao filtro — extraia sinais semânticos que ajudem a identificar o nicho real, NÃO números.
+- target_signals = elementos visuais/textuais que confirmam o ICP.
+- anti_signals = elementos que disqualificam.
+- refined_keywords = 4-8 termos curtos para pesquisar no Instagram.
+
+Responda APENAS JSON no schema:
+{
+  "intent": "string curta",
+  "vertical": "cassino|fitness|gaming|moda|...",
+  "audience_tier": "nano|micro|mid|macro|mega",
+  "target_signals": ["..."],
+  "anti_signals": ["..."],
+  "refined_keywords": ["..."],
+  "reasoning": "explicação curta em pt-BR"
+}`;
+
+  const userPrompt = `BRIEFING:\n${briefing || "(vazio)"}\n\nTERMOS MANUAIS:\n${custom_keywords.length ? custom_keywords.join(", ") : "(nenhum)"}\n\nPERFIS DE REFERÊNCIA:\n${reference_urls.length ? reference_urls.join(", ") : "(nenhum)"}\n\nFILTROS MANUAIS (não pode contradizer):\n${JSON.stringify(filtersSummary, null, 2)}`;
+
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!res.ok) {
+      console.warn("[planner] gateway error:", res.status);
+      return null;
+    }
+    const data = await res.json();
+    const parsed = JSON.parse(data?.choices?.[0]?.message?.content || "{}");
+    return {
+      intent: String(parsed.intent || "").slice(0, 200),
+      vertical: String(parsed.vertical || "unknown").slice(0, 50),
+      audience_tier: String(parsed.audience_tier || "unknown").slice(0, 20),
+      target_signals: Array.isArray(parsed.target_signals) ? parsed.target_signals.map(String).slice(0, 12) : [],
+      anti_signals: Array.isArray(parsed.anti_signals) ? parsed.anti_signals.map(String).slice(0, 8) : [],
+      refined_keywords: Array.isArray(parsed.refined_keywords) ? parsed.refined_keywords.map(String).slice(0, 10) : [],
+      reasoning: String(parsed.reasoning || "").slice(0, 400),
+    };
+  } catch (e: any) {
+    console.warn("[planner] error:", e.message);
+    return null;
+  }
+}
+
+async function semanticPrescoreProfile(profile: BasicProfile, plan: SearchPlan): Promise<number> {
+  if (!LOVABLE_API_KEY || !plan) return 50;
+  const summary = [
+    `Username: @${profile.username}`,
+    `Nome: ${profile.display_name}`,
+    `Bio: ${profile.bio || "(vazia)"}`,
+    `Seguidores: ${profile.followers}`,
+    `Verificado: ${profile.is_verified ? "sim" : "não"}`,
+    profile.recent_post_captions.length
+      ? `Legendas:\n${profile.recent_post_captions.slice(0, 3).map((c) => `- ${c.slice(0, 200)}`).join("\n")}`
+      : "",
+  ].filter(Boolean).join("\n");
+
+  const systemPrompt = `Você está pré-classificando perfis Instagram contra um plano de busca.
+Dê uma nota 0-100 de quão bem este perfil se encaixa.
+
+Critérios:
+- 90-100: bate perfeitamente com vertical + target_signals
+- 70-89: bate bem, talvez 1 anti_signal leve
+- 40-69: parcial — vertical certo mas sinais fracos
+- 10-39: tema parecido mas não é o ICP
+- 0-9: completamente fora
+
+Responda APENAS JSON: { "score": 0-100 }`;
+
+  const userPrompt = `PLANO:\n- Intent: ${plan.intent}\n- Vertical: ${plan.vertical}\n- Sinais alvo: ${plan.target_signals.join("; ")}\n- Anti-sinais: ${plan.anti_signals.join("; ")}\n\nPERFIL:\n${summary}`;
+
+  try {
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!res.ok) return 50;
+    const data = await res.json();
+    const parsed = JSON.parse(data?.choices?.[0]?.message?.content || "{}");
+    const score = Number(parsed.score);
+    return Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 50;
+  } catch {
+    return 50;
+  }
+}
+
 async function extractKeywordsFromBriefing(briefing: string): Promise<string[]> {
   if (!LOVABLE_API_KEY || !briefing.trim()) return [];
   try {
@@ -426,6 +565,22 @@ async function runInstagramDiscovery(params: {
   const errorsDuringSeed: string[] = [];
   let candidateUsernames: string[] = [];
 
+  // ─── AGENT — plan the search strategy from all inputs ────────────
+  log(`[agent] Planning search strategy...`);
+  const plan = await planSearchStrategy({
+    briefing,
+    custom_keywords: custom_keywords || [],
+    reference_urls: reference_urls || [],
+    manual_filters,
+  });
+  if (plan) {
+    log(`[agent] vertical=${plan.vertical} tier=${plan.audience_tier} signals=${plan.target_signals.length}`);
+    log(`[agent] reasoning: ${plan.reasoning.slice(0, 120)}`);
+    stats.search_plan = plan;
+  } else {
+    log(`[agent] No plan generated.`);
+  }
+
   // ─── PATH A: reference-based ─────────────────────────────────────
   if (refUsernames.length > 0) {
     stats.used_path = "reference";
@@ -456,12 +611,13 @@ async function runInstagramDiscovery(params: {
     const keywords = [
       ...(custom_keywords || []).map(String).filter(Boolean),
       ...(filters.target_locations || []),
+      ...(plan?.refined_keywords || []),
     ];
-    if (hasBriefing) {
+    if (hasBriefing && (plan?.refined_keywords?.length || 0) === 0) {
       const aiKeywords = await extractKeywordsFromBriefing(briefing);
       keywords.push(...aiKeywords);
     }
-    const uniqueKeywords = [...new Set(keywords)].slice(0, 6);
+    const uniqueKeywords = [...new Set(keywords)].slice(0, 8);
     if (uniqueKeywords.length === 0) {
       return { prospects: [], stats: { ...stats, debug_logs: debugLogs }, error: "Forneça pelo menos uma referência, briefing, ou palavras-chave." };
     }
@@ -481,14 +637,31 @@ async function runInstagramDiscovery(params: {
   log(`[L1] Got ${basicProfiles.length} basic profiles`);
 
   const wantedLocs = (filters.target_locations || []).filter((l: string) => l);
-  const layer1Survivors = basicProfiles
+  const hardPassed = basicProfiles
     .filter(p => passesHardFilters(p, filters))
-    .filter(p => locationMatches(p, wantedLocs))
-    // Sort by followers desc and pick top N for the expensive enrichment
-    .sort((a, b) => b.followers - a.followers)
-    .slice(0, MAX_RICH_ENRICHMENTS);
+    .filter(p => locationMatches(p, wantedLocs));
+
+  let layer1Survivors: BasicProfile[];
+  if (plan && hardPassed.length > MAX_SEMANTIC_PRESELECT) {
+    log(`[L1→prescore] Scoring ${hardPassed.length} profiles semantically...`);
+    const PRESCORE_BATCH = 6;
+    const scored: Array<{ p: BasicProfile; score: number }> = [];
+    for (let i = 0; i < hardPassed.length; i += PRESCORE_BATCH) {
+      const chunk = hardPassed.slice(i, i + PRESCORE_BATCH);
+      const scores = await Promise.all(chunk.map(p => semanticPrescoreProfile(p, plan)));
+      for (let j = 0; j < chunk.length; j++) scored.push({ p: chunk[j], score: scores[j] });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    layer1Survivors = scored.slice(0, MAX_SEMANTIC_PRESELECT).map((s) => s.p);
+    stats.prescore_top = scored.slice(0, 5).map((s) => ({ username: s.p.username, score: s.score }));
+    log(`[L1→L2] semantic top ${layer1Survivors.length}`);
+  } else {
+    layer1Survivors = hardPassed
+      .sort((a, b) => b.followers - a.followers)
+      .slice(0, MAX_SEMANTIC_PRESELECT);
+    log(`[L1→L2] ${layer1Survivors.length} profiles (no semantic prescore)`);
+  }
   stats.layer1_passed = layer1Survivors.length;
-  log(`[L1→L2] ${layer1Survivors.length} profiles selected for rich enrichment`);
 
   if (layer1Survivors.length === 0) {
     return {
@@ -503,9 +676,9 @@ async function runInstagramDiscovery(params: {
   stats.layer2_enriched = richProfiles.length;
   log(`[L2] Enriched ${richProfiles.length} profiles with full analytics`);
 
-  // ─── LAYER 3: AI qualification ──────────────────────────────────
+  // ─── LAYER 3: AI qualification with hard threshold ─────────────
   const qualified: any[] = [];
-  if (hasBriefing) {
+  if (hasBriefing || plan) {
     const BATCH = 5;
     for (let i = 0; i < richProfiles.length; i += BATCH) {
       const chunk = richProfiles.slice(i, i + BATCH);
@@ -515,9 +688,12 @@ async function runInstagramDiscovery(params: {
         const q = results[j];
         p.ai_qualification = q;
         p.match_score = Math.round(q.confidence * 100);
-        if (q.match) qualified.push(p);
+        if (q.match && q.confidence >= QUALIFICATION_THRESHOLD) {
+          qualified.push(p);
+        }
       }
     }
+    log(`[L3] ${qualified.length}/${richProfiles.length} passed (threshold ${QUALIFICATION_THRESHOLD})`);
   } else {
     for (const p of richProfiles as any[]) {
       p.ai_qualification = { match: true, confidence: 0.5, reason: "sem-briefing" };
@@ -526,6 +702,7 @@ async function runInstagramDiscovery(params: {
     }
   }
   stats.qualified = qualified.length;
+  stats.qualification_threshold = QUALIFICATION_THRESHOLD;
 
   // ─── FINAL RANKING ──────────────────────────────────────────────
   qualified.sort((a, b) => {
@@ -661,11 +838,11 @@ Deno.serve(async (req) => {
 
     return new Response(
       JSON.stringify({
-        error: "Twitch discovery está em manutenção. Use Instagram por enquanto.",
+        error: "Plataforma não suportada. Apenas Instagram está ativo no momento.",
         briefing_id: briefingId,
         prospects: [],
       }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
   } catch (error: any) {

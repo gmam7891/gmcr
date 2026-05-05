@@ -5,13 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { Search, Sparkles, MapPin, Users, Activity, Gamepad2, AlertTriangle, Download, ExternalLink, X, Plus, Wand2, SlidersHorizontal, Heart, Link2 } from "lucide-react";
+import { Search, Sparkles, MapPin, Users, Activity, Gamepad2, AlertTriangle, Download, ExternalLink, X, Plus, SlidersHorizontal, Heart, Link2, Bot } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import * as XLSX from "xlsx";
 
@@ -39,6 +38,16 @@ interface Prospect {
   is_spam: boolean;
 }
 
+interface SearchPlanData {
+  intent: string;
+  vertical: string;
+  audience_tier: string;
+  target_signals: string[];
+  anti_signals: string[];
+  refined_keywords: string[];
+  reasoning: string;
+}
+
 interface DiscoveryResult {
   briefing_id: string;
   keywords: string[];
@@ -48,6 +57,11 @@ interface DiscoveryResult {
   total_spam: number;
   total_low_score: number;
   prospects: Prospect[];
+  stats?: {
+    search_plan?: SearchPlanData;
+    debug_logs?: string[];
+    [k: string]: unknown;
+  };
 }
 
 type Gender = "any" | "female" | "male";
@@ -55,8 +69,6 @@ type Gender = "any" | "female" | "male";
 export function DiscoveryTab() {
   const { t } = useLanguage();
   const [briefing, setBriefing] = useState("");
-  const [useAiExpansion, setUseAiExpansion] = useState(false); // OFF by default — user has full control
-  const [platforms, setPlatforms] = useState<string[]>(["twitch", "instagram"]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [step, setStep] = useState<"input" | "expanding" | "scraping" | "enriching" | "scoring" | "done">("input");
@@ -81,9 +93,6 @@ export function DiscoveryTab() {
   // Result sorting (no filtering — all profiles always shown)
   const [sortBy, setSortBy] = useState<"original" | "score" | "followers" | "engagement">("original");
 
-  const togglePlatform = (p: string) => {
-    setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
-  };
 
   const addKeyword = () => {
     const k = newKeyword.trim();
@@ -126,11 +135,6 @@ export function DiscoveryTab() {
   }, [loading]);
 
   const handleDiscover = async () => {
-    if (platforms.length === 0) {
-      toast({ title: t("disc.error"), description: t("disc.platform_required"), variant: "destructive" });
-      return;
-    }
-
     const hasSearchCriteria =
       briefing.trim().length > 0 ||
       customKeywords.length > 0 ||
@@ -154,10 +158,9 @@ export function DiscoveryTab() {
         body: {
           action: "discover",
           briefing: briefing || "",
-          platforms,
+          platforms: ["instagram"],
           limit: 50,
           custom_keywords: customKeywords.length > 0 ? customKeywords : undefined,
-          use_ai_expansion: useAiExpansion,
           reference_urls: referenceUrls,
           manual_filters: {
             locations,
@@ -260,24 +263,12 @@ export function DiscoveryTab() {
           Monte sua busca manualmente. Todos os campos são opcionais — combine como preferir.
         </p>
 
-        {/* Briefing — optional, AI-expansion is opt-in */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Briefing (opcional)
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Bot className="h-3 w-3 text-primary" />
+              Briefing (opcional, lido pelo agente IA)
             </Label>
-            <div className="flex items-center gap-2">
-              <Wand2 className="h-3 w-3 text-muted-foreground" />
-              <Label htmlFor="ai-toggle" className="text-[10px] uppercase tracking-wider text-muted-foreground cursor-pointer">
-                Expandir com IA
-              </Label>
-              <Switch
-                id="ai-toggle"
-                checked={useAiExpansion}
-                onCheckedChange={setUseAiExpansion}
-                disabled={loading}
-              />
-            </div>
           </div>
           <Textarea
             placeholder="Descreva quem você procura. Exemplo: 'Streamers de games competitivos no Norte do Brasil' ou deixe vazio."
@@ -286,11 +277,9 @@ export function DiscoveryTab() {
             className="min-h-[80px] text-sm"
             disabled={loading}
           />
-          {useAiExpansion && (
-            <p className="text-[10px] text-muted-foreground/70">
-              ⚠ A IA gerará termos automaticamente a partir do briefing acima.
-            </p>
-          )}
+          <p className="text-[10px] text-muted-foreground/70">
+            ⓘ O agente lê o briefing e os filtros, planeja a busca e pontua cada perfil contra o ICP. Filtros manuais sempre prevalecem.
+          </p>
         </div>
 
         {/* Reference profile URLs — find similar */}
@@ -376,7 +365,7 @@ export function DiscoveryTab() {
             </Button>
           </div>
           <p className="text-[10px] text-muted-foreground/70">
-            <code className="font-mono">#hashtag</code> para Instagram · termos sem # para Twitch.
+            Use <code className="font-mono">#hashtag</code> ou termos livres. O agente combina seus termos com os que ele inferir do briefing.
           </p>
         </div>
 
@@ -544,23 +533,6 @@ export function DiscoveryTab() {
         </div>
 
 
-        <div className="flex items-center gap-4 border-t border-border/40 pt-4">
-          <span className="text-xs text-muted-foreground uppercase tracking-wider">{t("disc.platforms")}:</span>
-          {["twitch", "instagram"].map((p) => (
-            <button
-              key={p}
-              onClick={() => togglePlatform(p)}
-              disabled={loading}
-              className={`text-xs font-mono uppercase tracking-wider px-3 py-1.5 rounded border transition-colors ${
-                platforms.includes(p)
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-secondary/50 text-muted-foreground border-border hover:text-foreground"
-              }`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
 
         {/* Submit */}
         <div className="flex items-center gap-3">
@@ -585,6 +557,41 @@ export function DiscoveryTab() {
           </div>
         )}
       </div>
+
+      {result?.stats && (result.stats as { search_plan?: SearchPlanData }).search_plan && (
+        <div className="card-surface p-4 space-y-2 border-primary/30 bg-primary/5">
+          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <Bot className="h-4 w-4 text-primary" />
+            Plano do agente
+            <Badge variant="outline" className="text-[10px] font-mono ml-auto">
+              {(result.stats as { search_plan: SearchPlanData }).search_plan.vertical}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground italic">
+            "{(result.stats as { search_plan: SearchPlanData }).search_plan.reasoning}"
+          </p>
+          {(result.stats as { search_plan: SearchPlanData }).search_plan.target_signals.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Sinais alvo</p>
+              <div className="flex flex-wrap gap-1">
+                {(result.stats as { search_plan: SearchPlanData }).search_plan.target_signals.map((s, i) => (
+                  <Badge key={i} variant="secondary" className="text-[9px]">{s}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          {(result.stats as { search_plan: SearchPlanData }).search_plan.anti_signals.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Anti-sinais (rejeitar)</p>
+              <div className="flex flex-wrap gap-1">
+                {(result.stats as { search_plan: SearchPlanData }).search_plan.anti_signals.map((s, i) => (
+                  <Badge key={i} variant="outline" className="text-[9px] border-destructive/40 text-destructive/80">{s}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Result stats + filter ─────────────────────────────────── */}
       {result && (
