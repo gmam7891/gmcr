@@ -263,24 +263,12 @@ export function DiscoveryTab() {
           Monte sua busca manualmente. Todos os campos são opcionais — combine como preferir.
         </p>
 
-        {/* Briefing — optional, AI-expansion is opt-in */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">
-              Briefing (opcional)
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Bot className="h-3 w-3 text-primary" />
+              Briefing (opcional, lido pelo agente IA)
             </Label>
-            <div className="flex items-center gap-2">
-              <Wand2 className="h-3 w-3 text-muted-foreground" />
-              <Label htmlFor="ai-toggle" className="text-[10px] uppercase tracking-wider text-muted-foreground cursor-pointer">
-                Expandir com IA
-              </Label>
-              <Switch
-                id="ai-toggle"
-                checked={useAiExpansion}
-                onCheckedChange={setUseAiExpansion}
-                disabled={loading}
-              />
-            </div>
           </div>
           <Textarea
             placeholder="Descreva quem você procura. Exemplo: 'Streamers de games competitivos no Norte do Brasil' ou deixe vazio."
@@ -289,11 +277,9 @@ export function DiscoveryTab() {
             className="min-h-[80px] text-sm"
             disabled={loading}
           />
-          {useAiExpansion && (
-            <p className="text-[10px] text-muted-foreground/70">
-              ⚠ A IA gerará termos automaticamente a partir do briefing acima.
-            </p>
-          )}
+          <p className="text-[10px] text-muted-foreground/70">
+            ⓘ O agente lê o briefing e os filtros, planeja a busca e pontua cada perfil contra o ICP. Filtros manuais sempre prevalecem.
+          </p>
         </div>
 
         {/* Reference profile URLs — find similar */}
