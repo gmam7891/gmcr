@@ -533,23 +533,6 @@ export function DiscoveryTab() {
         </div>
 
 
-        <div className="flex items-center gap-4 border-t border-border/40 pt-4">
-          <span className="text-xs text-muted-foreground uppercase tracking-wider">{t("disc.platforms")}:</span>
-          {["twitch", "instagram"].map((p) => (
-            <button
-              key={p}
-              onClick={() => togglePlatform(p)}
-              disabled={loading}
-              className={`text-xs font-mono uppercase tracking-wider px-3 py-1.5 rounded border transition-colors ${
-                platforms.includes(p)
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-secondary/50 text-muted-foreground border-border hover:text-foreground"
-              }`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
 
         {/* Submit */}
         <div className="flex items-center gap-3">
