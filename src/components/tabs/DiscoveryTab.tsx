@@ -93,9 +93,6 @@ export function DiscoveryTab() {
   // Result sorting (no filtering — all profiles always shown)
   const [sortBy, setSortBy] = useState<"original" | "score" | "followers" | "engagement">("original");
 
-  const togglePlatform = (p: string) => {
-    setPlatforms((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
-  };
 
   const addKeyword = () => {
     const k = newKeyword.trim();
