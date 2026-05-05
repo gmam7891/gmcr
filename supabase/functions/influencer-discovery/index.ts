@@ -676,9 +676,9 @@ async function runInstagramDiscovery(params: {
   stats.layer2_enriched = richProfiles.length;
   log(`[L2] Enriched ${richProfiles.length} profiles with full analytics`);
 
-  // ─── LAYER 3: AI qualification ──────────────────────────────────
+  // ─── LAYER 3: AI qualification with hard threshold ─────────────
   const qualified: any[] = [];
-  if (hasBriefing) {
+  if (hasBriefing || plan) {
     const BATCH = 5;
     for (let i = 0; i < richProfiles.length; i += BATCH) {
       const chunk = richProfiles.slice(i, i + BATCH);
@@ -688,9 +688,12 @@ async function runInstagramDiscovery(params: {
         const q = results[j];
         p.ai_qualification = q;
         p.match_score = Math.round(q.confidence * 100);
-        if (q.match) qualified.push(p);
+        if (q.match && q.confidence >= QUALIFICATION_THRESHOLD) {
+          qualified.push(p);
+        }
       }
     }
+    log(`[L3] ${qualified.length}/${richProfiles.length} passed (threshold ${QUALIFICATION_THRESHOLD})`);
   } else {
     for (const p of richProfiles as any[]) {
       p.ai_qualification = { match: true, confidence: 0.5, reason: "sem-briefing" };
@@ -699,6 +702,7 @@ async function runInstagramDiscovery(params: {
     }
   }
   stats.qualified = qualified.length;
+  stats.qualification_threshold = QUALIFICATION_THRESHOLD;
 
   // ─── FINAL RANKING ──────────────────────────────────────────────
   qualified.sort((a, b) => {
