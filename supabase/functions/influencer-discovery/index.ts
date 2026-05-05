@@ -565,6 +565,22 @@ async function runInstagramDiscovery(params: {
   const errorsDuringSeed: string[] = [];
   let candidateUsernames: string[] = [];
 
+  // ─── AGENT — plan the search strategy from all inputs ────────────
+  log(`[agent] Planning search strategy...`);
+  const plan = await planSearchStrategy({
+    briefing,
+    custom_keywords: custom_keywords || [],
+    reference_urls: reference_urls || [],
+    manual_filters,
+  });
+  if (plan) {
+    log(`[agent] vertical=${plan.vertical} tier=${plan.audience_tier} signals=${plan.target_signals.length}`);
+    log(`[agent] reasoning: ${plan.reasoning.slice(0, 120)}`);
+    stats.search_plan = plan;
+  } else {
+    log(`[agent] No plan generated.`);
+  }
+
   // ─── PATH A: reference-based ─────────────────────────────────────
   if (refUsernames.length > 0) {
     stats.used_path = "reference";
