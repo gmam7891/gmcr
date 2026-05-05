@@ -194,6 +194,53 @@ export const WRITE_ACTIONS = new Set([
 ]);
 
 // ─────────────── READS ───────────────
+const HARD_LIMIT_BLOCKS = 5000;
+const HARD_LIMIT_RANKINGS = 5000;
+const HARD_LIMIT_RESULTS = 5000;
+
+async function resolveProviderNames(
+  supabase: SupabaseClient,
+  providerIds: string[],
+): Promise<string[]> {
+  if (!providerIds || providerIds.length === 0) return [];
+  const { data } = await supabase.from("providers").select("name").in("id", providerIds);
+  return (data || []).map((r: any) => String(r.name)).filter(Boolean);
+}
+
+async function resolveGameName(
+  supabase: SupabaseClient,
+  gameId: string | null | undefined,
+): Promise<string | null> {
+  if (!gameId) return null;
+  const { data } = await supabase.from("games").select("name").eq("id", gameId).maybeSingle();
+  return data?.name ? String(data.name) : null;
+}
+
+function applyBlockFilters(
+  query: any,
+  body: any,
+  resolvedProviderNames: string[],
+  resolvedGameName: string | null,
+) {
+  const {
+    date_from, date_to, platform, streamer, streamers,
+    source_type, block_status_filter,
+  } = body;
+  const streamerList: string[] = Array.isArray(streamers) ? streamers.filter(Boolean) : [];
+  if (streamerList.length === 1) query = query.eq("streamer_login", streamerList[0]);
+  else if (streamerList.length > 1) query = query.in("streamer_login", streamerList);
+  else if (streamer) query = query.eq("streamer_login", streamer);
+  if (platform) query = query.eq("platform", platform);
+  if (source_type) query = query.eq("source_type", source_type);
+  if (resolvedProviderNames.length === 1) query = query.eq("provider_name", resolvedProviderNames[0]);
+  else if (resolvedProviderNames.length > 1) query = query.in("provider_name", resolvedProviderNames);
+  if (resolvedGameName) query = query.eq("game_name", resolvedGameName);
+  if (block_status_filter && block_status_filter !== "all") query = query.eq("status", block_status_filter);
+  if (date_from) query = query.gte("created_at", date_from);
+  if (date_to) query = query.lte("created_at", date_to);
+  return query;
+}
+
 export async function handleRead(supabase: SupabaseClient, body: any) {
   const { action } = body;
 
