@@ -264,33 +264,61 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
   }
 
   if (action === "get_dashboard") {
-    const { date_from, date_to, platform, streamer, block_status_filter } = body;
+    const { provider_ids, game_id } = body;
+    const resolvedProviderNames = await resolveProviderNames(supabase, provider_ids || []);
+    const resolvedGameName = await resolveGameName(supabase, game_id);
     let query = supabase.from("gameplay_blocks").select("*");
-    if (streamer) query = query.eq("streamer_login", streamer);
-    if (platform) query = query.eq("platform", platform);
-    if (block_status_filter && block_status_filter !== "all") query = query.eq("status", block_status_filter);
-    if (date_from) query = query.gte("created_at", date_from);
-    if (date_to) query = query.lte("created_at", date_to);
-    const { data: blocks } = await query.order("created_at", { ascending: false }).limit(500);
+    query = applyBlockFilters(query, body, resolvedProviderNames, resolvedGameName);
+    const { data: blocks } = await query.order("created_at", { ascending: false }).limit(HARD_LIMIT_BLOCKS);
+    const truncated = (blocks?.length || 0) >= HARD_LIMIT_BLOCKS;
     if (!blocks?.length) {
       return {
         total_exposure_seconds: 0, total_viewer_minutes: 0, unique_streamers: 0,
         total_detections: 0, avg_vod_coverage: 0,
         provider_share: {}, game_share: {}, chat_sentiment: {},
+        truncated: false,
+        applied_filters: { provider_names: resolvedProviderNames, game_name: resolvedGameName },
       };
     }
     const totalExposure = blocks.reduce((s: number, b: any) => s + (b.duration_seconds || 0), 0);
     const uniqueStreamers = new Set(blocks.map((b: any) => b.streamer_login)).size;
+    const vodIdsInScope = new Set(blocks.map((b: any) => b.vod_id).filter(Boolean));
+    type ShareEntry = { canonical: string; seconds: number };
+    const providerShareNorm: Record<string, ShareEntry> = {};
+    const gameShareNorm: Record<string, ShareEntry> = {};
+    const trackShare = (
+      bucket: Record<string, ShareEntry>,
+      raw: string | null | undefined,
+      seconds: number,
+    ) => {
+      if (!raw) return;
+      const key = String(raw).trim().toLowerCase();
+      if (!key) return;
+      if (!bucket[key]) bucket[key] = { canonical: String(raw).trim(), seconds: 0 };
+      bucket[key].seconds += seconds;
+    };
+    for (const b of blocks) {
+      trackShare(providerShareNorm, b.provider_name, b.duration_seconds || 0);
+      trackShare(gameShareNorm, b.game_name, b.duration_seconds || 0);
+    }
     const providerShare: Record<string, number> = {};
     const gameShare: Record<string, number> = {};
-    for (const b of blocks) {
-      if (b.provider_name) providerShare[b.provider_name] = (providerShare[b.provider_name] || 0) + (b.duration_seconds || 0);
-      if (b.game_name) gameShare[b.game_name] = (gameShare[b.game_name] || 0) + (b.duration_seconds || 0);
-    }
-    const { data: audits } = await supabase.from("vod_audits").select("coverage_percent, pending_audit_segments, vod_duration_seconds").limit(100);
+    for (const e of Object.values(providerShareNorm)) providerShare[e.canonical] = e.seconds;
+    for (const e of Object.values(gameShareNorm)) gameShare[e.canonical] = e.seconds;
+    let auditQuery = supabase.from("vod_audits").select("coverage_percent, pending_audit_segments, vod_duration_seconds, streamer_login, platform, vod_id, created_at");
+    const { date_from, date_to, platform, streamer, streamers } = body;
+    const streamerList: string[] = Array.isArray(streamers) ? streamers.filter(Boolean) : [];
+    if (streamerList.length === 1) auditQuery = auditQuery.eq("streamer_login", streamerList[0]);
+    else if (streamerList.length > 1) auditQuery = auditQuery.in("streamer_login", streamerList);
+    else if (streamer) auditQuery = auditQuery.eq("streamer_login", streamer);
+    if (platform) auditQuery = auditQuery.eq("platform", platform);
+    if (date_from) auditQuery = auditQuery.gte("created_at", date_from);
+    if (date_to) auditQuery = auditQuery.lte("created_at", date_to);
+    const { data: audits } = await auditQuery.limit(500);
     const avgCoverage = audits?.length ? audits.reduce((s: number, a: any) => s + (a.coverage_percent || 0), 0) / audits.length : 0;
     const twitchCategoryShare: Record<string, number> = {};
     for (const a of audits || []) {
+      if (vodIdsInScope.size > 0 && !vodIdsInScope.has((a as any).vod_id)) continue;
       const segs: any = (a as any).pending_audit_segments;
       const chapters = segs?.plan?.chapters;
       if (Array.isArray(chapters)) {
@@ -304,7 +332,6 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
     const aiVsTwitch = Array.from(allKeys).map((name) => ({
       name, ai_seconds: gameShare[name] || 0, twitch_seconds: twitchCategoryShare[name] || 0,
     })).sort((a, b) => (b.ai_seconds + b.twitch_seconds) - (a.ai_seconds + a.twitch_seconds)).slice(0, 10);
-    // viewer_minutes = sum of (block_duration_minutes × block_avg_viewers) across all blocks
     const viewerMinutes = blocks.reduce((sum: number, b: any) => {
       const durationMin = (b.duration_seconds || 0) / 60;
       const avgViewers = b.avg_viewers || b.peak_viewers || 0;
@@ -315,6 +342,8 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
       unique_streamers: uniqueStreamers, total_detections: blocks.length, avg_vod_coverage: avgCoverage,
       provider_share: providerShare, game_share: gameShare, twitch_category_share: twitchCategoryShare,
       ai_vs_twitch: aiVsTwitch, chat_sentiment: {},
+      truncated,
+      applied_filters: { provider_names: resolvedProviderNames, game_name: resolvedGameName },
     };
   }
 
