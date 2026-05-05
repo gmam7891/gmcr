@@ -158,10 +158,9 @@ export function DiscoveryTab() {
         body: {
           action: "discover",
           briefing: briefing || "",
-          platforms,
+          platforms: ["instagram"],
           limit: 50,
           custom_keywords: customKeywords.length > 0 ? customKeywords : undefined,
-          use_ai_expansion: useAiExpansion,
           reference_urls: referenceUrls,
           manual_filters: {
             locations,
