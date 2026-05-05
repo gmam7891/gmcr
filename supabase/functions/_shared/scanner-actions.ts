@@ -415,15 +415,25 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
   }
 
   if (action === "get_results_aggregated") {
-    const { date_from, date_to, streamer, block_status_filter, group_by } = body;
+    const { group_by, provider_ids, game_id } = body;
+    const resolvedProviderNames = await resolveProviderNames(supabase, provider_ids || []);
+    const resolvedGameName = await resolveGameName(supabase, game_id);
     let query = supabase.from("gameplay_blocks").select("*");
-    if (block_status_filter && block_status_filter !== "all") query = query.eq("status", block_status_filter);
-    else if (!block_status_filter) query = query.eq("status", "confirmed");
-    if (date_from) query = query.gte("created_at", date_from);
-    if (date_to) query = query.lte("created_at", date_to);
-    if (streamer) query = query.eq("streamer_login", streamer);
-    const { data: blocks } = await query.order("created_at", { ascending: false }).limit(2000);
-    if (!blocks?.length) return { aggregated: [], totals: { games: 0, blocks: 0, exposure_seconds: 0, vods: 0, streamers: 0 }, blocks: [] };
+    const effectiveBody = {
+      ...body,
+      block_status_filter: body.block_status_filter ?? "confirmed",
+    };
+    query = applyBlockFilters(query, effectiveBody, resolvedProviderNames, resolvedGameName);
+    const { data: blocks } = await query.order("created_at", { ascending: false }).limit(HARD_LIMIT_RESULTS);
+    const truncated = (blocks?.length || 0) >= HARD_LIMIT_RESULTS;
+    if (!blocks?.length) {
+      return {
+        aggregated: [],
+        totals: { games: 0, blocks: 0, exposure_seconds: 0, vods: 0, streamers: 0 },
+        blocks: [],
+        truncated: false,
+      };
+    }
     const agg: Record<string, any> = {};
     for (const b of blocks) {
       const game = b.game_name || "Unknown";
