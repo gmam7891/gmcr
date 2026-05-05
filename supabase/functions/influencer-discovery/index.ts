@@ -611,12 +611,13 @@ async function runInstagramDiscovery(params: {
     const keywords = [
       ...(custom_keywords || []).map(String).filter(Boolean),
       ...(filters.target_locations || []),
+      ...(plan?.refined_keywords || []),
     ];
-    if (hasBriefing) {
+    if (hasBriefing && (plan?.refined_keywords?.length || 0) === 0) {
       const aiKeywords = await extractKeywordsFromBriefing(briefing);
       keywords.push(...aiKeywords);
     }
-    const uniqueKeywords = [...new Set(keywords)].slice(0, 6);
+    const uniqueKeywords = [...new Set(keywords)].slice(0, 8);
     if (uniqueKeywords.length === 0) {
       return { prospects: [], stats: { ...stats, debug_logs: debugLogs }, error: "Forneça pelo menos uma referência, briefing, ou palavras-chave." };
     }
