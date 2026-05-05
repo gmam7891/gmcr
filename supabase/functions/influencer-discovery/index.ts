@@ -637,14 +637,31 @@ async function runInstagramDiscovery(params: {
   log(`[L1] Got ${basicProfiles.length} basic profiles`);
 
   const wantedLocs = (filters.target_locations || []).filter((l: string) => l);
-  const layer1Survivors = basicProfiles
+  const hardPassed = basicProfiles
     .filter(p => passesHardFilters(p, filters))
-    .filter(p => locationMatches(p, wantedLocs))
-    // Sort by followers desc and pick top N for the expensive enrichment
-    .sort((a, b) => b.followers - a.followers)
-    .slice(0, MAX_RICH_ENRICHMENTS);
+    .filter(p => locationMatches(p, wantedLocs));
+
+  let layer1Survivors: BasicProfile[];
+  if (plan && hardPassed.length > MAX_SEMANTIC_PRESELECT) {
+    log(`[L1→prescore] Scoring ${hardPassed.length} profiles semantically...`);
+    const PRESCORE_BATCH = 6;
+    const scored: Array<{ p: BasicProfile; score: number }> = [];
+    for (let i = 0; i < hardPassed.length; i += PRESCORE_BATCH) {
+      const chunk = hardPassed.slice(i, i + PRESCORE_BATCH);
+      const scores = await Promise.all(chunk.map(p => semanticPrescoreProfile(p, plan)));
+      for (let j = 0; j < chunk.length; j++) scored.push({ p: chunk[j], score: scores[j] });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    layer1Survivors = scored.slice(0, MAX_SEMANTIC_PRESELECT).map((s) => s.p);
+    stats.prescore_top = scored.slice(0, 5).map((s) => ({ username: s.p.username, score: s.score }));
+    log(`[L1→L2] semantic top ${layer1Survivors.length}`);
+  } else {
+    layer1Survivors = hardPassed
+      .sort((a, b) => b.followers - a.followers)
+      .slice(0, MAX_SEMANTIC_PRESELECT);
+    log(`[L1→L2] ${layer1Survivors.length} profiles (no semantic prescore)`);
+  }
   stats.layer1_passed = layer1Survivors.length;
-  log(`[L1→L2] ${layer1Survivors.length} profiles selected for rich enrichment`);
 
   if (layer1Survivors.length === 0) {
     return {
