@@ -38,6 +38,16 @@ interface Prospect {
   is_spam: boolean;
 }
 
+interface SearchPlanData {
+  intent: string;
+  vertical: string;
+  audience_tier: string;
+  target_signals: string[];
+  anti_signals: string[];
+  refined_keywords: string[];
+  reasoning: string;
+}
+
 interface DiscoveryResult {
   briefing_id: string;
   keywords: string[];
@@ -47,6 +57,11 @@ interface DiscoveryResult {
   total_spam: number;
   total_low_score: number;
   prospects: Prospect[];
+  stats?: {
+    search_plan?: SearchPlanData;
+    debug_logs?: string[];
+    [k: string]: unknown;
+  };
 }
 
 type Gender = "any" | "female" | "male";
