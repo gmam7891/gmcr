@@ -348,12 +348,18 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
   }
 
   if (action === "get_rankings") {
-    const { rank_by, date_from, date_to, block_status_filter } = body;
-    let query = supabase.from("gameplay_blocks").select("*").eq("status", block_status_filter || "confirmed");
-    if (date_from) query = query.gte("created_at", date_from);
-    if (date_to) query = query.lte("created_at", date_to);
-    const { data: blocks } = await query.limit(1000);
-    if (!blocks?.length) return { rankings: [] };
+    const { rank_by, provider_ids, game_id } = body;
+    const resolvedProviderNames = await resolveProviderNames(supabase, provider_ids || []);
+    const resolvedGameName = await resolveGameName(supabase, game_id);
+    let query = supabase.from("gameplay_blocks").select("*");
+    const effectiveBody = {
+      ...body,
+      block_status_filter: body.block_status_filter ?? "confirmed",
+    };
+    query = applyBlockFilters(query, effectiveBody, resolvedProviderNames, resolvedGameName);
+    const { data: blocks } = await query.limit(HARD_LIMIT_RANKINGS);
+    const truncated = (blocks?.length || 0) >= HARD_LIMIT_RANKINGS;
+    if (!blocks?.length) return { rankings: [], truncated: false };
     const agg: Record<string, any> = {};
     for (const b of blocks) {
       const k = rank_by === "streamer" ? b.streamer_login
@@ -365,7 +371,7 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
       agg[k].viewer_minutes += Math.round((b.duration_seconds || 0) / 60);
     }
     const rankings = Object.values(agg).sort((a: any, b: any) => b.exposure - a.exposure).slice(0, 20);
-    return { rankings };
+    return { rankings, truncated };
   }
 
   if (action === "get_trend_weekly") {
