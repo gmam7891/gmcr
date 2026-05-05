@@ -558,6 +558,41 @@ export function DiscoveryTab() {
         )}
       </div>
 
+      {result?.stats && (result.stats as { search_plan?: SearchPlanData }).search_plan && (
+        <div className="card-surface p-4 space-y-2 border-primary/30 bg-primary/5">
+          <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <Bot className="h-4 w-4 text-primary" />
+            Plano do agente
+            <Badge variant="outline" className="text-[10px] font-mono ml-auto">
+              {(result.stats as { search_plan: SearchPlanData }).search_plan.vertical}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground italic">
+            "{(result.stats as { search_plan: SearchPlanData }).search_plan.reasoning}"
+          </p>
+          {(result.stats as { search_plan: SearchPlanData }).search_plan.target_signals.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Sinais alvo</p>
+              <div className="flex flex-wrap gap-1">
+                {(result.stats as { search_plan: SearchPlanData }).search_plan.target_signals.map((s, i) => (
+                  <Badge key={i} variant="secondary" className="text-[9px]">{s}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          {(result.stats as { search_plan: SearchPlanData }).search_plan.anti_signals.length > 0 && (
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Anti-sinais (rejeitar)</p>
+              <div className="flex flex-wrap gap-1">
+                {(result.stats as { search_plan: SearchPlanData }).search_plan.anti_signals.map((s, i) => (
+                  <Badge key={i} variant="outline" className="text-[9px] border-destructive/40 text-destructive/80">{s}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Result stats + filter ─────────────────────────────────── */}
       {result && (
         <div className="card-surface p-4 space-y-3">
