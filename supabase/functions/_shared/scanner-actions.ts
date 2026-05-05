@@ -466,6 +466,8 @@ export async function handleRead(supabase: SupabaseClient, body: any) {
         start_seconds: b.start_seconds, end_seconds: b.end_seconds, duration_seconds: b.duration_seconds,
         confidence_avg: b.confidence_avg, status: b.status, created_at: b.created_at,
       })),
+      truncated,
+      applied_filters: { provider_names: resolvedProviderNames, game_name: resolvedGameName },
     };
   }
 
