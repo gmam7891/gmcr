@@ -1311,6 +1311,8 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
       processed_mosaic: segments.plan.processed_mosaic,
       mosaic_count: Array.isArray(segments.plan.mosaics) ? segments.plan.mosaics.length : 0,
       interval: segments.plan.interval,
+      chapters: Array.isArray(segments.plan.chapters) ? segments.plan.chapters : [],
+      vod_title: segments.plan.vod_title,
     };
   }
 
