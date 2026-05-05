@@ -16,9 +16,11 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "
 //  CONFIG — Cost & quality knobs
 // ═══════════════════════════════════════════════════════════════════════
 
-const MAX_CANDIDATES = 30;        // Layer 1: cheap scrape this many
-const MAX_RICH_ENRICHMENTS = 15;  // Layer 2: rich enrichment only on the top 15 survivors
-const FOLLOWING_FETCH_PER_REF = 60; // How many "followings" to pull per reference profile
+const MAX_CANDIDATES = 60;
+const MAX_RICH_ENRICHMENTS = 40;
+const FOLLOWING_FETCH_PER_REF = 80;
+const QUALIFICATION_THRESHOLD = 0.7;
+const MAX_SEMANTIC_PRESELECT = MAX_RICH_ENRICHMENTS;
 
 // ═══════════════════════════════════════════════════════════════════════
 //  APIFY HELPERS
