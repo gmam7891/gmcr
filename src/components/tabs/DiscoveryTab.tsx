@@ -135,11 +135,6 @@ export function DiscoveryTab() {
   }, [loading]);
 
   const handleDiscover = async () => {
-    if (platforms.length === 0) {
-      toast({ title: t("disc.error"), description: t("disc.platform_required"), variant: "destructive" });
-      return;
-    }
-
     const hasSearchCriteria =
       briefing.trim().length > 0 ||
       customKeywords.length > 0 ||
