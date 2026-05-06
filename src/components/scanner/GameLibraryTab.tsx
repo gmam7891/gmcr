@@ -9,11 +9,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Loader2, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, Clock, Zap,
-  ChevronDown, ChevronUp, Upload, PlayCircle, Camera,
+  ChevronDown, ChevronUp, Upload, PlayCircle, Camera, Brain,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { BulkImportTab } from "./BulkImportTab";
 import { ScreenshotTrainingTab } from "./ScreenshotTrainingTab";
+import { learnGame } from "@/lib/intelligent-agent-api";
 
 interface VisualDNA {
   detected_game_name?: string;
@@ -41,6 +42,13 @@ interface LibraryEntry {
   error_message: string | null;
   metadata: any;
   created_at: string;
+  agent_keywords?: string[] | null;
+  agent_visual_markers?: string[] | null;
+  agent_confidence_threshold?: number | null;
+  agent_times_identified?: number | null;
+  agent_times_corrected?: number | null;
+  agent_average_confidence?: number | null;
+  agent_learned_at?: string | null;
 }
 
 const ELITE_PROVIDERS = [
@@ -75,6 +83,19 @@ export function GameLibraryTab() {
   const [batchTraining, setBatchTraining] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentGame: "" });
   const [batchResults, setBatchResults] = useState({ trained: 0, failed: 0 });
+  const [learningId, setLearningId] = useState<string | null>(null);
+
+  const handleLearn = async (id: string) => {
+    setLearningId(id);
+    try {
+      const res = await learnGame(id);
+      toast.success(`🧠 Agente aprendeu: ${res.keywords_count} keywords, ${res.markers_count} markers`);
+      fetchLibrary();
+    } catch (e: any) {
+      toast.error(e.message || "Falha ao aprender");
+    }
+    setLearningId(null);
+  };
 
   const fetchLibrary = async () => {
     setLoading(true);
@@ -435,6 +456,51 @@ export function GameLibraryTab() {
                       {entry.error_message && (
                         <p className="text-xs text-destructive">{entry.error_message}</p>
                       )}
+
+                      {/* Agente IA */}
+                      <div className="border-t border-border pt-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                            <Brain className="h-3 w-3 text-primary" /> Agente IA
+                            {entry.agent_learned_at && (
+                              <Badge variant="outline" className="text-[9px] ml-1">
+                                {(entry.agent_keywords?.length || 0)} kw · {(entry.agent_visual_markers?.length || 0)} mk
+                              </Badge>
+                            )}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-[10px]"
+                            disabled={learningId === entry.id || entry.training_status !== "trained"}
+                            onClick={() => handleLearn(entry.id)}
+                          >
+                            {learningId === entry.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            ) : (
+                              <Brain className="h-3 w-3 mr-1" />
+                            )}
+                            {entry.agent_learned_at ? "Re-aprender" : "Aprender"}
+                          </Button>
+                        </div>
+                        {entry.agent_learned_at && (
+                          <div className="grid grid-cols-3 gap-2 text-[10px] font-mono text-muted-foreground">
+                            <div>Identificações: <span className="text-foreground">{entry.agent_times_identified || 0}</span></div>
+                            <div>Correções: <span className="text-destructive">{entry.agent_times_corrected || 0}</span></div>
+                            <div>Confiança média: <span className="text-primary">{((Number(entry.agent_average_confidence) || 0) * 100).toFixed(0)}%</span></div>
+                          </div>
+                        )}
+                        {entry.agent_keywords && entry.agent_keywords.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {entry.agent_keywords.slice(0, 12).map((k, i) => (
+                              <Badge key={i} variant="secondary" className="text-[9px]">{k}</Badge>
+                            ))}
+                            {entry.agent_keywords.length > 12 && (
+                              <Badge variant="outline" className="text-[9px]">+{entry.agent_keywords.length - 12}</Badge>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
                       {/* Actions */}
                       <div className="flex justify-end">

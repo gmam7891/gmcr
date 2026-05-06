@@ -119,6 +119,129 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_analyses: {
+        Row: {
+          agrees_with_pipeline: boolean | null
+          confidence: number
+          created_at: string
+          duration_seconds: number
+          end_seconds: number
+          feedback_at: string | null
+          game_library_id: string | null
+          game_name: string
+          id: string
+          keyword_confidence: number
+          provider_name: string | null
+          start_seconds: number
+          streamer_login: string
+          user_confirmed: boolean | null
+          user_corrected: boolean | null
+          visual_confidence: number
+          vod_id: string
+        }
+        Insert: {
+          agrees_with_pipeline?: boolean | null
+          confidence?: number
+          created_at?: string
+          duration_seconds?: number
+          end_seconds?: number
+          feedback_at?: string | null
+          game_library_id?: string | null
+          game_name: string
+          id?: string
+          keyword_confidence?: number
+          provider_name?: string | null
+          start_seconds?: number
+          streamer_login: string
+          user_confirmed?: boolean | null
+          user_corrected?: boolean | null
+          visual_confidence?: number
+          vod_id: string
+        }
+        Update: {
+          agrees_with_pipeline?: boolean | null
+          confidence?: number
+          created_at?: string
+          duration_seconds?: number
+          end_seconds?: number
+          feedback_at?: string | null
+          game_library_id?: string | null
+          game_name?: string
+          id?: string
+          keyword_confidence?: number
+          provider_name?: string | null
+          start_seconds?: number
+          streamer_login?: string
+          user_confirmed?: boolean | null
+          user_corrected?: boolean | null
+          visual_confidence?: number
+          vod_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_analyses_game_library_id_fkey"
+            columns: ["game_library_id"]
+            isOneToOne: false
+            referencedRelation: "game_visual_library"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_feedback: {
+        Row: {
+          analysis_id: string | null
+          corrected_game_id: string | null
+          correction_type: string
+          created_at: string
+          created_by: string | null
+          id: string
+          notes: string | null
+          original_game_id: string | null
+        }
+        Insert: {
+          analysis_id?: string | null
+          corrected_game_id?: string | null
+          correction_type: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          original_game_id?: string | null
+        }
+        Update: {
+          analysis_id?: string | null
+          corrected_game_id?: string | null
+          correction_type?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          original_game_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_feedback_analysis_id_fkey"
+            columns: ["analysis_id"]
+            isOneToOne: false
+            referencedRelation: "agent_analyses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_feedback_corrected_game_id_fkey"
+            columns: ["corrected_game_id"]
+            isOneToOne: false
+            referencedRelation: "game_visual_library"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_feedback_original_game_id_fkey"
+            columns: ["original_game_id"]
+            isOneToOne: false
+            referencedRelation: "game_visual_library"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_messages: {
         Row: {
           created_at: string
@@ -414,6 +537,14 @@ export type Database = {
       }
       game_visual_library: {
         Row: {
+          agent_average_confidence: number | null
+          agent_confidence_threshold: number | null
+          agent_keywords: string[] | null
+          agent_last_identified_at: string | null
+          agent_learned_at: string | null
+          agent_times_corrected: number | null
+          agent_times_identified: number | null
+          agent_visual_markers: string[] | null
           created_at: string
           error_message: string | null
           game_name: string
@@ -430,6 +561,14 @@ export type Database = {
           visual_dna: Json | null
         }
         Insert: {
+          agent_average_confidence?: number | null
+          agent_confidence_threshold?: number | null
+          agent_keywords?: string[] | null
+          agent_last_identified_at?: string | null
+          agent_learned_at?: string | null
+          agent_times_corrected?: number | null
+          agent_times_identified?: number | null
+          agent_visual_markers?: string[] | null
           created_at?: string
           error_message?: string | null
           game_name: string
@@ -446,6 +585,14 @@ export type Database = {
           visual_dna?: Json | null
         }
         Update: {
+          agent_average_confidence?: number | null
+          agent_confidence_threshold?: number | null
+          agent_keywords?: string[] | null
+          agent_last_identified_at?: string | null
+          agent_learned_at?: string | null
+          agent_times_corrected?: number | null
+          agent_times_identified?: number | null
+          agent_visual_markers?: string[] | null
           created_at?: string
           error_message?: string | null
           game_name?: string
