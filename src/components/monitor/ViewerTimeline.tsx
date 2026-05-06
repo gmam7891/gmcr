@@ -25,8 +25,15 @@ export function ViewerTimeline({ timeline }: Props) {
     "hsl(var(--secondary-foreground))",
   ];
 
+  const spanMs = timeline.length > 1
+    ? new Date(timeline[timeline.length - 1].captured_at).getTime() - new Date(timeline[0].captured_at).getTime()
+    : 0;
+  const multiDay = spanMs > 36 * 3600 * 1000;
+
   const data = timeline.map((point, i) => ({
-    time: new Date(point.captured_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+    time: multiDay
+      ? new Date(point.captured_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit" })
+      : new Date(point.captured_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
     viewers: point.is_live ? point.viewer_count : 0,
     game: point.game_name || "Offline",
     isLive: point.is_live,
