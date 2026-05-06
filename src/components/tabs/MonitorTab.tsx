@@ -95,11 +95,11 @@ export function MonitorTab() {
     setReachLoading(false);
   };
 
-  const fetchTimeline = async (login: string) => {
+  const fetchTimeline = async (login: string, days: number = timelineDays) => {
     setTimelineLogin(login);
     setTimelineLoading(true);
     try {
-      const data = await getTimeline(login, 48);
+      const data = await getTimeline(login, days * 24);
       setTimeline(data);
     } catch (err: any) {
       toast.error("Erro timeline", { description: err.message });
