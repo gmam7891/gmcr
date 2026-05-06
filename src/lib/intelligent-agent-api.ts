@@ -10,7 +10,7 @@ async function call(body: Record<string, unknown>) {
 export const learnGame = (gameLibraryId: string) =>
   call({ action: "learn_game", game_library_id: gameLibraryId });
 
-export const learnAllPending = () => call({ action: "learn_all_pending" });
+export const learnAllPending = (limit = 2) => call({ action: "learn_all_pending", limit });
 
 export const analyzeVod = (vodId: string) => call({ action: "analyze_vod", vod_id: vodId });
 

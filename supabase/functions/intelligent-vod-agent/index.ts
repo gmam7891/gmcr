@@ -4,7 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -12,6 +12,9 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
 const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+const AI_TIMEOUT_MS = 60_000;
+const LEARN_ALL_BATCH_SIZE = 2;
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -36,8 +39,13 @@ Source URL: ${game.source_url || "—"}
 Visual DNA existente: ${JSON.stringify(dna).slice(0, 2000)}
 `.trim();
 
-  const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const aiController = new AbortController();
+  const aiTimeout = setTimeout(() => aiController.abort(), AI_TIMEOUT_MS);
+  let aiResp: Response;
+  try {
+    aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
+    signal: aiController.signal,
     headers: {
       Authorization: `Bearer ${LOVABLE_API_KEY}`,
       "Content-Type": "application/json",
@@ -83,7 +91,15 @@ Visual DNA existente: ${JSON.stringify(dna).slice(0, 2000)}
       ],
       tool_choice: { type: "function", function: { name: "save_game_profile" } },
     }),
-  });
+    });
+  } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new Error("A IA demorou demais para responder neste jogo. Tente re-aprender este item depois.");
+    }
+    throw e;
+  } finally {
+    clearTimeout(aiTimeout);
+  }
 
   if (!aiResp.ok) {
     const txt = await aiResp.text();
@@ -117,12 +133,15 @@ Visual DNA existente: ${JSON.stringify(dna).slice(0, 2000)}
 }
 
 // ─── Learn all pending (trained but not yet profiled) ─────────────────
-async function learnAllPending() {
-  const { data, error } = await sb
+async function learnAllPending(limit = LEARN_ALL_BATCH_SIZE) {
+  const safeLimit = Math.max(0, Math.min(10, Math.floor(Number(limit) || 0)));
+  const { data, error, count } = await sb
     .from("game_visual_library")
-    .select("id, game_name")
+    .select("id, game_name", { count: "exact" })
     .eq("training_status", "trained")
-    .is("agent_learned_at", null);
+    .is("agent_learned_at", null)
+    .order("created_at", { ascending: true })
+    .limit(safeLimit);
   if (error) throw error;
 
   const list = data || [];
@@ -143,9 +162,13 @@ async function learnAllPending() {
   }
 
   return {
+    total_pending: count || 0,
     total: list.length,
+    processed: list.length,
     succeeded: results.filter((r) => r.ok).length,
     failed: results.filter((r) => !r.ok).length,
+    has_more: (count || 0) > list.length,
+    remaining_estimate: Math.max(0, (count || 0) - list.length),
     results,
   };
 }
@@ -464,10 +487,13 @@ Deno.serve(async (req) => {
       case "learn_game":
         return json(await learnGame(body.game_library_id));
       case "learn_all_pending": {
-        // Fire-and-forget: AI calls are slow; run in background to avoid 150s timeout
-        // @ts-ignore EdgeRuntime is available in Supabase edge runtime
-        EdgeRuntime.waitUntil(learnAllPending().catch((e) => console.error("learnAllPending bg error:", e)));
-        return json({ started: true, message: "Aprendizado iniciado em background. Acompanhe pelo dashboard." });
+        const result = await learnAllPending(body.limit);
+        return json({
+          ...result,
+          message: result.has_more
+            ? `Lote processado. Ainda restam aproximadamente ${result.remaining_estimate} jogos pendentes.`
+            : "Aprendizado dos jogos pendentes concluído.",
+        });
       }
       case "analyze_vod": {
         // @ts-ignore
