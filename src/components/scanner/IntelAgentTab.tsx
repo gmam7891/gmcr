@@ -27,7 +27,7 @@ export function IntelAgentTab() {
     setTraining(true);
     try {
       const res = await learnAllPending();
-      toast.success(`Aprendizado concluído: ${res.succeeded}/${res.total} jogos`);
+      toast.success(`Lote concluído: ${res.succeeded}/${res.processed} jogos${res.has_more ? ` — ${res.remaining_estimate} pendentes` : ""}`);
       await load();
     } catch (e: any) {
       toast.error(e.message);
@@ -60,7 +60,7 @@ export function IntelAgentTab() {
           </Button>
           <Button size="sm" onClick={handleTrainAll} disabled={training}>
             {training ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <PlayCircle className="h-3.5 w-3.5 mr-1.5" />}
-            Treinar Todos Pendentes
+            Treinar Próximo Lote
           </Button>
         </div>
       </div>
