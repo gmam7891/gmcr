@@ -42,6 +42,13 @@ interface LibraryEntry {
   error_message: string | null;
   metadata: any;
   created_at: string;
+  agent_keywords?: string[] | null;
+  agent_visual_markers?: string[] | null;
+  agent_confidence_threshold?: number | null;
+  agent_times_identified?: number | null;
+  agent_times_corrected?: number | null;
+  agent_average_confidence?: number | null;
+  agent_learned_at?: string | null;
 }
 
 const ELITE_PROVIDERS = [
