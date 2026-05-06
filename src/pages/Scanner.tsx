@@ -274,7 +274,9 @@ const Scanner = () => {
           </TabsContent>
 
           <TabsContent value="intel_agent">
-            {isAdmin ? <IntelAgentTab /> : <FeatureGate requiredPlan="Enterprise" isLocked />}
+            {isAdmin ? <IntelAgentTab /> : (
+              <FeatureGate requiredPlan="Enterprise" isLocked><div /></FeatureGate>
+            )}
           </TabsContent>
         </Tabs>
       </main>
