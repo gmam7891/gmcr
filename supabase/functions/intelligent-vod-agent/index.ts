@@ -487,10 +487,13 @@ Deno.serve(async (req) => {
       case "learn_game":
         return json(await learnGame(body.game_library_id));
       case "learn_all_pending": {
-        // Fire-and-forget: AI calls are slow; run in background to avoid 150s timeout
-        // @ts-ignore EdgeRuntime is available in Supabase edge runtime
-        EdgeRuntime.waitUntil(learnAllPending().catch((e) => console.error("learnAllPending bg error:", e)));
-        return json({ started: true, message: "Aprendizado iniciado em background. Acompanhe pelo dashboard." });
+        const result = await learnAllPending(body.limit);
+        return json({
+          ...result,
+          message: result.has_more
+            ? `Lote processado. Ainda restam aproximadamente ${result.remaining_estimate} jogos pendentes.`
+            : "Aprendizado dos jogos pendentes concluído.",
+        });
       }
       case "analyze_vod": {
         // @ts-ignore
