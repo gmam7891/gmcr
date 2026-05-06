@@ -23,6 +23,7 @@ export function ViewerTimeline({ timeline, rangeDays }: Props) {
   const endMs = new Date(timeline[timeline.length - 1].captured_at).getTime();
   const spanMs = Math.max(endMs - startMs, 1);
   const spanH = spanMs / 3600000;
+  const DAY_MS = 24 * 60 * 60 * 1000;
 
   const days = rangeDays ?? Math.ceil(spanH / 24);
   // hour mode: 1d (HH:MM 00:00-23:59), 2d (HH:MM cycling twice), day mode: >=7d "Dia N"
@@ -51,59 +52,51 @@ export function ViewerTimeline({ timeline, rangeDays }: Props) {
   }
   const sorted = [...buckets.values()].sort((a, b) => a.ts - b.ts);
 
-  const fmtLabel = (ts: number): string => {
-    const d = new Date(ts);
-    if (mode === "hour" || mode === "48h") {
-      return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const axisDays = mode === "hour" ? 1 : mode === "48h" ? 2 : days;
+  const axisEnd = Math.max(axisDays * DAY_MS - 60 * 1000, 1);
+  const axisLabels =
+    mode === "hour"
+      ? ["00:00", "23:59"]
+      : mode === "48h"
+        ? ["00:00", "23:59", "00:00", "23:59"]
+        : Array.from({ length: axisDays }, (_, i) => `Dia ${i + 1}`);
+  const axisTicks = axisLabels.map((_, i) => (
+    axisLabels.length === 1 ? 0 : (axisEnd / (axisLabels.length - 1)) * i
+  ));
+
+  const fmtAxisLabel = (value: number): string => {
+    const nearestIndex = axisTicks.reduce((best, tick, i) => (
+      Math.abs(tick - value) < Math.abs(axisTicks[best] - value) ? i : best
+    ), 0);
+    return axisLabels[nearestIndex] ?? "";
+  };
+
+  const fmtTooltipLabel = (x: number): string => {
+    if (mode === "day") {
+      return `Dia ${Math.min(axisDays, Math.max(1, Math.floor((x / axisEnd) * axisDays) + 1))}`;
     }
-    const dayIndex = Math.floor((ts - startMs) / 86400000) + 1;
-    return `Dia ${dayIndex}`;
+    const totalMinutes = Math.floor(((x / axisEnd) * axisDays * 24 * 60) % (24 * 60));
+    const hours = String(Math.floor(totalMinutes / 60)).padStart(2, "0");
+    const minutes = String(totalMinutes % 60).padStart(2, "0");
+    return `${hours}:${minutes}`;
   };
 
   const data = sorted.map((b, idx) => {
     const dominantGame = Object.entries(b.games).sort((a, b) => b[1] - a[1])[0]?.[0] || "Offline";
     return {
-      idx,
+      x: spanMs === 0 ? 0 : Math.min(axisEnd, Math.max(0, ((b.ts - startMs) / spanMs) * axisEnd)),
       ts: b.ts,
-      label: fmtLabel(b.ts),
       viewers: Math.round(b.sum / Math.max(b.count, 1)),
       game: dominantGame,
     };
   });
-
-  // Compute ticks (indices) so labels are unique and well-spaced
-  const tickIdx: number[] = [];
-  if (mode === "day") {
-    // one tick per day: first index whose dayIndex changes
-    let lastDay = -1;
-    data.forEach((d) => {
-      const day = Math.floor((d.ts - startMs) / 86400000) + 1;
-      if (day !== lastDay) { tickIdx.push(d.idx); lastDay = day; }
-    });
-  } else if (mode === "48h") {
-    // Show every 6 hours across the 48h window: pick first index per 6h block
-    const block = 6 * 3600 * 1000;
-    let lastBlock = -1;
-    data.forEach((d) => {
-      const bi = Math.floor((d.ts - startMs) / block);
-      if (bi !== lastBlock) { tickIdx.push(d.idx); lastBlock = bi; }
-    });
-  } else {
-    // hour mode: every 2 hours
-    const block = 2 * 3600 * 1000;
-    let lastBlock = -1;
-    data.forEach((d) => {
-      const bi = Math.floor(d.ts / block);
-      if (bi !== lastBlock) { tickIdx.push(d.idx); lastBlock = bi; }
-    });
-  }
 
   return (
     <div className="card-surface p-4 space-y-3">
       <h3 className="text-xs uppercase tracking-wider text-muted-foreground">Timeline de Viewers</h3>
       <div className="h-48">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
+          <AreaChart data={data} margin={{ top: 5, right: 10, bottom: mode === "day" && days > 14 ? 18 : 0, left: 0 }}>
             <defs>
               <linearGradient id="viewerGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
@@ -112,14 +105,17 @@ export function ViewerTimeline({ timeline, rangeDays }: Props) {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis
-              dataKey="idx"
+              dataKey="x"
               type="number"
-              domain={[0, Math.max(data.length - 1, 0)]}
-              ticks={tickIdx}
-              tickFormatter={(i) => data[i as number]?.label ?? ""}
+              domain={[0, axisEnd]}
+              ticks={axisTicks}
+              tickFormatter={(value) => fmtAxisLabel(Number(value))}
               tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
               tickLine={false}
               axisLine={false}
+              angle={mode === "day" && days > 14 ? -45 : 0}
+              textAnchor={mode === "day" && days > 14 ? "end" : "middle"}
+              height={mode === "day" && days > 14 ? 44 : 30}
               minTickGap={0}
               interval={0}
             />
@@ -137,7 +133,7 @@ export function ViewerTimeline({ timeline, rangeDays }: Props) {
                 fontSize: 12,
               }}
               formatter={(value: number) => [fmtInt(value), "Viewers"]}
-              labelFormatter={(i) => data[i as number]?.label ?? ""}
+              labelFormatter={(value) => fmtTooltipLabel(Number(value))}
             />
             <Area
               type="monotone"
