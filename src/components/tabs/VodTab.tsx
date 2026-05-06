@@ -631,6 +631,7 @@ export function VodTab() {
                       {auditId && (
                         <AuditReportCard auditId={auditId} autoLoad />
                       )}
+                      <VodAgentReadPanel vodId={vod.id} />
                       {!hasAudit && !isScanning && (
                         <Button
                           variant="outline"
