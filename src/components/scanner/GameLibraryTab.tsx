@@ -83,6 +83,19 @@ export function GameLibraryTab() {
   const [batchTraining, setBatchTraining] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentGame: "" });
   const [batchResults, setBatchResults] = useState({ trained: 0, failed: 0 });
+  const [learningId, setLearningId] = useState<string | null>(null);
+
+  const handleLearn = async (id: string) => {
+    setLearningId(id);
+    try {
+      const res = await learnGame(id);
+      toast.success(`🧠 Agente aprendeu: ${res.keywords_count} keywords, ${res.markers_count} markers`);
+      fetchLibrary();
+    } catch (e: any) {
+      toast.error(e.message || "Falha ao aprender");
+    }
+    setLearningId(null);
+  };
 
   const fetchLibrary = async () => {
     setLoading(true);
