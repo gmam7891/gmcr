@@ -76,6 +76,7 @@ const Scanner = () => {
     { id: "queue", label: t("scan.queue_tab"), icon: ListChecks },
     { id: "chat", label: t("scan.chat_tab"), icon: MessageSquare },
     { id: "ai_lab", label: t("scan.ai_lab_title"), icon: FlaskConical },
+    { id: "intel_agent", label: "Agente IA", icon: Brain },
   ];
 
   const activeOpsTab = opsTabs.find(tab => tab.id === activeTab);
