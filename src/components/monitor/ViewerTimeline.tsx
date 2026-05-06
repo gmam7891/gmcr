@@ -4,9 +4,10 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 
 interface Props {
   timeline: TimelinePoint[];
+  rangeDays?: number;
 }
 
-export function ViewerTimeline({ timeline }: Props) {
+export function ViewerTimeline({ timeline, rangeDays }: Props) {
   if (timeline.length === 0) return null;
 
   const games = [...new Set(timeline.map(t => t.game_name || 'Offline'))];
@@ -23,53 +24,72 @@ export function ViewerTimeline({ timeline }: Props) {
   const spanMs = Math.max(endMs - startMs, 1);
   const spanH = spanMs / 3600000;
 
-  // Adaptive bucket size: target ~120 buckets max
+  // Mode: 'hour' (1d), '48h' (2d, contínuo em horas 0-47), 'day' (>=7d, "Dia N")
+  const days = rangeDays ?? Math.ceil(spanH / 24);
+  const mode: "hour" | "48h" | "day" = days <= 1 ? "hour" : days === 2 ? "48h" : "day";
+
+  // Adaptive bucket size
   let bucketMs: number;
-  if (spanH <= 26) bucketMs = 5 * 60 * 1000;          // <=24h: 5min
-  else if (spanH <= 50) bucketMs = 15 * 60 * 1000;     // <=2d:  15min
-  else if (spanH <= 24 * 8) bucketMs = 60 * 60 * 1000; // <=7d:  1h
-  else if (spanH <= 24 * 15) bucketMs = 2 * 3600 * 1000; // <=14d: 2h
-  else bucketMs = 6 * 3600 * 1000;                      // 30d:   6h
+  if (mode === "hour") bucketMs = 5 * 60 * 1000;        // 5min
+  else if (mode === "48h") bucketMs = 30 * 60 * 1000;   // 30min
+  else if (days <= 7) bucketMs = 60 * 60 * 1000;        // 1h
+  else if (days <= 14) bucketMs = 2 * 3600 * 1000;      // 2h
+  else bucketMs = 6 * 3600 * 1000;                       // 6h
 
-  const multiDay = spanH > 36;
-
-  // Aggregate snapshots into buckets (avg viewers per bucket, dominant game)
-  type Bucket = { ts: number; sum: number; count: number; live: number; games: Record<string, number> };
+  type Bucket = { ts: number; sum: number; count: number; games: Record<string, number> };
   const buckets = new Map<number, Bucket>();
   for (const p of timeline) {
     const t = new Date(p.captured_at).getTime();
     const key = Math.floor(t / bucketMs) * bucketMs;
     let b = buckets.get(key);
-    if (!b) { b = { ts: key, sum: 0, count: 0, live: 0, games: {} }; buckets.set(key, b); }
+    if (!b) { b = { ts: key, sum: 0, count: 0, games: {} }; buckets.set(key, b); }
     const v = p.is_live ? p.viewer_count : 0;
     b.sum += v;
     b.count += 1;
-    if (p.is_live) b.live += 1;
     const g = p.game_name || "Offline";
     b.games[g] = (b.games[g] || 0) + 1;
   }
-
   const sorted = [...buckets.values()].sort((a, b) => a.ts - b.ts);
-  const fmt = (ts: number) => {
+
+  const fmtLabel = (ts: number): string => {
     const d = new Date(ts);
-    if (multiDay) {
-      return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    if (mode === "hour") {
+      return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     }
-    return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+    if (mode === "48h") {
+      const hoursFromStart = Math.floor((ts - startMs) / 3600000);
+      return `${hoursFromStart}h`;
+    }
+    // day mode: "Dia N"
+    const dayIndex = Math.floor((ts - startMs) / 86400000) + 1;
+    return `Dia ${dayIndex}`;
   };
 
   const data = sorted.map(b => {
     const dominantGame = Object.entries(b.games).sort((a, b) => b[1] - a[1])[0]?.[0] || "Offline";
     return {
-      time: fmt(b.ts),
+      time: fmtLabel(b.ts),
       viewers: Math.round(b.sum / Math.max(b.count, 1)),
       game: dominantGame,
     };
   });
 
-  // Limit X-axis tick density
-  const tickCount = Math.min(10, data.length);
-  const tickInterval = data.length > tickCount ? Math.floor(data.length / tickCount) : 0;
+  // For day mode, show one tick per day (deduplicate label positions)
+  let tickInterval: number | "preserveStartEnd" = "preserveStartEnd";
+  if (mode === "day") {
+    const seen = new Set<string>();
+    const firstIdxByLabel: number[] = [];
+    data.forEach((d, i) => {
+      if (!seen.has(d.time)) { seen.add(d.time); firstIdxByLabel.push(i); }
+    });
+    // approximate via interval
+    tickInterval = Math.max(1, Math.floor(data.length / Math.max(firstIdxByLabel.length, 1)) - 1);
+  } else if (mode === "48h") {
+    // ~12 ticks across 48h
+    tickInterval = Math.max(0, Math.floor(data.length / 12));
+  } else {
+    tickInterval = Math.max(0, Math.floor(data.length / 10));
+  }
 
   return (
     <div className="card-surface p-4 space-y-3">
@@ -89,7 +109,7 @@ export function ViewerTimeline({ timeline }: Props) {
               tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
               tickLine={false}
               axisLine={false}
-              interval={tickInterval}
+              interval={tickInterval as any}
               minTickGap={20}
             />
             <YAxis
