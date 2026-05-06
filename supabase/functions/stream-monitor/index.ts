@@ -238,7 +238,7 @@ Deno.serve(async (req) => {
       const since = new Date(Date.now() - hours * 3600000).toISOString();
 
       const res = await fetch(
-        `${SUPABASE_URL}/rest/v1/stream_snapshots?streamer_login=eq.${encodeURIComponent(login)}&captured_at=gte.${since}&select=viewer_count,game_name,is_live,captured_at,is_ai_verified,ai_confidence&order=captured_at.asc&limit=5000`,
+        `${SUPABASE_URL}/rest/v1/stream_snapshots?streamer_login=eq.${encodeURIComponent(login)}&captured_at=gte.${since}&select=viewer_count,game_name,is_live,captured_at,is_ai_verified,ai_confidence&order=captured_at.asc&limit=20000`,
         { headers: supabaseHeaders }
       );
       const data = await res.json();
