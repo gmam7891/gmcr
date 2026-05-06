@@ -9,11 +9,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Loader2, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, Clock, Zap,
-  ChevronDown, ChevronUp, Upload, PlayCircle, Camera,
+  ChevronDown, ChevronUp, Upload, PlayCircle, Camera, Brain,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { BulkImportTab } from "./BulkImportTab";
 import { ScreenshotTrainingTab } from "./ScreenshotTrainingTab";
+import { learnGame } from "@/lib/intelligent-agent-api";
 
 interface VisualDNA {
   detected_game_name?: string;
