@@ -8,7 +8,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2,
   Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck,
-  Search, Activity, BarChart3, FlaskConical, Trophy, ChevronDown, Settings2,
+  Search, Activity, BarChart3, FlaskConical, Trophy, ChevronDown, Settings2, Brain,
 } from "lucide-react";
 import { StatusHeader } from "@/components/scanner/StatusHeader";
 import { GlobalFilters } from "@/components/scanner/GlobalFilters";
