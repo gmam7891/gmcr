@@ -463,9 +463,18 @@ Deno.serve(async (req) => {
     switch (action) {
       case "learn_game":
         return json(await learnGame(body.game_library_id));
-      case "learn_all_pending":
-        return json(await learnAllPending());
-      case "analyze_vod":
+      case "learn_all_pending": {
+        // Fire-and-forget: AI calls are slow; run in background to avoid 150s timeout
+        // @ts-ignore EdgeRuntime is available in Supabase edge runtime
+        EdgeRuntime.waitUntil(learnAllPending().catch((e) => console.error("learnAllPending bg error:", e)));
+        return json({ started: true, message: "Aprendizado iniciado em background. Acompanhe pelo dashboard." });
+      }
+      case "analyze_vod": {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(analyzeVod(body.vod_id).catch((e) => console.error("analyzeVod bg error:", e)));
+        return json({ started: true, vod_id: body.vod_id, message: "Análise iniciada em background." });
+      }
+      case "analyze_vod_sync":
         return json(await analyzeVod(body.vod_id));
       case "submit_feedback":
         return json(await submitFeedback(body));
