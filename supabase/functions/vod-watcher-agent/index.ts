@@ -38,7 +38,7 @@ const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
 const GQL_URL = "https://gql.twitch.tv/gql";
 const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 
-const MOSAICS_PER_CHUNK = 4;          // process up to 4 storyboard mosaics per HTTP chunk
+const MOSAICS_PER_CHUNK = 8;          // process up to 8 storyboard mosaics per HTTP chunk (was 4 — too thin for medium variant)
 const CHECKPOINT_FRAMES = 50;         // persist progress every N frames within a chunk
 const MAX_RETRIES = 3;                // exponential backoff retries for AI / Twitch
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
