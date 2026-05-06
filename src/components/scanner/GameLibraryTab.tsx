@@ -457,6 +457,51 @@ export function GameLibraryTab() {
                         <p className="text-xs text-destructive">{entry.error_message}</p>
                       )}
 
+                      {/* Agente IA */}
+                      <div className="border-t border-border pt-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                            <Brain className="h-3 w-3 text-primary" /> Agente IA
+                            {entry.agent_learned_at && (
+                              <Badge variant="outline" className="text-[9px] ml-1">
+                                {(entry.agent_keywords?.length || 0)} kw · {(entry.agent_visual_markers?.length || 0)} mk
+                              </Badge>
+                            )}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-[10px]"
+                            disabled={learningId === entry.id || entry.training_status !== "trained"}
+                            onClick={() => handleLearn(entry.id)}
+                          >
+                            {learningId === entry.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            ) : (
+                              <Brain className="h-3 w-3 mr-1" />
+                            )}
+                            {entry.agent_learned_at ? "Re-aprender" : "Aprender"}
+                          </Button>
+                        </div>
+                        {entry.agent_learned_at && (
+                          <div className="grid grid-cols-3 gap-2 text-[10px] font-mono text-muted-foreground">
+                            <div>Identificações: <span className="text-foreground">{entry.agent_times_identified || 0}</span></div>
+                            <div>Correções: <span className="text-destructive">{entry.agent_times_corrected || 0}</span></div>
+                            <div>Confiança média: <span className="text-primary">{((Number(entry.agent_average_confidence) || 0) * 100).toFixed(0)}%</span></div>
+                          </div>
+                        )}
+                        {entry.agent_keywords && entry.agent_keywords.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {entry.agent_keywords.slice(0, 12).map((k, i) => (
+                              <Badge key={i} variant="secondary" className="text-[9px]">{k}</Badge>
+                            ))}
+                            {entry.agent_keywords.length > 12 && (
+                              <Badge variant="outline" className="text-[9px]">+{entry.agent_keywords.length - 12}</Badge>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
                       {/* Actions */}
                       <div className="flex justify-end">
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(entry.id)}>
