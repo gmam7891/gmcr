@@ -24,8 +24,8 @@ export function ViewerTimeline({ timeline, rangeDays }: Props) {
   const spanMs = Math.max(endMs - startMs, 1);
   const spanH = spanMs / 3600000;
 
-  // Mode: 'hour' (1d), '48h' (2d, contínuo em horas 0-47), 'day' (>=7d, "Dia N")
   const days = rangeDays ?? Math.ceil(spanH / 24);
+  // hour mode: 1d (HH:MM 00:00-23:59), 2d (HH:MM cycling twice), day mode: >=7d "Dia N"
   const mode: "hour" | "48h" | "day" = days <= 1 ? "hour" : days === 2 ? "48h" : "day";
 
   // Adaptive bucket size
@@ -53,42 +53,49 @@ export function ViewerTimeline({ timeline, rangeDays }: Props) {
 
   const fmtLabel = (ts: number): string => {
     const d = new Date(ts);
-    if (mode === "hour") {
+    if (mode === "hour" || mode === "48h") {
       return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     }
-    if (mode === "48h") {
-      const hoursFromStart = Math.floor((ts - startMs) / 3600000);
-      return `${hoursFromStart}h`;
-    }
-    // day mode: "Dia N"
     const dayIndex = Math.floor((ts - startMs) / 86400000) + 1;
     return `Dia ${dayIndex}`;
   };
 
-  const data = sorted.map(b => {
+  const data = sorted.map((b, idx) => {
     const dominantGame = Object.entries(b.games).sort((a, b) => b[1] - a[1])[0]?.[0] || "Offline";
     return {
-      time: fmtLabel(b.ts),
+      idx,
+      ts: b.ts,
+      label: fmtLabel(b.ts),
       viewers: Math.round(b.sum / Math.max(b.count, 1)),
       game: dominantGame,
     };
   });
 
-  // For day mode, show one tick per day (deduplicate label positions)
-  let tickInterval: number | "preserveStartEnd" = "preserveStartEnd";
+  // Compute ticks (indices) so labels are unique and well-spaced
+  const tickIdx: number[] = [];
   if (mode === "day") {
-    const seen = new Set<string>();
-    const firstIdxByLabel: number[] = [];
-    data.forEach((d, i) => {
-      if (!seen.has(d.time)) { seen.add(d.time); firstIdxByLabel.push(i); }
+    // one tick per day: first index whose dayIndex changes
+    let lastDay = -1;
+    data.forEach((d) => {
+      const day = Math.floor((d.ts - startMs) / 86400000) + 1;
+      if (day !== lastDay) { tickIdx.push(d.idx); lastDay = day; }
     });
-    // approximate via interval
-    tickInterval = Math.max(1, Math.floor(data.length / Math.max(firstIdxByLabel.length, 1)) - 1);
   } else if (mode === "48h") {
-    // ~12 ticks across 48h
-    tickInterval = Math.max(0, Math.floor(data.length / 12));
+    // Show every 6 hours across the 48h window: pick first index per 6h block
+    const block = 6 * 3600 * 1000;
+    let lastBlock = -1;
+    data.forEach((d) => {
+      const bi = Math.floor((d.ts - startMs) / block);
+      if (bi !== lastBlock) { tickIdx.push(d.idx); lastBlock = bi; }
+    });
   } else {
-    tickInterval = Math.max(0, Math.floor(data.length / 10));
+    // hour mode: every 2 hours
+    const block = 2 * 3600 * 1000;
+    let lastBlock = -1;
+    data.forEach((d) => {
+      const bi = Math.floor(d.ts / block);
+      if (bi !== lastBlock) { tickIdx.push(d.idx); lastBlock = bi; }
+    });
   }
 
   return (
@@ -105,12 +112,16 @@ export function ViewerTimeline({ timeline, rangeDays }: Props) {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis
-              dataKey="time"
+              dataKey="idx"
+              type="number"
+              domain={[0, Math.max(data.length - 1, 0)]}
+              ticks={tickIdx}
+              tickFormatter={(i) => data[i as number]?.label ?? ""}
               tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
               tickLine={false}
               axisLine={false}
-              interval={tickInterval as any}
-              minTickGap={20}
+              minTickGap={0}
+              interval={0}
             />
             <YAxis
               tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
@@ -126,7 +137,7 @@ export function ViewerTimeline({ timeline, rangeDays }: Props) {
                 fontSize: 12,
               }}
               formatter={(value: number) => [fmtInt(value), "Viewers"]}
-              labelFormatter={(label) => `${label}`}
+              labelFormatter={(i) => data[i as number]?.label ?? ""}
             />
             <Area
               type="monotone"
