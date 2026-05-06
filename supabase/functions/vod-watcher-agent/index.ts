@@ -352,15 +352,15 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     variants.map((v: any) => `${v.quality}(${v.count}t,${v.interval}s,${v.width}x${v.height})`).join(", ")
   );
 
-  // Pick the variant with the LARGEST TILE AREA. Vision AI cannot read tiles
-  // smaller than ~200px wide — the "low" variant (≈80×45 px) makes Gemini
-  // hallucinate or skip frames entirely. Prefer the explicitly named "high"
-  // quality, then fall back to "medium", then to whichever has the largest
-  // tile area as a last resort.
+  // Trade-off: "high" (~320x180px, ~30s/tile) é o mais legível mas perde
+  // transições curtas (loading screens 3-8s ficam de fora). "medium"
+  // (~160x90px, ~15s/tile) é o sweet-spot: ainda legível para HUDs e logos
+  // grandes, com 2x mais cobertura temporal. "low" (~80x45px) é descartado
+  // porque a IA alucina nele.
   const byQuality = (q: string) => variants.find((v: any) => String(v.quality).toLowerCase() === q);
   const variant =
-    byQuality("high") ??
     byQuality("medium") ??
+    byQuality("high") ??
     variants.reduce((best: any, v: any) => {
       if (!best) return v;
       const bestArea = (best?.width || 0) * (best?.height || 0);
