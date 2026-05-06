@@ -261,10 +261,31 @@ export function MonitorTab() {
           {/* Timeline */}
           {timelineLogin && (
             <div className="space-y-2">
-              <h3 className="text-xs text-muted-foreground uppercase tracking-wider">
-                {t("mon.timeline")}: {timelineLogin} ({t("mon.last_48h")})
-                {timelineLoading && ` — ${t("mon.loading")}`}
-              </h3>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h3 className="text-xs text-muted-foreground uppercase tracking-wider">
+                  {t("mon.timeline")}: {timelineLogin} ({timelineDays === 1 ? "24h" : `${timelineDays}d`})
+                  {timelineLoading && ` — ${t("mon.loading")}`}
+                </h3>
+                <Select
+                  value={String(timelineDays)}
+                  onValueChange={(v) => {
+                    const d = Number(v);
+                    setTimelineDays(d);
+                    fetchTimeline(timelineLogin, d);
+                  }}
+                >
+                  <SelectTrigger className="w-28 h-7 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 dia</SelectItem>
+                    <SelectItem value="2">2 dias</SelectItem>
+                    <SelectItem value="7">7 dias</SelectItem>
+                    <SelectItem value="14">14 dias</SelectItem>
+                    <SelectItem value="30">30 dias</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <ViewerTimeline timeline={timeline} />
             </div>
           )}
