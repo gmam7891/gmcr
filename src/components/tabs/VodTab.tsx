@@ -13,6 +13,7 @@ import { fmtInt } from "@/lib/formatters";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { VodAuditProgressBar } from "@/components/VodAuditProgressBar";
+import { VodAgentReadPanel } from "@/components/scanner/VodAgentReadPanel";
 import { useVodAuditProgress } from "@/hooks/useVodAuditProgress";
 import { toast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
@@ -397,6 +398,8 @@ export function VodTab() {
             {auditId && (
               <AuditReportCard auditId={auditId} autoLoad />
             )}
+
+            <VodAgentReadPanel vodId={singleVod.id} />
           </div>
         );
       })()}
@@ -530,6 +533,8 @@ export function VodTab() {
                               <AuditReportCard auditId={auditId} autoLoad />
                             )}
 
+                            <VodAgentReadPanel vodId={vod.id} />
+
                             {!hasAudit && !isScanning && (
                               <Button
                                 variant="outline"
@@ -626,6 +631,7 @@ export function VodTab() {
                       {auditId && (
                         <AuditReportCard auditId={auditId} autoLoad />
                       )}
+                      <VodAgentReadPanel vodId={vod.id} />
                       {!hasAudit && !isScanning && (
                         <Button
                           variant="outline"
