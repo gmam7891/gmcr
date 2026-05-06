@@ -25,6 +25,7 @@ import { QualityTab } from "@/components/scanner/QualityTab";
 import { ScanStartPanel } from "@/components/scanner/ScanStartPanel";
 import { SullyGnomeTab } from "@/components/scanner/SullyGnomeTab";
 import { AiLabTab } from "@/components/scanner/AiLabTab";
+import { IntelAgentTab } from "@/components/scanner/IntelAgentTab";
 import { ResultsTab } from "@/components/scanner/ResultsTab";
 import {
   DropdownMenu,
