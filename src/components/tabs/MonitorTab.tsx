@@ -34,6 +34,7 @@ export function MonitorTab() {
   const [timelineLogin, setTimelineLogin] = useState<string>("");
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineDays, setTimelineDays] = useState(1);
 
   const fetchStreamers = useCallback(async () => {
     try {
