@@ -398,6 +398,8 @@ export function VodTab() {
             {auditId && (
               <AuditReportCard auditId={auditId} autoLoad />
             )}
+
+            <VodAgentReadPanel vodId={singleVod.id} />
           </div>
         );
       })()}
