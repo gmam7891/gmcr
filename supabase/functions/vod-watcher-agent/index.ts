@@ -798,8 +798,8 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         // Candy Blitz, Mochimon, Inca Queen, etc.) whenever it sees a slot
         // it can't actually read. Require ≥ 0.75 confidence for the match
         // to count, otherwise treat it as a guess and discard.
-        const LIBRARY_MATCH_CONF_FLOOR = 0.75;
-        const UNKNOWN_GAME_CONF_FLOOR = 0.6;
+        const LIBRARY_MATCH_CONF_FLOOR = 0.65;
+        const UNKNOWN_GAME_CONF_FLOOR = 0.55;
         const isUnknownGame = !!det.is_unknown_game;
         let validatedGameName: string | null = null;
         let validatedProvider: string | null = null;
