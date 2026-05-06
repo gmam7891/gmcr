@@ -286,7 +286,7 @@ export function MonitorTab() {
                   </SelectContent>
                 </Select>
               </div>
-              <ViewerTimeline timeline={timeline} />
+              <ViewerTimeline timeline={timeline} rangeDays={timelineDays} />
             </div>
           )}
         </div>
