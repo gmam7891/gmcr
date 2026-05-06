@@ -272,6 +272,10 @@ const Scanner = () => {
               <AiLabTab />
             </FeatureGate>
           </TabsContent>
+
+          <TabsContent value="intel_agent">
+            {isAdmin ? <IntelAgentTab /> : <FeatureGate requiredPlan="Enterprise" isLocked />}
+          </TabsContent>
         </Tabs>
       </main>
     </div>
