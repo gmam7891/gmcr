@@ -27,6 +27,12 @@ export const submitFeedback = (params: {
 
 export const getAgentDashboard = () => call({ action: "get_dashboard" });
 
+export const soloStart = (vodId: string, streamerLogin: string) =>
+  call({ action: "solo_start", vod_id: vodId, streamer_login: streamerLogin });
+
+export const soloStatus = (runId?: string) =>
+  call({ action: "solo_status", ...(runId ? { run_id: runId } : {}) });
+
 export interface AgentAnalysis {
   id: string;
   vod_id: string;
