@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { analyzeVod, getVodAnalyses, type AgentAnalysis } from "@/lib/intelligent-agent-api";
+import { analyzeVod, getVodAnalyses, soloStart, soloStatus, type AgentAnalysis } from "@/lib/intelligent-agent-api";
 import { formatSeconds } from "@/lib/twitch-api";
 
 interface Props {
   vodId: string;
+  streamerLogin?: string;
 }
 
 export function VodAgentReadPanel({ vodId }: Props) {
