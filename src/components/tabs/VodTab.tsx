@@ -399,7 +399,7 @@ export function VodTab() {
               <AuditReportCard auditId={auditId} autoLoad />
             )}
 
-            <VodAgentReadPanel vodId={singleVod.id} />
+            <VodAgentReadPanel vodId={singleVod.id} streamerLogin={singleVod.user_login} />
           </div>
         );
       })()}
@@ -533,7 +533,7 @@ export function VodTab() {
                               <AuditReportCard auditId={auditId} autoLoad />
                             )}
 
-                            <VodAgentReadPanel vodId={vod.id} />
+                            <VodAgentReadPanel vodId={vod.id} streamerLogin={vod.user_login} />
 
                             {!hasAudit && !isScanning && (
                               <Button
@@ -631,7 +631,7 @@ export function VodTab() {
                       {auditId && (
                         <AuditReportCard auditId={auditId} autoLoad />
                       )}
-                      <VodAgentReadPanel vodId={vod.id} />
+                      <VodAgentReadPanel vodId={vod.id} streamerLogin={vod.user_login} />
                       {!hasAudit && !isScanning && (
                         <Button
                           variant="outline"
