@@ -1,4 +1,5 @@
 // Intelligent VOD Agent — learns game profiles + provides second-opinion VOD analysis
+// + SOLO MODE: independent storyboard + Vision pipeline (no reuse of pipeline data)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
@@ -9,12 +10,18 @@ const corsHeaders = {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || "";
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
 const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+const AI_GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GQL_URL = "https://gql.twitch.tv/gql";
+const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
+
 const AI_TIMEOUT_MS = 60_000;
 const LEARN_ALL_BATCH_SIZE = 2;
+const SOLO_MOSAICS_PER_CHUNK = 4; // baixa, pra não estourar o timeout
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -43,59 +50,36 @@ Visual DNA existente: ${JSON.stringify(dna).slice(0, 2000)}
   const aiTimeout = setTimeout(() => aiController.abort(), AI_TIMEOUT_MS);
   let aiResp: Response;
   try {
-    aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    signal: aiController.signal,
-    headers: {
-      Authorization: `Bearer ${LOVABLE_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "google/gemini-3-flash-preview",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Você é um especialista em identificação visual de jogos de cassino online. Extraia palavras-chave e marcadores visuais únicos que permitam reconhecer este jogo em capturas de tela ou OCR de VODs da Twitch.",
-        },
-        {
-          role: "user",
-          content: `Analise os dados deste jogo e gere o perfil de detecção:\n\n${context}\n\nGere:\n- agent_keywords: 15-25 termos textuais únicos (nome do jogo, símbolos especiais, frases do HUD/paytable, mecânicas próprias). Em PT e EN. Curtos.\n- agent_visual_markers: 8-15 marcadores visuais (cores dominantes em hex, elementos de UI únicos, formato de grid, personagens, ícones de bônus).`,
-        },
-      ],
-      tools: [
-        {
+    aiResp = await fetch(AI_GATEWAY, {
+      method: "POST",
+      signal: aiController.signal,
+      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          { role: "system", content: "Você é um especialista em identificação visual de jogos de cassino online. Extraia palavras-chave e marcadores visuais únicos." },
+          { role: "user", content: `Analise os dados deste jogo:\n\n${context}\n\nGere agent_keywords (15-25 termos PT/EN curtos) e agent_visual_markers (8-15 marcadores visuais).` },
+        ],
+        tools: [{
           type: "function",
           function: {
             name: "save_game_profile",
-            description: "Save the agent's learned profile for this game",
             parameters: {
               type: "object",
               properties: {
-                agent_keywords: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "15-25 unique textual keywords",
-                },
-                agent_visual_markers: {
-                  type: "array",
-                  items: { type: "string" },
-                  description: "8-15 visual markers",
-                },
+                agent_keywords: { type: "array", items: { type: "string" } },
+                agent_visual_markers: { type: "array", items: { type: "string" } },
               },
               required: ["agent_keywords", "agent_visual_markers"],
               additionalProperties: false,
             },
           },
-        },
-      ],
-      tool_choice: { type: "function", function: { name: "save_game_profile" } },
-    }),
+        }],
+        tool_choice: { type: "function", function: { name: "save_game_profile" } },
+      }),
     });
   } catch (e: unknown) {
-    if (e instanceof DOMException && e.name === "AbortError") {
-      throw new Error("A IA demorou demais para responder neste jogo. Tente re-aprender este item depois.");
-    }
+    if (e instanceof DOMException && e.name === "AbortError") throw new Error("A IA demorou demais. Tente depois.");
     throw e;
   } finally {
     clearTimeout(aiTimeout);
@@ -103,8 +87,8 @@ Visual DNA existente: ${JSON.stringify(dna).slice(0, 2000)}
 
   if (!aiResp.ok) {
     const txt = await aiResp.text();
-    if (aiResp.status === 429) throw new Error("Rate limit excedido. Tente novamente em alguns minutos.");
-    if (aiResp.status === 402) throw new Error("Créditos do Lovable AI esgotados. Adicione créditos em Settings > Workspace > Usage.");
+    if (aiResp.status === 429) throw new Error("Rate limit excedido.");
+    if (aiResp.status === 402) throw new Error("Créditos do Lovable AI esgotados.");
     throw new Error(`AI error ${aiResp.status}: ${txt.slice(0, 200)}`);
   }
 
@@ -113,26 +97,16 @@ Visual DNA existente: ${JSON.stringify(dna).slice(0, 2000)}
   if (!toolCall) throw new Error("AI did not return a profile");
   const profile = JSON.parse(toolCall.function.arguments);
 
-  const { error: upErr } = await sb
-    .from("game_visual_library")
-    .update({
-      agent_keywords: profile.agent_keywords || [],
-      agent_visual_markers: profile.agent_visual_markers || [],
-      agent_learned_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", gameLibraryId);
-  if (upErr) throw upErr;
+  await sb.from("game_visual_library").update({
+    agent_keywords: profile.agent_keywords || [],
+    agent_visual_markers: profile.agent_visual_markers || [],
+    agent_learned_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq("id", gameLibraryId);
 
-  return {
-    game_id: gameLibraryId,
-    game_name: game.game_name,
-    keywords_count: profile.agent_keywords?.length || 0,
-    markers_count: profile.agent_visual_markers?.length || 0,
-  };
+  return { game_id: gameLibraryId, game_name: game.game_name };
 }
 
-// ─── Learn all pending (trained but not yet profiled) ─────────────────
 async function learnAllPending(limit = LEARN_ALL_BATCH_SIZE) {
   const safeLimit = Math.max(0, Math.min(10, Math.floor(Number(limit) || 0)));
   const { data, error, count } = await sb
@@ -146,24 +120,17 @@ async function learnAllPending(limit = LEARN_ALL_BATCH_SIZE) {
 
   const list = data || [];
   const results: Array<{ id: string; ok: boolean; error?: string }> = [];
-
   for (const g of list) {
     try {
       await learnGame(g.id);
       results.push({ id: g.id, ok: true });
-      await new Promise((r) => setTimeout(r, 800)); // throttle
+      await new Promise((r) => setTimeout(r, 800));
     } catch (e: unknown) {
-      results.push({
-        id: g.id,
-        ok: false,
-        error: e instanceof Error ? e.message : String(e),
-      });
+      results.push({ id: g.id, ok: false, error: e instanceof Error ? e.message : String(e) });
     }
   }
-
   return {
     total_pending: count || 0,
-    total: list.length,
     processed: list.length,
     succeeded: results.filter((r) => r.ok).length,
     failed: results.filter((r) => !r.ok).length,
@@ -173,113 +140,64 @@ async function learnAllPending(limit = LEARN_ALL_BATCH_SIZE) {
   };
 }
 
-// ─── Helpers for analysis ─────────────────────────────────────────────
+// ─── Helpers (text matching reused) ───────────────────────────────────
 function normalize(s: string): string {
-  return (s || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9 ]/g, " ");
+  return (s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]/g, " ");
 }
-
 function tokenize(s: string): Set<string> {
   return new Set(normalize(s).split(/\s+/).filter((w) => w.length >= 2));
 }
-
 function keywordScore(haystack: Set<string>, kws: string[]): number {
   if (!kws?.length) return 0;
   let hits = 0;
   for (const kw of kws) {
     const tokens = normalize(kw).split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;
-    const allMatch = tokens.every((t) => haystack.has(t));
-    if (allMatch) hits++;
+    if (tokens.every((t) => haystack.has(t))) hits++;
   }
   return Math.min(1, hits / Math.max(1, Math.min(kws.length, 10)));
 }
-
 function visualScore(haystack: Set<string>, markers: string[]): number {
   if (!markers?.length) return 0;
   let hits = 0;
   for (const m of markers) {
     const tokens = normalize(m).split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;
-    const anyMatch = tokens.some((t) => haystack.has(t));
-    if (anyMatch) hits++;
+    if (tokens.some((t) => haystack.has(t))) hits++;
   }
   return Math.min(1, hits / Math.max(1, Math.min(markers.length, 6)));
 }
 
-// ─── Analyze VOD: compute agent's second opinion from raw_evidences ──
+// ─── Original analyze (reuses raw_evidences) ─────────────────────────
 async function analyzeVod(vodId: string) {
-  // Load all learned profiles
   const { data: games, error: gErr } = await sb
     .from("game_visual_library")
-    .select(
-      "id, game_name, provider_name, agent_keywords, agent_visual_markers, agent_confidence_threshold",
-    )
+    .select("id, game_name, provider_name, agent_keywords, agent_visual_markers, agent_confidence_threshold")
     .not("agent_learned_at", "is", null);
   if (gErr) throw gErr;
-  const profiles = (games || []).filter(
-    (g) => (g.agent_keywords?.length || 0) + (g.agent_visual_markers?.length || 0) > 0,
-  );
-  if (profiles.length === 0) {
-    return { vod_id: vodId, blocks: 0, message: "Nenhum perfil aprendido. Treine os jogos primeiro." };
-  }
+  const profiles = (games || []).filter((g) => (g.agent_keywords?.length || 0) + (g.agent_visual_markers?.length || 0) > 0);
+  if (profiles.length === 0) return { vod_id: vodId, blocks: 0, message: "Nenhum perfil aprendido." };
 
-  // Load evidences for this VOD
-  const { data: evidences, error: eErr } = await sb
+  const { data: evidences } = await sb
     .from("raw_evidences")
-    .select(
-      "id, timestamp_seconds, game_detected, provider_detected, extra_metadata, screen_state, casino_brand",
-    )
+    .select("id, timestamp_seconds, game_detected, provider_detected, extra_metadata, screen_state, casino_brand")
     .eq("vod_id", vodId)
     .order("timestamp_seconds", { ascending: true });
-  if (eErr) throw eErr;
-  if (!evidences || evidences.length === 0) {
-    return { vod_id: vodId, blocks: 0, message: "Nenhuma evidência encontrada para este VOD." };
-  }
+  if (!evidences || evidences.length === 0) return { vod_id: vodId, blocks: 0, message: "Sem evidências." };
 
-  // Streamer login from VOD audit
-  const { data: audit } = await sb
-    .from("vod_audits")
-    .select("streamer_login")
-    .eq("vod_id", vodId)
-    .maybeSingle();
+  const { data: audit } = await sb.from("vod_audits").select("streamer_login").eq("vod_id", vodId).maybeSingle();
   const streamerLogin = audit?.streamer_login || "unknown";
 
-  // Pipeline blocks for agreement check
-  const { data: pipelineBlocks } = await sb
-    .from("gameplay_blocks")
-    .select("game_name, start_seconds, end_seconds")
-    .eq("vod_id", vodId);
+  const { data: pipelineBlocks } = await sb.from("gameplay_blocks").select("game_name, start_seconds, end_seconds").eq("vod_id", vodId);
 
-  // For each evidence, find best matching profile
   type Detection = { ts: number; game: typeof profiles[0]; conf: number; kc: number; vc: number };
   const detections: Detection[] = [];
-
   for (const ev of evidences) {
     const meta = (ev.extra_metadata as Record<string, unknown>) || {};
-    const textParts = [
-      ev.game_detected,
-      ev.provider_detected,
-      ev.casino_brand,
-      ev.screen_state,
-      typeof meta.ocr === "string" ? meta.ocr : "",
-      typeof meta.evidence === "string" ? meta.evidence : "",
-      typeof meta.title === "string" ? meta.title : "",
-    ].filter(Boolean).join(" ");
-
-    const visualParts = [
-      typeof meta.color_palette === "string" ? meta.color_palette : "",
-      Array.isArray(meta.visual_markers) ? meta.visual_markers.join(" ") : "",
-      Array.isArray(meta.colors) ? meta.colors.join(" ") : "",
-      ev.screen_state || "",
-    ].join(" ");
-
+    const textParts = [ev.game_detected, ev.provider_detected, ev.casino_brand, ev.screen_state, typeof meta.ocr === "string" ? meta.ocr : "", typeof meta.evidence === "string" ? meta.evidence : ""].filter(Boolean).join(" ");
+    const visualParts = [typeof meta.color_palette === "string" ? meta.color_palette : "", Array.isArray(meta.visual_markers) ? meta.visual_markers.join(" ") : "", ev.screen_state || ""].join(" ");
     const textTokens = tokenize(textParts + " " + visualParts);
-    const visualTokens = tokenize(visualParts + " " + textParts);
-
+    const visualTokens = tokenize(visualParts);
     let best: Detection | null = null;
     for (const p of profiles) {
       const kc = keywordScore(textTokens, p.agent_keywords || []);
@@ -292,130 +210,339 @@ async function analyzeVod(vodId: string) {
     }
     if (best) detections.push(best);
   }
+  return await persistDetectionBlocks(vodId, streamerLogin, detections, pipelineBlocks || []);
+}
 
-  // Group consecutive detections of the same game into blocks (gap ≤ 90s)
+// ─── SOLO MODE: storyboards + Vision ─────────────────────────────────
+async function fetchStoryboardPlan(vodId: string) {
+  const r1 = await fetch(GQL_URL, {
+    method: "POST",
+    headers: { "Client-ID": GQL_CLIENT_ID, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: `query{video(id:"${vodId}"){seekPreviewsURL}}` }),
+  });
+  if (!r1.ok) return null;
+  const gql = await r1.json();
+  const infoUrl: string | undefined = gql?.data?.video?.seekPreviewsURL;
+  if (!infoUrl) return null;
+  const r2 = await fetch(infoUrl);
+  if (!r2.ok) return null;
+  const variants: any[] = await r2.json();
+  if (!Array.isArray(variants) || variants.length === 0) return null;
+  const byQ = (q: string) => variants.find((v: any) => String(v.quality).toLowerCase() === q);
+  const variant = byQ("medium") ?? byQ("high") ?? variants[variants.length - 1];
+  const { count, cols, rows, width, height, interval, images } = variant;
+  if (!count || !cols || !rows || !interval || !Array.isArray(images)) return null;
+  const baseUrl = infoUrl.substring(0, infoUrl.lastIndexOf("/") + 1);
+  const tilesPerImage = cols * rows;
+  const mosaics = images.map((imgName: string, mosaicIdx: number) => {
+    const tiles: Array<{ row: number; col: number; ts: number }> = [];
+    const startGlobal = mosaicIdx * tilesPerImage;
+    const endGlobal = Math.min(startGlobal + tilesPerImage, count);
+    for (let g = startGlobal; g < endGlobal; g++) {
+      const localIdx = g - startGlobal;
+      tiles.push({ row: Math.floor(localIdx / cols), col: localIdx % cols, ts: Math.round(g * interval + interval / 2) });
+    }
+    return { url: baseUrl + imgName, cols, rows, tile_w: width, tile_h: height, tiles };
+  });
+  return { mosaics, interval, total_tiles: count };
+}
+
+async function fetchAsBase64(url: string): Promise<string> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`storyboard fetch ${r.status}`);
+  const ab = await r.arrayBuffer();
+  const bytes = new Uint8Array(ab);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function buildSoloPrompt(profiles: Array<{ game_name: string; provider_name: string | null; agent_keywords: string[]; agent_visual_markers: string[] }>) {
+  const lib = profiles.slice(0, 80).map((p) => {
+    const kws = (p.agent_keywords || []).slice(0, 8).join(",");
+    const mks = (p.agent_visual_markers || []).slice(0, 6).join(",");
+    return `${p.game_name}|${p.provider_name || ""}|${kws}|${mks}`;
+  }).join("\n");
+  return `Você está olhando um STORYBOARD da Twitch (grid de tiles em ordem linha-por-linha esquerda→direita, cima→baixo). Para CADA tile, classifique:
+
+- screen_state: "gameplay" (jogando ativamente: rolos, botão spin, mesa de aposta, valores R$), "loading" (logo grande de jogo carregando), "lobby" (lista de vários jogos), "other" (qualquer não-cassino)
+- game_name: APENAS um nome EXATO da BIBLIOTECA abaixo, ou null
+- confidence: 0.0–1.0
+
+REGRAS:
+- NUNCA invente nome fora da biblioteca.
+- Em "lobby" ou "other": game_name=null sempre.
+- Em dúvida: game_name=null com confidence baixa.
+
+BIBLIOTECA OFICIAL (formato: Nome|Provedora|keywords|visual_markers):
+${lib}`;
+}
+
+async function callVisionOnMosaic(prompt: string, base64: string, gridCols: number, gridRows: number, tileCount: number) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), AI_TIMEOUT_MS);
+  let resp: Response;
+  try {
+    resp = await fetch(AI_GATEWAY, {
+      method: "POST",
+      signal: ctl.signal,
+      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-3-flash-preview",
+        messages: [
+          { role: "system", content: "Você analisa storyboards de VOD da Twitch para detectar jogos de cassino. Sempre use a tool save_tiles." },
+          { role: "user", content: [
+            { type: "text", text: `${prompt}\n\nGRID_COLS=${gridCols} GRID_ROWS=${gridRows} TILE_COUNT=${tileCount}` },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64}` } },
+          ]},
+        ],
+        tools: [{
+          type: "function",
+          function: {
+            name: "save_tiles",
+            parameters: {
+              type: "object",
+              properties: {
+                tiles: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      row: { type: "number" },
+                      col: { type: "number" },
+                      screen_state: { type: "string", enum: ["gameplay", "loading", "lobby", "other"] },
+                      game_name: { type: ["string", "null"] },
+                      confidence: { type: "number" },
+                    },
+                    required: ["row", "col", "screen_state", "game_name", "confidence"],
+                    additionalProperties: false,
+                  },
+                },
+              },
+              required: ["tiles"],
+              additionalProperties: false,
+            },
+          },
+        }],
+        tool_choice: { type: "function", function: { name: "save_tiles" } },
+      }),
+    });
+  } finally { clearTimeout(t); }
+  if (!resp.ok) {
+    const txt = await resp.text();
+    if (resp.status === 429) throw new Error("Rate limit");
+    if (resp.status === 402) throw new Error("Créditos esgotados");
+    throw new Error(`Vision ${resp.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  const tc = data?.choices?.[0]?.message?.tool_calls?.[0];
+  if (!tc) return { tiles: [] };
+  return JSON.parse(tc.function.arguments) as { tiles: Array<{ row: number; col: number; screen_state: string; game_name: string | null; confidence: number }> };
+}
+
+async function persistDetectionBlocks(
+  vodId: string,
+  streamerLogin: string,
+  detections: Array<{ ts: number; game: { id: string; game_name: string; provider_name: string | null }; conf: number; kc: number; vc: number }>,
+  pipelineBlocks: Array<{ game_name: string | null; start_seconds: number; end_seconds: number }>,
+) {
   const GAP = 90;
-  const blocks: Array<{
-    game_id: string;
-    game_name: string;
-    provider_name: string;
-    start: number;
-    end: number;
-    confSum: number;
-    kcSum: number;
-    vcSum: number;
-    n: number;
-  }> = [];
+  detections.sort((a, b) => a.ts - b.ts);
+  const blocks: Array<{ game_id: string; game_name: string; provider_name: string; start: number; end: number; confSum: number; kcSum: number; vcSum: number; n: number }> = [];
   for (const d of detections) {
     const last = blocks[blocks.length - 1];
     if (last && last.game_id === d.game.id && d.ts - last.end <= GAP) {
-      last.end = d.ts;
-      last.confSum += d.conf;
-      last.kcSum += d.kc;
-      last.vcSum += d.vc;
-      last.n++;
+      last.end = d.ts; last.confSum += d.conf; last.kcSum += d.kc; last.vcSum += d.vc; last.n++;
     } else {
-      blocks.push({
-        game_id: d.game.id,
-        game_name: d.game.game_name,
-        provider_name: d.game.provider_name || "",
-        start: d.ts,
-        end: d.ts,
-        confSum: d.conf,
-        kcSum: d.kc,
-        vcSum: d.vc,
-        n: 1,
-      });
+      blocks.push({ game_id: d.game.id, game_name: d.game.game_name, provider_name: d.game.provider_name || "", start: d.ts, end: d.ts, confSum: d.conf, kcSum: d.kc, vcSum: d.vc, n: 1 });
     }
   }
-
-  // Clear previous agent analyses for this VOD (idempotent re-run)
   await sb.from("agent_analyses").delete().eq("vod_id", vodId);
-
-  const rows = blocks
-    .filter((b) => b.end - b.start >= 30 || b.n >= 2)
-    .map((b) => {
-      const agrees = (pipelineBlocks || []).some(
-        (pb) =>
-          pb.game_name?.toLowerCase() === b.game_name.toLowerCase() &&
-          pb.start_seconds <= b.end &&
-          pb.end_seconds >= b.start,
-      );
-      return {
-        vod_id: vodId,
-        streamer_login: streamerLogin,
-        game_library_id: b.game_id,
-        game_name: b.game_name,
-        provider_name: b.provider_name,
-        start_seconds: b.start,
-        end_seconds: b.end,
-        duration_seconds: Math.max(b.end - b.start, 30),
-        confidence: Number((b.confSum / b.n).toFixed(3)),
-        keyword_confidence: Number((b.kcSum / b.n).toFixed(3)),
-        visual_confidence: Number((b.vcSum / b.n).toFixed(3)),
-        agrees_with_pipeline: pipelineBlocks ? agrees : null,
-      };
-    });
-
-  if (rows.length > 0) {
-    const { error: insErr } = await sb.from("agent_analyses").insert(rows);
-    if (insErr) throw insErr;
-
-    // Update game stats
-    const byGame = new Map<string, { count: number; sum: number }>();
-    for (const r of rows) {
-      const g = byGame.get(r.game_library_id) || { count: 0, sum: 0 };
-      g.count++;
-      g.sum += r.confidence;
-      byGame.set(r.game_library_id, g);
-    }
-    for (const [gid, stats] of byGame) {
-      const { data: cur } = await sb
-        .from("game_visual_library")
-        .select("agent_times_identified, agent_average_confidence")
-        .eq("id", gid)
-        .single();
-      const prevN = cur?.agent_times_identified || 0;
-      const prevAvg = Number(cur?.agent_average_confidence) || 0;
-      const newN = prevN + stats.count;
-      const newAvg = (prevAvg * prevN + stats.sum) / newN;
-      await sb
-        .from("game_visual_library")
-        .update({
-          agent_times_identified: newN,
-          agent_average_confidence: Number(newAvg.toFixed(3)),
-          agent_last_identified_at: new Date().toISOString(),
-        })
-        .eq("id", gid);
-    }
-  }
-
-  return {
-    vod_id: vodId,
-    blocks: rows.length,
-    profiles_used: profiles.length,
-    evidences_processed: evidences.length,
-    agreements: rows.filter((r) => r.agrees_with_pipeline === true).length,
-    divergences: rows.filter((r) => r.agrees_with_pipeline === false).length,
-  };
+  const rows = blocks.filter((b) => b.end - b.start >= 30 || b.n >= 2).map((b) => {
+    const agrees = pipelineBlocks.some((pb) => pb.game_name?.toLowerCase() === b.game_name.toLowerCase() && pb.start_seconds <= b.end && pb.end_seconds >= b.start);
+    return {
+      vod_id: vodId, streamer_login: streamerLogin, game_library_id: b.game_id,
+      game_name: b.game_name, provider_name: b.provider_name,
+      start_seconds: b.start, end_seconds: b.end, duration_seconds: Math.max(b.end - b.start, 30),
+      confidence: Number((b.confSum / b.n).toFixed(3)),
+      keyword_confidence: Number((b.kcSum / b.n).toFixed(3)),
+      visual_confidence: Number((b.vcSum / b.n).toFixed(3)),
+      agrees_with_pipeline: pipelineBlocks.length ? agrees : null,
+    };
+  });
+  if (rows.length > 0) await sb.from("agent_analyses").insert(rows);
+  return { vod_id: vodId, blocks: rows.length, detections: detections.length };
 }
 
-// ─── Submit feedback ─────────────────────────────────────────────────
-async function submitFeedback(p: {
-  analysis_id: string;
-  corrected_game_id?: string | null;
-  correction_type: string;
-  notes?: string;
-  user_id?: string;
-}) {
-  const { data: an, error } = await sb
-    .from("agent_analyses")
-    .select("game_library_id")
-    .eq("id", p.analysis_id)
-    .single();
-  if (error || !an) throw new Error("Analysis not found");
+async function soloStart(vodId: string, streamerLogin: string) {
+  const plan = await fetchStoryboardPlan(vodId);
+  if (!plan) throw new Error("Twitch não expôs storyboards para esse VOD.");
+  const { data: profiles } = await sb
+    .from("game_visual_library")
+    .select("id, game_name, provider_name, agent_keywords, agent_visual_markers")
+    .not("agent_learned_at", "is", null);
+  if (!profiles || profiles.length === 0) throw new Error("Nenhum jogo aprendido pelo agente. Treine primeiro.");
 
-  const { error: insErr } = await sb.from("agent_feedback").insert({
+  // limpa run anterior + analyses anteriores deste VOD
+  await sb.from("agent_runs").delete().eq("vod_id", vodId);
+  await sb.from("agent_analyses").delete().eq("vod_id", vodId);
+
+  const { data: run, error } = await sb.from("agent_runs").insert({
+    vod_id: vodId,
+    streamer_login: streamerLogin,
+    status: "running",
+    cursor_mosaic: 0,
+    total_mosaics: plan.mosaics.length,
+    total_tiles: plan.total_tiles,
+    plan: { mosaics: plan.mosaics, interval: plan.interval, profile_count: profiles.length },
+    started_at: new Date().toISOString(),
+    message: `Plano: ${plan.mosaics.length} mosaicos / ${plan.total_tiles} frames.`,
+  }).select("id").single();
+  if (error) throw error;
+
+  selfInvoke({ action: "solo_resume", run_id: run.id });
+  return { run_id: run.id, total_mosaics: plan.mosaics.length, total_tiles: plan.total_tiles };
+}
+
+function selfInvoke(body: Record<string, unknown>) {
+  fetch(`${SUPABASE_URL}/functions/v1/intelligent-vod-agent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON_KEY}` },
+    body: JSON.stringify(body),
+  }).catch((e) => console.warn("self-invoke failed:", e));
+}
+
+async function soloResume(runId: string) {
+  const { data: run, error } = await sb.from("agent_runs").select("*").eq("id", runId).single();
+  if (error || !run) throw new Error("Run não encontrado");
+  if (run.status === "completed" || run.status === "failed") return { ok: true, status: run.status };
+
+  const plan = run.plan as { mosaics: any[]; interval: number; profile_count: number };
+  const mosaics = plan?.mosaics || [];
+  const cursor = run.cursor_mosaic || 0;
+  if (cursor >= mosaics.length) {
+    await finalizeSolo(runId, run.vod_id, run.streamer_login);
+    return { ok: true, status: "completed" };
+  }
+
+  const { data: profiles } = await sb
+    .from("game_visual_library")
+    .select("id, game_name, provider_name, agent_keywords, agent_visual_markers")
+    .not("agent_learned_at", "is", null);
+  const profilesArr = profiles || [];
+  const profileById = new Map(profilesArr.map((p) => [p.game_name.toLowerCase(), p]));
+  const prompt = buildSoloPrompt(profilesArr);
+
+  const end = Math.min(cursor + SOLO_MOSAICS_PER_CHUNK, mosaics.length);
+  const detRows: Array<{ vod_id: string; streamer_login: string; game_library_id: string; game_name: string; provider_name: string | null; start_seconds: number; end_seconds: number; duration_seconds: number; confidence: number; keyword_confidence: number; visual_confidence: number; agrees_with_pipeline: boolean | null }> = [];
+  let processedTiles = 0;
+
+  for (let i = cursor; i < end; i++) {
+    const m = mosaics[i];
+    try {
+      const b64 = await fetchAsBase64(m.url);
+      const out = await callVisionOnMosaic(prompt, b64, m.cols, m.rows, m.tiles.length);
+      const tilesByKey = new Map<string, { ts: number }>();
+      for (const t of m.tiles) tilesByKey.set(`${t.row}-${t.col}`, { ts: t.ts });
+      for (const tile of out.tiles || []) {
+        const key = `${tile.row}-${tile.col}`;
+        const ref = tilesByKey.get(key);
+        if (!ref) continue;
+        if (!tile.game_name) continue;
+        if ((tile.confidence ?? 0) < 0.5) continue;
+        const profile = profileById.get(tile.game_name.toLowerCase());
+        if (!profile) continue;
+        detRows.push({
+          vod_id: run.vod_id,
+          streamer_login: run.streamer_login,
+          game_library_id: profile.id,
+          game_name: profile.game_name,
+          provider_name: profile.provider_name,
+          start_seconds: ref.ts,
+          end_seconds: ref.ts,
+          duration_seconds: 30,
+          confidence: tile.confidence,
+          keyword_confidence: 0,
+          visual_confidence: tile.confidence,
+          agrees_with_pipeline: null,
+        });
+      }
+      processedTiles += m.tiles.length;
+    } catch (e) {
+      console.warn(`solo mosaic ${i} failed:`, e);
+    }
+  }
+
+  // Insere detecções pontuais (sem dedup de bloco ainda — finalize agrupa)
+  if (detRows.length > 0) await sb.from("agent_analyses").insert(detRows);
+
+  const newCursor = end;
+  await sb.from("agent_runs").update({
+    cursor_mosaic: newCursor,
+    processed_tiles: (run.processed_tiles || 0) + processedTiles,
+    detections_count: (run.detections_count || 0) + detRows.length,
+    message: `Mosaico ${newCursor}/${mosaics.length} · ${(run.detections_count || 0) + detRows.length} detecções até agora.`,
+    updated_at: new Date().toISOString(),
+  }).eq("id", runId);
+
+  if (newCursor < mosaics.length) {
+    selfInvoke({ action: "solo_resume", run_id: runId });
+    return { ok: true, status: "running", cursor: newCursor };
+  } else {
+    await finalizeSolo(runId, run.vod_id, run.streamer_login);
+    return { ok: true, status: "completed" };
+  }
+}
+
+async function finalizeSolo(runId: string, vodId: string, streamerLogin: string) {
+  // Agrupa as detecções pontuais inseridas em blocos contínuos por jogo
+  const { data: raw } = await sb
+    .from("agent_analyses")
+    .select("id, game_library_id, game_name, provider_name, start_seconds, confidence")
+    .eq("vod_id", vodId)
+    .order("start_seconds", { ascending: true });
+  if (raw && raw.length > 0) {
+    type R = { id: string; game_library_id: string | null; game_name: string; provider_name: string | null; start_seconds: number; confidence: number };
+    const arr = raw as R[];
+    const GAP = 120;
+    const groups: Array<{ game_library_id: string; game_name: string; provider_name: string | null; start: number; end: number; sum: number; n: number; ids: string[] }> = [];
+    for (const d of arr) {
+      if (!d.game_library_id) continue;
+      const last = groups[groups.length - 1];
+      if (last && last.game_library_id === d.game_library_id && d.start_seconds - last.end <= GAP) {
+        last.end = d.start_seconds; last.sum += d.confidence; last.n++; last.ids.push(d.id);
+      } else {
+        groups.push({ game_library_id: d.game_library_id, game_name: d.game_name, provider_name: d.provider_name, start: d.start_seconds, end: d.start_seconds, sum: d.confidence, n: 1, ids: [d.id] });
+      }
+    }
+    const { data: pipelineBlocks } = await sb.from("gameplay_blocks").select("game_name, start_seconds, end_seconds").eq("vod_id", vodId);
+    await sb.from("agent_analyses").delete().eq("vod_id", vodId);
+    const rows = groups.filter((g) => g.end - g.start >= 30 || g.n >= 2).map((g) => {
+      const agrees = (pipelineBlocks || []).some((pb) => pb.game_name?.toLowerCase() === g.game_name.toLowerCase() && pb.start_seconds <= g.end && pb.end_seconds >= g.start);
+      return {
+        vod_id: vodId, streamer_login: streamerLogin, game_library_id: g.game_library_id,
+        game_name: g.game_name, provider_name: g.provider_name,
+        start_seconds: g.start, end_seconds: g.end, duration_seconds: Math.max(g.end - g.start, 30),
+        confidence: Number((g.sum / g.n).toFixed(3)),
+        keyword_confidence: 0, visual_confidence: Number((g.sum / g.n).toFixed(3)),
+        agrees_with_pipeline: (pipelineBlocks && pipelineBlocks.length) ? agrees : null,
+      };
+    });
+    if (rows.length > 0) await sb.from("agent_analyses").insert(rows);
+  }
+  await sb.from("agent_runs").update({
+    status: "completed",
+    completed_at: new Date().toISOString(),
+    message: "Análise solo concluída.",
+    updated_at: new Date().toISOString(),
+  }).eq("id", runId);
+}
+
+// ─── Feedback / dashboard ────────────────────────────────────────────
+async function submitFeedback(p: { analysis_id: string; corrected_game_id?: string | null; correction_type: string; notes?: string; user_id?: string }) {
+  const { data: an, error } = await sb.from("agent_analyses").select("game_library_id").eq("id", p.analysis_id).single();
+  if (error || !an) throw new Error("Analysis not found");
+  await sb.from("agent_feedback").insert({
     analysis_id: p.analysis_id,
     original_game_id: an.game_library_id,
     corrected_game_id: p.corrected_game_id || null,
@@ -423,98 +550,69 @@ async function submitFeedback(p: {
     notes: p.notes || null,
     created_by: p.user_id || null,
   });
-  if (insErr) throw insErr;
   return { ok: true };
 }
 
-// ─── Dashboard metrics ───────────────────────────────────────────────
 async function getDashboard() {
   const [{ count: total }, { count: corrections }, { count: confirmed }] = await Promise.all([
     sb.from("agent_analyses").select("*", { count: "exact", head: true }),
     sb.from("agent_analyses").select("*", { count: "exact", head: true }).eq("user_corrected", true),
     sb.from("agent_analyses").select("*", { count: "exact", head: true }).eq("user_confirmed", true),
   ]);
-
   const { data: learnedGames } = await sb
     .from("game_visual_library")
     .select("id, game_name, provider_name, agent_times_identified, agent_times_corrected, agent_average_confidence, agent_confidence_threshold, agent_learned_at")
-    .not("agent_learned_at", "is", null)
-    .order("agent_average_confidence", { ascending: false });
-
+    .not("agent_learned_at", "is", null);
   const totalNum = total || 0;
-  const correctionsNum = corrections || 0;
-  const accuracy = totalNum > 0 ? (totalNum - correctionsNum) / totalNum : 0;
-
   const games = learnedGames || [];
-  const top = [...games]
-    .filter((g) => (g.agent_times_identified || 0) > 0)
-    .sort((a, b) => Number(b.agent_average_confidence) - Number(a.agent_average_confidence))
-    .slice(0, 10);
-  const needsRetraining = [...games]
-    .filter((g) => (g.agent_times_corrected || 0) > 0)
-    .sort((a, b) => (b.agent_times_corrected || 0) - (a.agent_times_corrected || 0))
-    .slice(0, 10);
-
-  const { data: recentFeedback } = await sb
-    .from("agent_feedback")
-    .select("id, correction_type, notes, created_at, original_game_id, corrected_game_id")
-    .order("created_at", { ascending: false })
-    .limit(20);
-
   return {
     metrics: {
       total_analyses: totalNum,
-      total_corrections: correctionsNum,
+      total_corrections: corrections || 0,
       total_confirmed: confirmed || 0,
-      accuracy,
+      accuracy: totalNum > 0 ? (totalNum - (corrections || 0)) / totalNum : 0,
       learned_games: games.length,
     },
-    top_games: top,
-    needs_retraining: needsRetraining,
-    recent_feedback: recentFeedback || [],
+    top_games: [...games].filter((g) => (g.agent_times_identified || 0) > 0).sort((a, b) => Number(b.agent_average_confidence) - Number(a.agent_average_confidence)).slice(0, 10),
+    needs_retraining: [...games].filter((g) => (g.agent_times_corrected || 0) > 0).sort((a, b) => (b.agent_times_corrected || 0) - (a.agent_times_corrected || 0)).slice(0, 10),
   };
 }
 
 // ─── HTTP handler ────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
   try {
     const body = await req.json();
     const action = body.action as string;
-
     switch (action) {
       case "learn_game":
         return json(await learnGame(body.game_library_id));
       case "learn_all_pending": {
         const result = await learnAllPending(body.limit);
-        return json({
-          ...result,
-          message: result.has_more
-            ? `Lote processado. Ainda restam aproximadamente ${result.remaining_estimate} jogos pendentes.`
-            : "Aprendizado dos jogos pendentes concluído.",
-        });
+        return json({ ...result, message: result.has_more ? `Lote processado. Restam ~${result.remaining_estimate}.` : "Aprendizado concluído." });
       }
-      case "analyze_vod": {
-        // @ts-ignore
-        EdgeRuntime.waitUntil(analyzeVod(body.vod_id).catch((e) => console.error("analyzeVod bg error:", e)));
-        return json({ started: true, vod_id: body.vod_id, message: "Análise iniciada em background." });
-      }
-      case "analyze_vod_sync":
+      case "analyze_vod":
         return json(await analyzeVod(body.vod_id));
+      case "get_vod_analyses": {
+        const { data, error } = await sb.from("agent_analyses").select("*").eq("vod_id", body.vod_id).order("start_seconds", { ascending: true });
+        if (error) throw error;
+        return json({ analyses: data || [] });
+      }
+      case "solo_start": {
+        if (!body.vod_id || !body.streamer_login) return json({ error: "vod_id e streamer_login obrigatórios" }, 400);
+        return json(await soloStart(body.vod_id, body.streamer_login));
+      }
+      case "solo_resume":
+        return json(await soloResume(body.run_id));
+      case "solo_status": {
+        const q = sb.from("agent_runs").select("*").order("created_at", { ascending: false }).limit(1);
+        const { data } = body.run_id ? await sb.from("agent_runs").select("*").eq("id", body.run_id).maybeSingle() : await q.maybeSingle();
+        return json({ run: data || null });
+      }
       case "submit_feedback":
         return json(await submitFeedback(body));
       case "get_dashboard":
         return json(await getDashboard());
-      case "get_vod_analyses": {
-        const { data, error } = await sb
-          .from("agent_analyses")
-          .select("*")
-          .eq("vod_id", body.vod_id)
-          .order("start_seconds", { ascending: true });
-        if (error) throw error;
-        return json({ analyses: data || [] });
-      }
       default:
         return json({ error: `Unknown action: ${action}` }, 400);
     }
