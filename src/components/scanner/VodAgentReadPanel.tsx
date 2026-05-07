@@ -81,15 +81,31 @@ export function VodAgentReadPanel({ vodId, streamerLogin }: Props) {
           <h4 className="text-sm font-medium">🧠 Leitura do Agente IA</h4>
           <p className="text-xs text-muted-foreground">Segunda opinião independente do pipeline principal.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button size="sm" variant="outline" onClick={load} disabled={loading}>
             {loading ? "..." : "Atualizar"}
           </Button>
-          <Button size="sm" onClick={start} disabled={starting}>
-            {starting ? "Iniciando..." : "Rodar Agente"}
+          <Button size="sm" variant="secondary" onClick={start} disabled={starting}>
+            {starting ? "..." : "Segunda opinião (rápido)"}
+          </Button>
+          <Button size="sm" onClick={startSolo} disabled={soloing || (run?.status === "running")}>
+            {soloing ? "Iniciando..." : run?.status === "running" ? "Solo rodando..." : "🚀 Modo Solo (Vision)"}
           </Button>
         </div>
       </div>
+
+      {run && (
+        <div className="rounded-md border border-border/50 bg-muted/40 p-2 text-xs space-y-1">
+          <div className="flex justify-between">
+            <span className="font-medium">Modo Solo · {run.status}</span>
+            <span className="text-muted-foreground">
+              {run.cursor_mosaic}/{run.total_mosaics} mosaicos · {run.detections_count} detecções
+            </span>
+          </div>
+          {run.message && <div className="text-muted-foreground">{run.message}</div>}
+          {run.error_message && <div className="text-destructive">{run.error_message}</div>}
+        </div>
+      )}
 
       {analyses.length === 0 ? (
         <p className="text-xs text-muted-foreground">Nenhuma análise do agente para este VOD ainda.</p>
