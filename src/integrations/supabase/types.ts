@@ -242,6 +242,63 @@ export type Database = {
           },
         ]
       }
+      agent_runs: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          cursor_mosaic: number
+          detections_count: number
+          error_message: string | null
+          id: string
+          message: string | null
+          plan: Json
+          processed_tiles: number
+          started_at: string | null
+          status: string
+          streamer_login: string
+          total_mosaics: number
+          total_tiles: number
+          updated_at: string
+          vod_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          cursor_mosaic?: number
+          detections_count?: number
+          error_message?: string | null
+          id?: string
+          message?: string | null
+          plan?: Json
+          processed_tiles?: number
+          started_at?: string | null
+          status?: string
+          streamer_login: string
+          total_mosaics?: number
+          total_tiles?: number
+          updated_at?: string
+          vod_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          cursor_mosaic?: number
+          detections_count?: number
+          error_message?: string | null
+          id?: string
+          message?: string | null
+          plan?: Json
+          processed_tiles?: number
+          started_at?: string | null
+          status?: string
+          streamer_login?: string
+          total_mosaics?: number
+          total_tiles?: number
+          updated_at?: string
+          vod_id?: string
+        }
+        Relationships: []
+      }
       chat_messages: {
         Row: {
           created_at: string
