@@ -10,10 +10,12 @@ interface Props {
   streamerLogin?: string;
 }
 
-export function VodAgentReadPanel({ vodId }: Props) {
+export function VodAgentReadPanel({ vodId, streamerLogin }: Props) {
   const [analyses, setAnalyses] = useState<AgentAnalysis[]>([]);
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [soloing, setSoloing] = useState(false);
+  const [run, setRun] = useState<any>(null);
 
   const load = async () => {
     setLoading(true);
@@ -27,19 +29,48 @@ export function VodAgentReadPanel({ vodId }: Props) {
     }
   };
 
+  useEffect(() => { load(); }, [vodId]);
+
   useEffect(() => {
-    load();
-  }, [vodId]);
+    if (!run || run.status !== "running") return;
+    const t = setInterval(async () => {
+      const st = await soloStatus(run.id).catch(() => null);
+      if (st?.run) {
+        setRun(st.run);
+        if (st.run.status === "completed") load();
+      }
+    }, 4000);
+    return () => clearInterval(t);
+  }, [run?.id, run?.status]);
 
   const start = async () => {
     setStarting(true);
     try {
       await analyzeVod(vodId);
-      toast({ title: "Agente iniciado", description: "Leitura em background. Atualize em ~1 min." });
+      toast({ title: "Segunda opinião pronta", description: "Atualizado." });
+      await load();
     } catch (e) {
       toast({ title: "Erro", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
     } finally {
       setStarting(false);
+    }
+  };
+
+  const startSolo = async () => {
+    if (!streamerLogin) {
+      toast({ title: "Streamer desconhecido", description: "Login não disponível.", variant: "destructive" });
+      return;
+    }
+    setSoloing(true);
+    try {
+      const res = await soloStart(vodId, streamerLogin);
+      toast({ title: "Modo solo iniciado", description: `${res.total_mosaics} mosaicos / ${res.total_tiles} frames em background.` });
+      const st = await soloStatus(res.run_id).catch(() => null);
+      if (st?.run) setRun(st.run);
+    } catch (e) {
+      toast({ title: "Erro", description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setSoloing(false);
     }
   };
 
