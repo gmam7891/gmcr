@@ -4,11 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { Search, ExternalLink, AlertTriangle, Clock, Users, BarChart3 } from "lucide-react";
+import { Search, ExternalLink, AlertTriangle, BarChart3 } from "lucide-react";
 
 const COLORS = [
   "hsl(var(--primary))",
@@ -26,11 +27,17 @@ interface GameStat {
   streamTimeRaw: string;
   streamTimeMinutes: number;
   avgViewers: number;
+  peakViewers: number;
+  hoursWatched: number;
+  streamsCount: number;
   percentage: number;
+  gamesId?: number;
+  gamesLogo?: string;
 }
 
 interface SullyResult {
   streamer: string;
+  channelId?: string;
   source: string;
   period: string;
   gameStats: GameStat[];
@@ -48,9 +55,12 @@ interface Props {
   aiDetections?: { game_name: string; exposure_seconds: number }[];
 }
 
+const CASINO_KEYWORDS = ["virtual casino", "slots", "casino", "gambling"];
+
 export function SullyGnomeTab({ aiDetections = [] }: Props) {
   const { t } = useLanguage();
   const [streamer, setStreamer] = useState("");
+  const [period, setPeriod] = useState("30");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<SullyResult | null>(null);
 
@@ -61,9 +71,10 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke("sullygnome-scraper", {
-        body: { action: "scrape", streamer_login: login },
+        body: { action: "scrape", streamer_login: login, period: Number(period) },
       });
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
       setResult(data);
       toast({ title: t("sully.success"), description: `${data.gameStats?.length || 0} ${t("sully.categories_found")}` });
     } catch (e: any) {
@@ -79,10 +90,8 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
     .slice(0, 8)
     .map((g) => ({ name: g.category, value: g.streamTimeMinutes }));
 
-  // Build discrepancy data (SullyGnome vs AI detection)
-  const casinoKeywords = ["virtual casino", "slots", "casino", "gambling"];
   const discrepancyData = (result?.gameStats || [])
-    .filter((g) => casinoKeywords.some((kw) => g.category.toLowerCase().includes(kw)))
+    .filter((g) => CASINO_KEYWORDS.some((kw) => g.category.toLowerCase().includes(kw)))
     .map((g) => {
       const aiMatch = aiDetections.find(
         (d) => d.game_name && g.category.toLowerCase().includes(d.game_name.toLowerCase())
@@ -103,6 +112,14 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
     return `${m}m`;
   };
 
+  const formatLogo = (url?: string) => {
+    if (!url) return "";
+    return url.replace(/\{width\}/g, "20").replace(/\{height\}/g, "27");
+  };
+
+  const isCasino = (cat: string) =>
+    CASINO_KEYWORDS.some((kw) => cat.toLowerCase().includes(kw));
+
   return (
     <div className="space-y-6">
       {/* Search */}
@@ -113,7 +130,7 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
           <Badge variant="secondary" className="text-[9px] font-mono">SullyGnome</Badge>
         </div>
         <p className="text-xs text-muted-foreground">{t("sully.subtitle")}</p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Input
             placeholder={t("sully.placeholder")}
             value={streamer}
@@ -121,6 +138,17 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
             className="max-w-xs text-sm"
             onKeyDown={(e) => e.key === "Enter" && handleSearch()}
           />
+          <Select value={period} onValueChange={setPeriod}>
+            <SelectTrigger className="w-[130px] text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7">7 dias</SelectItem>
+              <SelectItem value="30">30 dias</SelectItem>
+              <SelectItem value="90">90 dias</SelectItem>
+              <SelectItem value="365">1 ano</SelectItem>
+            </SelectContent>
+          </Select>
           <Button onClick={handleSearch} disabled={loading || !streamer.trim()} size="sm" className="gap-1.5">
             <Search className="h-3.5 w-3.5" />
             {loading ? t("app.searching") : t("sully.search_btn")}
@@ -128,7 +156,7 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
           {result && (
             <Button variant="outline" size="sm" asChild>
               <a
-                href={`https://sullygnome.com/channel/${result.streamer}/30/games`}
+                href={`https://sullygnome.com/channel/${result.streamer}/${period}/games`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="gap-1.5"
@@ -159,7 +187,9 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
             </Card>
             <Card className="p-3 text-center">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("sully.casino_pct")}</p>
-              <p className="text-xl font-bold font-mono text-accent">{result.summary.casinoPercentage}%</p>
+              <p className={`text-xl font-bold font-mono ${result.summary.casinoPercentage > 30 ? "text-destructive" : "text-accent"}`}>
+                {result.summary.casinoPercentage}%
+              </p>
             </Card>
           </div>
 
@@ -212,23 +242,42 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
                       <TableHead className="text-[10px]">{t("sully.category")}</TableHead>
                       <TableHead className="text-[10px]">{t("sully.stream_time")}</TableHead>
                       <TableHead className="text-[10px]">{t("sully.avg_viewers")}</TableHead>
+                      <TableHead className="text-[10px]">Pico</TableHead>
+                      <TableHead className="text-[10px]">Lives</TableHead>
                       <TableHead className="text-[10px]">%</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {result.gameStats.map((g, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="text-xs font-medium">
-                          {g.category}
-                          {casinoKeywords.some((kw) => g.category.toLowerCase().includes(kw)) && (
-                            <Badge variant="default" className="ml-1.5 text-[8px]">🎰</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs font-mono">{formatMinutes(g.streamTimeMinutes)}</TableCell>
-                        <TableCell className="text-xs font-mono">{g.avgViewers.toLocaleString()}</TableCell>
-                        <TableCell className="text-xs font-mono">{g.percentage}%</TableCell>
-                      </TableRow>
-                    ))}
+                    {result.gameStats.map((g, i) => {
+                      const casino = isCasino(g.category);
+                      return (
+                        <TableRow key={i} className={casino ? "bg-destructive/5" : undefined}>
+                          <TableCell className="text-xs font-medium">
+                            <div className="flex items-center gap-1.5">
+                              {g.gamesLogo && (
+                                <img
+                                  src={formatLogo(g.gamesLogo)}
+                                  alt=""
+                                  width={20}
+                                  height={27}
+                                  className="rounded-sm flex-shrink-0"
+                                  loading="lazy"
+                                />
+                              )}
+                              <span>{g.category}</span>
+                              {casino && (
+                                <Badge variant="destructive" className="ml-1 text-[8px]">cassino</Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs font-mono">{formatMinutes(g.streamTimeMinutes)}</TableCell>
+                          <TableCell className="text-xs font-mono">{g.avgViewers.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs font-mono">{g.peakViewers.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs font-mono">{g.streamsCount}</TableCell>
+                          <TableCell className="text-xs font-mono">{g.percentage}%</TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
