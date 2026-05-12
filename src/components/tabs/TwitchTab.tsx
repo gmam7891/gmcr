@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { PlatformCampaignSection } from "@/components/platform/PlatformCampaignSection";
 import * as XLSX from "xlsx";
+import { supabase } from "@/integrations/supabase/client";
 
 export function TwitchTab() {
   const { t, language } = useLanguage();
