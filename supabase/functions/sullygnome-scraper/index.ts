@@ -122,6 +122,10 @@ async function scrapeSullyGnome(streamerLogin: string, days: number) {
 
   const totalMinutes = parsed.reduce((s, g) => s + g.streamTimeMinutes, 0);
   const casinoMinutes = casinoCategories.reduce((s, g) => s + g.streamTimeMinutes, 0);
+  const weightedAvg = parsed.reduce((s, g) => s + g.streamTimeMinutes * g.avgViewers, 0);
+  const overallAvgViewers = totalMinutes > 0 ? Math.round(weightedAvg / totalMinutes) : 0;
+  const overallPeakViewers = parsed.length > 0 ? Math.max(...parsed.map((g) => g.peakViewers)) : 0;
+  const totalStreams = parsed.reduce((s, g) => s + g.streamsCount, 0);
 
   return {
     streamer: streamerLogin,
@@ -137,6 +141,9 @@ async function scrapeSullyGnome(streamerLogin: string, days: number) {
         totalMinutes > 0 ? Math.round((casinoMinutes / totalMinutes) * 1000) / 10 : 0,
       topCategory: parsed[0]?.category || "N/A",
       casinoCategories: casinoCategories.map((c) => c.category),
+      overallAvgViewers,
+      overallPeakViewers,
+      totalStreams,
     },
   };
 }
