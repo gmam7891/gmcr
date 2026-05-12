@@ -25,6 +25,7 @@ export function TwitchTab() {
   const [valueFtdTw, setValueFtdTw] = useState(0);
   const [vodViewsPerHour, setVodViewsPerHour] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [sullyLoading, setSullyLoading] = useState(false);
   const [userData, setUserData] = useState<TwitchUser | null>(null);
   const [streamData, setStreamData] = useState<TwitchStream | null>(null);
   const [vodStats, setVodStats] = useState<{ count: number; avgViews: number; medianViews: number; vph: number } | null>(null);
