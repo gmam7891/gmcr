@@ -55,6 +55,17 @@ export function TwitchTab() {
       }
     } catch (err) { console.error('Twitch fetch error:', err); }
     setLoading(false);
+
+    // Auto-populate avgViewers and peakViewers from SullyGnome historical CCV
+    setSullyLoading(true);
+    try {
+      const { data: sully } = await supabase.functions.invoke("sullygnome-scraper", {
+        body: { action: "scrape", streamer_login: channel.trim().toLowerCase(), period: 30 },
+      });
+      if (sully?.summary?.overallAvgViewers > 0) setAvgViewers(sully.summary.overallAvgViewers);
+      if (sully?.summary?.overallPeakViewers > 0) setPeakViewers(sully.summary.overallPeakViewers);
+    } catch (err) { console.warn("SullyGnome auto-fetch failed:", err); }
+    setSullyLoading(false);
   };
 
   const results = useMemo(() => {
