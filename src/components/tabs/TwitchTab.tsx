@@ -167,8 +167,11 @@ export function TwitchTab() {
         </FieldSection>
 
         <FieldSection title={t("tw.manual_data")}>
-          <NumberField label={t("tw.avg_viewers_30d")} value={avgViewers} onChange={setAvgViewers} step={100} />
-          <NumberField label={t("tw.peak_viewers_30d")} value={peakViewers} onChange={setPeakViewers} step={100} />
+          {sullyLoading && (
+            <p className="text-xs text-muted-foreground">⏳ Buscando CCV histórico no SullyGnome...</p>
+          )}
+          <NumberField label={`${t("tw.avg_viewers_30d")}${avgViewers > 0 && !sullyLoading ? " ✓ SullyGnome" : ""}`} value={avgViewers} onChange={setAvgViewers} step={100} />
+          <NumberField label={`${t("tw.peak_viewers_30d")}${peakViewers > 0 && !sullyLoading ? " ✓ SullyGnome" : ""}`} value={peakViewers} onChange={setPeakViewers} step={100} />
           <NumberField label={t("tw.vod_views_hour")} value={vodViewsPerHour} onChange={setVodViewsPerHour} step={10} />
         </FieldSection>
       </div>
