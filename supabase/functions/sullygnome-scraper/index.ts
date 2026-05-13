@@ -35,15 +35,16 @@ Deno.serve(async (req) => {
     const days = normalizeDays(period);
 
     if (action === "scrape" && streamer_login) {
+      const login = normalizeLogin(streamer_login);
       try {
-        const result = await scrapeSullyGnome(streamer_login, days);
+        const result = await scrapeSullyGnome(login, days);
         return json(result);
       } catch (e: any) {
         console.error(`[SullyGnome] stage=${e.stage || "unknown"}:`, e.message);
         return json({
           error: e.message,
           stage: e.stage || "unknown",
-          streamer: streamer_login,
+          streamer: login,
           gameStats: [],
           summary: null,
         });
@@ -52,7 +53,8 @@ Deno.serve(async (req) => {
 
     if (action === "scrape_bulk" && Array.isArray(streamers)) {
       const results: Record<string, any> = {};
-      for (const login of streamers.slice(0, 10)) {
+      for (const raw of streamers.slice(0, 10)) {
+        const login = normalizeLogin(raw);
         try {
           results[login] = await scrapeSullyGnome(login, days);
         } catch (e: any) {
@@ -91,6 +93,19 @@ function normalizeDays(p: unknown): number {
   const n = Number(p);
   if ([7, 14, 30, 90, 365].includes(n)) return n;
   return 30;
+}
+
+function normalizeLogin(input: unknown): string {
+  let s = String(input ?? "").trim();
+  // Strip protocol + host if user pasted a full URL
+  s = s.replace(/^https?:\/\/[^/]+\//i, "");
+  // Strip leading "channel/" (with or without slashes)
+  s = s.replace(/^\/+/, "").replace(/^channel\/+/i, "");
+  // Take only the first segment (drop /30/games, query, hash, etc.)
+  s = s.split(/[/?#]/)[0];
+  // Strip @ prefix if any (twitch-style handles)
+  s = s.replace(/^@+/, "");
+  return s.toLowerCase();
 }
 
 async function fetchViaFirecrawl(url: string, format: string = "rawHtml"): Promise<string> {
