@@ -173,7 +173,7 @@ async function getChannelInfo(
   streamerLogin: string,
   days: number,
 ): Promise<{ channelId: string; timecode: string }> {
-  const url = `https://sullygnome.com/channel/${streamerLogin}/${days}/games`;
+  const url = `https://sullygnome.com/channel/${streamerLogin}`;
   const html = await smartFetch(url, BROWSER_HEADERS, "channel_page");
 
   const escapedLogin = streamerLogin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
