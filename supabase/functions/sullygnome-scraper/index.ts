@@ -95,6 +95,19 @@ function normalizeDays(p: unknown): number {
   return 30;
 }
 
+function normalizeLogin(input: unknown): string {
+  let s = String(input ?? "").trim();
+  // Strip protocol + host if user pasted a full URL
+  s = s.replace(/^https?:\/\/[^/]+\//i, "");
+  // Strip leading "channel/" (with or without slashes)
+  s = s.replace(/^\/+/, "").replace(/^channel\/+/i, "");
+  // Take only the first segment (drop /30/games, query, hash, etc.)
+  s = s.split(/[/?#]/)[0];
+  // Strip @ prefix if any (twitch-style handles)
+  s = s.replace(/^@+/, "");
+  return s.toLowerCase();
+}
+
 async function fetchViaFirecrawl(url: string, format: string = "rawHtml"): Promise<string> {
   if (!FIRECRAWL_API_KEY) {
     throw new StageError("firecrawl_no_key", "FIRECRAWL_API_KEY not configured");
