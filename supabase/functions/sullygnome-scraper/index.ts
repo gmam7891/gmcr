@@ -53,7 +53,8 @@ Deno.serve(async (req) => {
 
     if (action === "scrape_bulk" && Array.isArray(streamers)) {
       const results: Record<string, any> = {};
-      for (const login of streamers.slice(0, 10)) {
+      for (const raw of streamers.slice(0, 10)) {
+        const login = normalizeLogin(raw);
         try {
           results[login] = await scrapeSullyGnome(login, days);
         } catch (e: any) {
