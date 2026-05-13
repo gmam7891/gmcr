@@ -173,7 +173,11 @@ async function getChannelId(streamerLogin: string, days: number): Promise<string
   const url = `https://sullygnome.com/channel/${streamerLogin}/${days}/games`;
   const html = await smartFetch(url, BROWSER_HEADERS, "channel_page");
 
-  const patterns = [
+  const escapedLogin = streamerLogin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const patterns: RegExp[] = [
+    // Embedded JSON with the streamer login: "xqc","id":78121
+    new RegExp(`"${escapedLogin}"\\s*,\\s*"id"\\s*:\\s*(\\d+)`, "i"),
+    /"id"\s*:\s*(\d+)\s*,\s*"name"\s*:\s*"[^"]+"\s*,\s*"logo"/i,
     /\/api\/tables\/channelgames\/\d+\/(\d+)\//i,
     /data-(?:channel)?id=["'](\d+)["']/i,
     /(?:channelid|channel_id|channelId)\s*[=:]\s*["']?(\d+)["']?/i,
