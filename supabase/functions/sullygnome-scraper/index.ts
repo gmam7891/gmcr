@@ -35,15 +35,16 @@ Deno.serve(async (req) => {
     const days = normalizeDays(period);
 
     if (action === "scrape" && streamer_login) {
+      const login = normalizeLogin(streamer_login);
       try {
-        const result = await scrapeSullyGnome(streamer_login, days);
+        const result = await scrapeSullyGnome(login, days);
         return json(result);
       } catch (e: any) {
         console.error(`[SullyGnome] stage=${e.stage || "unknown"}:`, e.message);
         return json({
           error: e.message,
           stage: e.stage || "unknown",
-          streamer: streamer_login,
+          streamer: login,
           gameStats: [],
           summary: null,
         });
