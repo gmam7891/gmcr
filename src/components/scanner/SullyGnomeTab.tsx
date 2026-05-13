@@ -74,7 +74,10 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
         body: { action: "scrape", streamer_login: login, period: Number(period) },
       });
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (data?.error) {
+        const stage = data.stage ? ` [${data.stage}]` : "";
+        throw new Error(`${data.error}${stage}`);
+      }
       setResult(data);
       toast({ title: t("sully.success"), description: `${data.gameStats?.length || 0} ${t("sully.categories_found")}` });
     } catch (e: any) {

@@ -15,16 +15,39 @@ const BROWSER_HEADERS: Record<string, string> = {
   "Pragma": "no-cache",
 };
 
+const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY") || "";
+
+class StageError extends Error {
+  stage: string;
+  constructor(stage: string, message: string) {
+    super(message);
+    this.stage = stage;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  let streamerLogin = "";
   try {
     const { action, streamer_login, streamers, period } = await req.json();
+    streamerLogin = streamer_login || "";
     const days = normalizeDays(period);
 
     if (action === "scrape" && streamer_login) {
-      const result = await scrapeSullyGnome(streamer_login, days);
-      return json(result);
+      try {
+        const result = await scrapeSullyGnome(streamer_login, days);
+        return json(result);
+      } catch (e: any) {
+        console.error(`[SullyGnome] stage=${e.stage || "unknown"}:`, e.message);
+        return json({
+          error: e.message,
+          stage: e.stage || "unknown",
+          streamer: streamer_login,
+          gameStats: [],
+          summary: null,
+        });
+      }
     }
 
     if (action === "scrape_bulk" && Array.isArray(streamers)) {
@@ -33,16 +56,27 @@ Deno.serve(async (req) => {
         try {
           results[login] = await scrapeSullyGnome(login, days);
         } catch (e: any) {
-          results[login] = { error: e.message, gameStats: [] };
+          results[login] = {
+            error: e.message,
+            stage: e.stage || "unknown",
+            gameStats: [],
+            summary: null,
+          };
         }
       }
       return json({ results });
     }
 
-    return json({ error: "Invalid action. Use 'scrape' or 'scrape_bulk'" }, 400);
+    return json({ error: "Invalid action. Use 'scrape' or 'scrape_bulk'", stage: "bad_request", gameStats: [], summary: null });
   } catch (error: any) {
-    console.error("[SullyGnome] Error:", error);
-    return json({ error: error.message }, 500);
+    console.error("[SullyGnome] Top-level error:", error);
+    return json({
+      error: error.message,
+      stage: "top_level",
+      streamer: streamerLogin,
+      gameStats: [],
+      summary: null,
+    });
   }
 });
 
@@ -59,11 +93,67 @@ function normalizeDays(p: unknown): number {
   return 30;
 }
 
+async function fetchViaFirecrawl(url: string, format: string = "rawHtml"): Promise<string> {
+  if (!FIRECRAWL_API_KEY) {
+    throw new StageError("firecrawl_no_key", "FIRECRAWL_API_KEY not configured");
+  }
+  const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url,
+      formats: [format],
+      onlyMainContent: false,
+      timeout: 30000,
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new StageError("firecrawl_http", `Firecrawl returned ${res.status}: ${txt.slice(0, 200)}`);
+  }
+  const body = await res.json().catch(() => ({} as any));
+  const content =
+    body?.data?.rawHtml || body?.data?.html || body?.data?.content || body?.rawHtml || body?.html || "";
+  if (!content) {
+    throw new StageError("firecrawl_empty", "Firecrawl returned empty content");
+  }
+  return content;
+}
+
+async function smartFetch(
+  url: string,
+  headers: Record<string, string>,
+  stage: string,
+): Promise<string> {
+  const isApi = url.includes("/api/");
+  let directErr: any = null;
+  try {
+    const res = await fetch(url, { headers });
+    if (res.ok) return await res.text();
+    directErr = new Error(`HTTP ${res.status}`);
+  } catch (e) {
+    directErr = e;
+  }
+
+  if (isApi) {
+    throw new StageError(stage, `Direct fetch failed for API endpoint: ${directErr?.message || "unknown"}`);
+  }
+
+  // HTML fallback via Firecrawl
+  try {
+    return await fetchViaFirecrawl(url, "rawHtml");
+  } catch (fcErr: any) {
+    if (fcErr instanceof StageError) throw fcErr;
+    throw new StageError(stage, `Direct fetch and Firecrawl both failed: ${fcErr?.message || "unknown"}`);
+  }
+}
+
 async function getChannelId(streamerLogin: string, days: number): Promise<string> {
   const url = `https://sullygnome.com/channel/${streamerLogin}/${days}/games`;
-  const res = await fetch(url, { headers: BROWSER_HEADERS });
-  if (!res.ok) throw new Error(`Failed to load channel page [${res.status}]`);
-  const html = await res.text();
+  const html = await smartFetch(url, BROWSER_HEADERS, "channel_page");
 
   const patterns = [
     /\/api\/tables\/channelgames\/\d+\/(\d+)\//i,
@@ -74,7 +164,52 @@ async function getChannelId(streamerLogin: string, days: number): Promise<string
     const m = html.match(re);
     if (m?.[1]) return m[1];
   }
-  throw new Error(`Could not extract channel ID for ${streamerLogin}`);
+
+  // Diagnose why
+  let reason = "page structure changed or channel ID not embedded in HTML";
+  if (/cf-(browser-verification|chl|ray)|cloudflare/i.test(html)) {
+    reason = "page was a Cloudflare challenge (bot protection)";
+  } else if (/not found|404|doesn't exist|page you requested/i.test(html.slice(0, 5000))) {
+    reason = `channel "${streamerLogin}" does not exist on SullyGnome`;
+  }
+  throw new StageError("channel_id_not_found", `Could not extract SullyGnome channel ID: ${reason}`);
+}
+
+async function fetchGameData(streamerLogin: string, channelId: string, days: number): Promise<any[]> {
+  const apiUrl = `https://sullygnome.com/api/tables/channelgames/${days}/${channelId}/0/stream%20time/1/1/100/1`;
+  const referer = `https://sullygnome.com/channel/${streamerLogin}/${days}/games`;
+
+  let res: Response;
+  try {
+    res = await fetch(apiUrl, {
+      headers: {
+        ...BROWSER_HEADERS,
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": referer,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+      },
+    });
+  } catch (e: any) {
+    throw new StageError("api_http", `API fetch threw: ${e?.message || "unknown"}`);
+  }
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new StageError("api_http", `SullyGnome API returned ${res.status}: ${txt.slice(0, 200)}`);
+  }
+
+  let parsed: any;
+  try {
+    parsed = await res.json();
+  } catch (e: any) {
+    throw new StageError("api_not_json", `Failed to parse API response as JSON: ${e?.message || "unknown"}`);
+  }
+
+  if (!Array.isArray(parsed?.data)) {
+    throw new StageError("api_bad_shape", `API response missing 'data' array (got ${typeof parsed?.data})`);
+  }
+
+  return parsed.data;
 }
 
 async function scrapeSullyGnome(streamerLogin: string, days: number) {
@@ -82,25 +217,7 @@ async function scrapeSullyGnome(streamerLogin: string, days: number) {
   const channelId = await getChannelId(streamerLogin, days);
   console.log(`[SullyGnome] channelId=${channelId}`);
 
-  const apiUrl = `https://sullygnome.com/api/tables/channelgames/${days}/${channelId}/0/stream%20time/1/1/100/1`;
-  const referer = `https://sullygnome.com/channel/${streamerLogin}/${days}/games`;
-
-  const res = await fetch(apiUrl, {
-    headers: {
-      ...BROWSER_HEADERS,
-      "X-Requested-With": "XMLHttpRequest",
-      "Referer": referer,
-      "Accept": "application/json, text/javascript, */*; q=0.01",
-    },
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    console.error(`[SullyGnome] API error ${res.status}:`, txt.slice(0, 200));
-    throw new Error(`SullyGnome API failed [${res.status}]`);
-  }
-
-  const payload = await res.json();
-  const data: any[] = Array.isArray(payload?.data) ? payload.data : [];
+  const data = await fetchGameData(streamerLogin, channelId, days);
 
   const parsed = data.map((g) => ({
     category: g.gamesName || "Unknown",
