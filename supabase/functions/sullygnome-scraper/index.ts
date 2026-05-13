@@ -124,9 +124,9 @@ async function fetchViaFirecrawl(url: string, format: string = "rawHtml"): Promi
 }
 
 function looksLikeCloudflareChallenge(html: string): boolean {
-  return /cf-(browser-verification|chl|ray|challenge)|cloudflare|just a moment|checking your browser/i.test(
-    html.slice(0, 8000),
-  );
+  // Strict: only real challenge / interstitial markers (not generic Cloudflare headers/refs)
+  return /cf-browser-verification|cf-challenge|cf_chl_|\/cdn-cgi\/challenge-platform|just a moment\.\.\.|checking your browser before|attention required|enable javascript and cookies/i
+    .test(html.slice(0, 8000));
 }
 
 async function smartFetch(
@@ -136,21 +136,22 @@ async function smartFetch(
 ): Promise<string> {
   const isApi = url.includes("/api/");
   let directErr: any = null;
-  let directHtml: string | null = null;
   try {
     const res = await fetch(url, { headers });
+    console.log(`[smartFetch] direct ${url} -> ${res.status}`);
     if (res.ok) {
-      directHtml = await res.text();
-      // For HTML pages, also detect Cloudflare challenge masquerading as 200
-      if (isApi || !looksLikeCloudflareChallenge(directHtml)) {
-        return directHtml;
+      const html = await res.text();
+      if (isApi || !looksLikeCloudflareChallenge(html)) {
+        console.log(`[smartFetch] direct OK (${html.length} bytes)`);
+        return html;
       }
-      console.log(`[smartFetch] Direct returned 200 but is a Cloudflare challenge, falling back to Firecrawl`);
+      console.log(`[smartFetch] direct 200 but Cloudflare challenge, falling back to Firecrawl`);
       directErr = new Error("Cloudflare challenge page");
     } else {
       directErr = new Error(`HTTP ${res.status}`);
     }
-  } catch (e) {
+  } catch (e: any) {
+    console.log(`[smartFetch] direct threw: ${e?.message}`);
     directErr = e;
   }
 
@@ -158,9 +159,10 @@ async function smartFetch(
     throw new StageError(stage, `Direct fetch failed for API endpoint: ${directErr?.message || "unknown"}`);
   }
 
-  // HTML fallback via Firecrawl
   try {
-    return await fetchViaFirecrawl(url, "rawHtml");
+    const html = await fetchViaFirecrawl(url, "rawHtml");
+    console.log(`[smartFetch] firecrawl OK (${html.length} bytes)`);
+    return html;
   } catch (fcErr: any) {
     if (fcErr instanceof StageError) throw fcErr;
     throw new StageError(stage, `Direct fetch and Firecrawl both failed: ${fcErr?.message || "unknown"}`);
@@ -181,13 +183,13 @@ async function getChannelId(streamerLogin: string, days: number): Promise<string
     if (m?.[1]) return m[1];
   }
 
-  // Diagnose why
   let reason = "page structure changed or channel ID not embedded in HTML";
-  if (/cf-(browser-verification|chl|ray)|cloudflare/i.test(html)) {
+  if (looksLikeCloudflareChallenge(html)) {
     reason = "page was a Cloudflare challenge (bot protection)";
   } else if (/not found|404|doesn't exist|page you requested/i.test(html.slice(0, 5000))) {
     reason = `channel "${streamerLogin}" does not exist on SullyGnome`;
   }
+  console.log(`[getChannelId] no ID matched. HTML size=${html.length}. Snippet: ${html.slice(0, 500).replace(/\s+/g, " ")}`);
   throw new StageError("channel_id_not_found", `Could not extract SullyGnome channel ID: ${reason}`);
 }
 
