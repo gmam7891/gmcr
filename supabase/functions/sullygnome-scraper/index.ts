@@ -169,36 +169,60 @@ async function smartFetch(
   }
 }
 
-async function getChannelId(streamerLogin: string, days: number): Promise<string> {
+async function getChannelInfo(
+  streamerLogin: string,
+  days: number,
+): Promise<{ channelId: string; timecode: string }> {
   const url = `https://sullygnome.com/channel/${streamerLogin}/${days}/games`;
   const html = await smartFetch(url, BROWSER_HEADERS, "channel_page");
 
   const escapedLogin = streamerLogin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const patterns: RegExp[] = [
-    // Embedded JSON with the streamer login: "xqc","id":78121
+  const idPatterns: RegExp[] = [
     new RegExp(`"${escapedLogin}"\\s*,\\s*"id"\\s*:\\s*(\\d+)`, "i"),
     /"id"\s*:\s*(\d+)\s*,\s*"name"\s*:\s*"[^"]+"\s*,\s*"logo"/i,
-    /\/api\/tables\/channelgames\/\d+\/(\d+)\//i,
+    /CreateChannelGames\(\s*['"][^'"]+['"]\s*,\s*['"][^'"]+['"]\s*,\s*\d+\s*,\s*['"][^'"]+['"]\s*,\s*['"](\d+)['"]/i,
+    /\/api\/tables\/channel(?:games|tables\/games)\/\d+\/(\d+)\//i,
     /data-(?:channel)?id=["'](\d+)["']/i,
     /(?:channelid|channel_id|channelId)\s*[=:]\s*["']?(\d+)["']?/i,
   ];
-  for (const re of patterns) {
+
+  let channelId = "";
+  for (const re of idPatterns) {
     const m = html.match(re);
-    if (m?.[1]) return m[1];
+    if (m?.[1]) {
+      channelId = m[1];
+      break;
+    }
   }
 
-  let reason = "page structure changed or channel ID not embedded in HTML";
-  if (looksLikeCloudflareChallenge(html)) {
-    reason = "page was a Cloudflare challenge (bot protection)";
-  } else if (/not found|404|doesn't exist|page you requested/i.test(html.slice(0, 5000))) {
-    reason = `channel "${streamerLogin}" does not exist on SullyGnome`;
+  if (!channelId) {
+    let reason = "page structure changed or channel ID not embedded in HTML";
+    if (looksLikeCloudflareChallenge(html)) {
+      reason = "page was a Cloudflare challenge (bot protection)";
+    } else if (/not found|404|doesn't exist|page you requested/i.test(html.slice(0, 5000))) {
+      reason = `channel "${streamerLogin}" does not exist on SullyGnome`;
+    }
+    console.log(`[getChannelInfo] no ID matched. HTML size=${html.length}. Snippet: ${html.slice(0, 500).replace(/\s+/g, " ")}`);
+    throw new StageError("channel_id_not_found", `Could not extract SullyGnome channel ID: ${reason}`);
   }
-  console.log(`[getChannelId] no ID matched. HTML size=${html.length}. Snippet: ${html.slice(0, 500).replace(/\s+/g, " ")}`);
-  throw new StageError("channel_id_not_found", `Could not extract SullyGnome channel ID: ${reason}`);
+
+  const tcMatch = html.match(/"timecode"\s*:\s*"([^"]+)"/);
+  const timecode = tcMatch?.[1] || "";
+  if (!timecode) {
+    console.warn(`[getChannelInfo] timecode not found in HTML; API may reject the request`);
+  }
+
+  return { channelId, timecode };
 }
 
-async function fetchGameData(streamerLogin: string, channelId: string, days: number): Promise<any[]> {
-  const apiUrl = `https://sullygnome.com/api/tables/channelgames/${days}/${channelId}/0/stream%20time/1/1/100/1`;
+async function fetchGameData(
+  streamerLogin: string,
+  channelId: string,
+  days: number,
+  timecode: string,
+): Promise<any[]> {
+  // New endpoint: /api/tables/channeltables/games/{days}/{channelId}/{extra}/{draw}/{orderCol}/{orderDir}/{start}/{length}
+  const apiUrl = `https://sullygnome.com/api/tables/channeltables/games/${days}/${channelId}/%20/1/2/desc/0/100`;
   const referer = `https://sullygnome.com/channel/${streamerLogin}/${days}/games`;
 
   let res: Response;
@@ -209,6 +233,7 @@ async function fetchGameData(streamerLogin: string, channelId: string, days: num
         "X-Requested-With": "XMLHttpRequest",
         "Referer": referer,
         "Accept": "application/json, text/javascript, */*; q=0.01",
+        ...(timecode ? { Timecode: timecode } : {}),
       },
     });
   } catch (e: any) {
@@ -234,25 +259,41 @@ async function fetchGameData(streamerLogin: string, channelId: string, days: num
   return parsed.data;
 }
 
+function parseGamesPlayed(raw: unknown): { name: string; slug: string; logo: string } {
+  if (typeof raw !== "string" || !raw) return { name: "Unknown", slug: "", logo: "" };
+  const parts = raw.split("|");
+  return { name: parts[0] || "Unknown", slug: parts[1] || "", logo: parts[2] || "" };
+}
+
 async function scrapeSullyGnome(streamerLogin: string, days: number) {
   console.log(`[SullyGnome] Scraping ${streamerLogin} (${days}d)`);
-  const channelId = await getChannelId(streamerLogin, days);
-  console.log(`[SullyGnome] channelId=${channelId}`);
+  const { channelId, timecode } = await getChannelInfo(streamerLogin, days);
+  console.log(`[SullyGnome] channelId=${channelId} tc=${timecode ? "yes" : "no"}`);
 
-  const data = await fetchGameData(streamerLogin, channelId, days);
+  const data = await fetchGameData(streamerLogin, channelId, days, timecode);
 
-  const parsed = data.map((g) => ({
-    category: g.gamesName || "Unknown",
-    streamTimeRaw: minutesToHm(g.streamtime || 0),
-    streamTimeMinutes: g.streamtime || 0,
-    avgViewers: g.averageviewers || 0,
-    peakViewers: g.peakviewers || 0,
-    hoursWatched: Math.round((g.hourswatched || 0) / 60),
-    streamsCount: g.streams || 0,
-    percentage: g.streamtimepercent || 0,
-    gamesId: g.gamesId,
-    gamesLogo: g.gamesLogo,
-  }));
+  const channelStreamMinutes = Number(data[0]?.channelstreamtime) || 0;
+
+  const parsed = data.map((g) => {
+    const game = parseGamesPlayed(g.gamesplayed);
+    const streamMin = Number(g.streamtime) || 0;
+    return {
+      category: game.name,
+      streamTimeRaw: minutesToHm(streamMin),
+      streamTimeMinutes: streamMin,
+      avgViewers: Number(g.avgviewers) || 0,
+      peakViewers: Number(g.maxviewers) || 0,
+      // viewtime = minutes * viewers; convert to hours watched
+      hoursWatched: Math.round((Number(g.viewtime) || 0) / 60),
+      streamsCount: 0, // not provided by new endpoint
+      percentage:
+        channelStreamMinutes > 0
+          ? Math.round((streamMin / channelStreamMinutes) * 1000) / 10
+          : 0,
+      gamesId: undefined,
+      gamesLogo: game.logo,
+    };
+  });
 
   const casinoKeywords = ["virtual casino", "slots", "casino", "gambling"];
   const casinoCategories = parsed.filter((g) =>
