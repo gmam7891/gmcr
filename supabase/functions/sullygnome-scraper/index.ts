@@ -123,6 +123,12 @@ async function fetchViaFirecrawl(url: string, format: string = "rawHtml"): Promi
   return content;
 }
 
+function looksLikeCloudflareChallenge(html: string): boolean {
+  return /cf-(browser-verification|chl|ray|challenge)|cloudflare|just a moment|checking your browser/i.test(
+    html.slice(0, 8000),
+  );
+}
+
 async function smartFetch(
   url: string,
   headers: Record<string, string>,
@@ -130,10 +136,20 @@ async function smartFetch(
 ): Promise<string> {
   const isApi = url.includes("/api/");
   let directErr: any = null;
+  let directHtml: string | null = null;
   try {
     const res = await fetch(url, { headers });
-    if (res.ok) return await res.text();
-    directErr = new Error(`HTTP ${res.status}`);
+    if (res.ok) {
+      directHtml = await res.text();
+      // For HTML pages, also detect Cloudflare challenge masquerading as 200
+      if (isApi || !looksLikeCloudflareChallenge(directHtml)) {
+        return directHtml;
+      }
+      console.log(`[smartFetch] Direct returned 200 but is a Cloudflare challenge, falling back to Firecrawl`);
+      directErr = new Error("Cloudflare challenge page");
+    } else {
+      directErr = new Error(`HTTP ${res.status}`);
+    }
   } catch (e) {
     directErr = e;
   }
