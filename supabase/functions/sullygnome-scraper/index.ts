@@ -361,7 +361,9 @@ async function getChannelInfo(
     console.warn(`[getChannelInfo] timecode not found in HTML; API may reject the request`);
   }
 
-  return { channelId, timecode };
+  const header = parseChannelHeader(html);
+  const periodStats = parsePeriodStats(html);
+  return { channelId, timecode, header, periodStats };
 }
 
 async function fetchGameData(
