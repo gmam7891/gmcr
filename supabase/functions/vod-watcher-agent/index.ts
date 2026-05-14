@@ -1004,23 +1004,25 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         : 39;
 
     // =================================================================
-    // DEDUP POR TIMESTAMP — bug fix: stream_snapshots pode ter múltiplas
-    // rows para o mesmo timestamp (uma por mosaico). Mantemos apenas a
-    // row com maior confiança por timestamp para não inflar a contagem.
+    // DEDUP POR (TIMESTAMP, GAME) — keeps different games at the same
+    // second (PIP, scene transition) while still collapsing duplicate
+    // rows for the same game from overlapping mosaics.
     // =================================================================
-    const snapDedupMap = new Map<number, any>();
+    const snapDedupMap = new Map<string, any>();
     let snapDuplicatesFound = 0;
     for (const snap of (rawStoryboardSnaps || [])) {
       const ts = Number(snap.timestamp_seconds);
       if (!Number.isFinite(ts)) continue;
-      const existing = snapDedupMap.get(ts);
+      const gameKey = String(snap.game_detected || "").toLowerCase();
+      const key = `${ts}|${gameKey}`;
+      const existing = snapDedupMap.get(key);
       if (!existing) {
-        snapDedupMap.set(ts, snap);
+        snapDedupMap.set(key, snap);
       } else {
         snapDuplicatesFound++;
         const existingConf = Number(existing.ai_confidence ?? existing.confidence_score ?? 0);
         const newConf = Number(snap.ai_confidence ?? snap.confidence_score ?? 0);
-        if (newConf > existingConf) snapDedupMap.set(ts, snap);
+        if (newConf > existingConf) snapDedupMap.set(key, snap);
       }
     }
     const storyboardSnaps = Array.from(snapDedupMap.values());
