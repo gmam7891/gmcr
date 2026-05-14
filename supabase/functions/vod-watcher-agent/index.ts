@@ -901,11 +901,26 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         });
       }
       if (snapshotRows.length > 0) {
+        snapshotRows.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
+        rawEvidenceRows.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
         const { error: snapErr } = await sb.from("stream_snapshots").insert(snapshotRows);
-        if (snapErr) console.warn("[Watcher] snapshot insert failed:", snapErr.message);
         const { error: rawErr } = await sb.from("raw_evidences").insert(rawEvidenceRows);
-        if (rawErr) console.warn("[Watcher] raw evidence insert failed:", rawErr.message);
-        else {
+        if (snapErr || rawErr) {
+          console.error(
+            `[Watcher ${audit.id}] insert failure on mosaic ${mIdx}: ` +
+            `snapshot=${snapErr?.message || "ok"} raw=${rawErr?.message || "ok"} ` +
+            `(rows=${snapshotRows.length})`,
+          );
+          flagged.push({
+            mosaic_index: mIdx,
+            mosaic_url: mosaic.url,
+            ts_window: [firstTs, lastTs],
+            reason: "insert_failed",
+            snapshot_error: snapErr?.message || null,
+            raw_evidence_error: rawErr?.message || null,
+            rows_attempted: snapshotRows.length,
+          });
+        } else {
           totalDetectionsThisChunk += snapshotRows.length;
           framesSinceCheckpoint += snapshotRows.length;
         }
