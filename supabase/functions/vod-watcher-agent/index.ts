@@ -186,6 +186,15 @@ function buildMosaicPrompt(libraryContext: string): string {
   return MOSAIC_PROMPT_BASE + libraryContext;
 }
 
+function gameMatchKey(name: string | null | undefined): string {
+  if (!name) return "";
+  return String(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 // Normaliza variantes conhecidas de nomes de provedora.
 function normalizeProviderName(name: string | null | undefined): string {
   if (!name) return "Unknown";
