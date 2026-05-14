@@ -418,10 +418,29 @@ function parseGamesPlayed(raw: unknown): { name: string; slug: string; logo: str
 
 async function scrapeSullyGnome(streamerLogin: string, days: number) {
   console.log(`[SullyGnome] Scraping ${streamerLogin} (${days}d)`);
-  const { channelId, timecode } = await getChannelInfo(streamerLogin, days);
+  const { channelId, timecode, header, periodStats } = await getChannelInfo(streamerLogin, days);
   console.log(`[SullyGnome] channelId=${channelId} tc=${timecode ? "yes" : "no"}`);
 
-  const data = await fetchGameData(streamerLogin, channelId, days, timecode);
+  const [data, streamsRaw] = await Promise.all([
+    fetchGameData(streamerLogin, channelId, days, timecode),
+    fetchStreams(streamerLogin, channelId, days, timecode),
+  ]);
+
+  const streams = streamsRaw.map((s: any) => ({
+    streamId: s.streamId,
+    startTime: s.starttime,
+    startDateTime: s.startDateTime,
+    endTime: s.endtime,
+    lengthMinutes: Number(s.length) || 0,
+    avgViewers: Number(s.avgviewers) || 0,
+    peakViewers: Number(s.maxviewers) || 0,
+    watchHours: Math.round((Number(s.viewminutes) || 0) / 60),
+    followerGain: Number(s.followergain) || 0,
+    games: typeof s.gamesplayed === "string"
+      ? s.gamesplayed.split(",").map((g: string) => parseGamesPlayed(g.trim()))
+      : [],
+    streamUrl: s.streamUrl,
+  }));
 
   const channelStreamMinutes = Number(data[0]?.channelstreamtime) || 0;
 
