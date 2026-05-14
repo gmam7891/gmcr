@@ -864,7 +864,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           streamer_login: audit.streamer_login,
           vod_id: audit.vod_id,
           source: "storyboard",
-          captured_at: new Date(Date.now() - (audit.vod_duration_seconds - tile.ts) * 1000).toISOString(),
+          captured_at: new Date(vodStartMs + tile.ts * 1000).toISOString(),
           is_live: false,
           game_name: gameName,
           game_detected: gameName,
