@@ -35,11 +35,57 @@ interface GameStat {
   gamesLogo?: string;
 }
 
+interface RankItem {
+  value: string | null;
+  deltaSign: "up" | "down" | null;
+  deltaValue: string | null;
+}
+
+interface ChannelHeader {
+  followers: string | null;
+  status: string | null;
+  mature: string | null;
+  language: string | null;
+  created: string | null;
+  lastOnline: string | null;
+  ranks: {
+    peakViewer: RankItem;
+    avgViewer: RankItem;
+    follower: RankItem;
+    followerGain: RankItem;
+  };
+}
+
+interface PeriodStat {
+  label: string;
+  value: string;
+  delta: string | null;
+  deltaSign: "up" | "down" | null;
+  deltaPct: string | null;
+}
+
+interface StreamRow {
+  streamId: number;
+  startTime: string;
+  startDateTime: string;
+  endTime: string;
+  lengthMinutes: number;
+  avgViewers: number;
+  peakViewers: number;
+  watchHours: number;
+  followerGain: number;
+  games: { name: string; slug: string; logo: string }[];
+  streamUrl: string;
+}
+
 interface SullyResult {
   streamer: string;
   channelId?: string;
   source: string;
   period: string;
+  header?: ChannelHeader;
+  periodStats?: PeriodStat[];
+  streams?: StreamRow[];
   gameStats: GameStat[];
   summary: {
     totalCategories: number;
