@@ -656,7 +656,7 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
     const merged: typeof refinedBlocks = [];
     for (const block of refinedBlocks) {
       const last = merged[merged.length - 1];
-      if (last && last.game === block.game && block.startSec - last.endSec <= frameInterval * 2) {
+      if (last && last.game === block.game && block.startSec - last.endSec <= Math.round(frameInterval * 1.5)) {
         last.endSec = block.endSec;
         last.lastFrameTs = block.lastFrameTs;
         last.confidences.push(...block.confidences);
