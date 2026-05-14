@@ -427,7 +427,7 @@ async function soloResume(runId: string) {
 
   const { data: profiles } = await sb
     .from("game_visual_library")
-    .select("id, game_name, provider_name, agent_keywords, agent_visual_markers")
+    .select("id, game_name, provider_name, agent_keywords, agent_visual_markers, agent_confidence_threshold")
     .not("agent_learned_at", "is", null);
   const profilesArr = profiles || [];
   const profileById = new Map(profilesArr.map((p) => [p.game_name.toLowerCase(), p]));
