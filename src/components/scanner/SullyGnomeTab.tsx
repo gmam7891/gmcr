@@ -220,7 +220,65 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
 
       {result && (
         <>
-          {/* Summary Cards */}
+          {/* Channel Header */}
+          {result.header && (
+            <Card className="p-4 space-y-3">
+              <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs">
+                {([
+                  ["Followers", result.header.followers],
+                  ["Status", result.header.status],
+                  ["Mature", result.header.mature],
+                  ["Language", result.header.language],
+                  ["Created", result.header.created],
+                  ["Last online", result.header.lastOnline],
+                ] as [string, string | null][]).filter(([, v]) => v).map(([k, v]) => (
+                  <div key={k} className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">{k}:</span>
+                    <span className="font-medium">{v}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 border-t border-border">
+                {([
+                  ["Peak viewer rank", result.header.ranks.peakViewer],
+                  ["Avg viewer rank", result.header.ranks.avgViewer],
+                  ["Follower rank", result.header.ranks.follower],
+                  ["Follower gain rank", result.header.ranks.followerGain],
+                ] as [string, RankItem][]).map(([label, r]) => (
+                  <div key={label} className="text-xs">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
+                    <p className="font-mono font-semibold">
+                      {r.value || "—"}
+                      {r.deltaValue && (
+                        <span className={`ml-1 text-[10px] ${r.deltaSign === "up" ? "text-accent" : "text-destructive"}`}>
+                          {r.deltaSign === "up" ? "▲" : "▼"} {r.deltaValue}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Period stats */}
+          {result.periodStats && result.periodStats.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {result.periodStats.map((s) => (
+                <Card key={s.label} className="p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                  <p className="text-xl font-bold font-mono">{s.value}</p>
+                  {(s.delta || s.deltaPct) && (
+                    <p className={`text-[11px] font-mono ${s.deltaSign === "up" ? "text-accent" : "text-destructive"}`}>
+                      {s.delta} {s.deltaPct && <span className="opacity-70">({s.deltaPct})</span>}
+                    </p>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* Categories overview */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Card className="p-3 text-center">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{t("sully.total_categories")}</p>
