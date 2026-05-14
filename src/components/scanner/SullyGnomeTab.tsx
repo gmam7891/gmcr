@@ -423,6 +423,66 @@ export function SullyGnomeTab({ aiDetections = [] }: Props) {
               </Table>
             </Card>
           )}
+
+          {/* Streams list (Stream summary) */}
+          {result.streams && result.streams.length > 0 && (
+            <Card className="p-4 space-y-3">
+              <h3 className="text-sm font-semibold">Stream summary ({result.streams.length})</h3>
+              <div className="max-h-[420px] overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-[10px]">Start</TableHead>
+                      <TableHead className="text-[10px]">Stream</TableHead>
+                      <TableHead className="text-[10px]">Avg</TableHead>
+                      <TableHead className="text-[10px]">Peak</TableHead>
+                      <TableHead className="text-[10px]">Watch time</TableHead>
+                      <TableHead className="text-[10px]">Followers</TableHead>
+                      <TableHead className="text-[10px]">Games</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {result.streams.map((s) => (
+                      <TableRow key={s.streamId}>
+                        <TableCell className="text-xs">
+                          <a href={s.streamUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                            {s.startTime}
+                          </a>
+                        </TableCell>
+                        <TableCell className="text-xs font-mono">{(s.lengthMinutes / 60).toFixed(1)} hrs</TableCell>
+                        <TableCell className="text-xs font-mono">{s.avgViewers.toLocaleString()}</TableCell>
+                        <TableCell className="text-xs font-mono">{s.peakViewers.toLocaleString()}</TableCell>
+                        <TableCell className="text-xs font-mono">{s.watchHours.toLocaleString()} hrs</TableCell>
+                        <TableCell className={`text-xs font-mono ${s.followerGain < 0 ? "text-destructive" : "text-accent"}`}>
+                          {s.followerGain > 0 ? "+" : ""}{s.followerGain}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1 flex-wrap">
+                            {s.games.slice(0, 5).map((g, i) =>
+                              g.logo ? (
+                                <img
+                                  key={i}
+                                  src={formatLogo(g.logo)}
+                                  alt={g.name}
+                                  title={g.name}
+                                  width={20}
+                                  height={27}
+                                  className="rounded-sm"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <Badge key={i} variant="outline" className="text-[9px]">{g.name}</Badge>
+                              )
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </Card>
+          )}
         </>
       )}
     </div>
