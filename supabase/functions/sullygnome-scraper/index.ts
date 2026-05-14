@@ -184,10 +184,144 @@ async function smartFetch(
   }
 }
 
+type ChannelHeader = {
+  followers: string | null;
+  status: string | null;
+  mature: string | null;
+  language: string | null;
+  created: string | null;
+  lastOnline: string | null;
+  ranks: {
+    peakViewer: { value: string | null; deltaSign: "up" | "down" | null; deltaValue: string | null };
+    avgViewer: { value: string | null; deltaSign: "up" | "down" | null; deltaValue: string | null };
+    follower: { value: string | null; deltaSign: "up" | "down" | null; deltaValue: string | null };
+    followerGain: { value: string | null; deltaSign: "up" | "down" | null; deltaValue: string | null };
+  };
+};
+
+type PeriodStat = {
+  label: string;
+  value: string;
+  delta: string | null;
+  deltaSign: "up" | "down" | null;
+  deltaPct: string | null;
+};
+
+function stripTags(s: string): string {
+  return s.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function extractHeaderItem(html: string, label: string): string | null {
+  const re = new RegExp(
+    `>${label.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\s*<\\/div>\\s*<div[^>]*class=['"]MiddleSubHeaderItemValue['"][^>]*>([\\s\\S]*?)</div>`,
+    "i",
+  );
+  const m = html.match(re);
+  return m ? stripTags(m[1]) : null;
+}
+
+function extractRankItem(html: string, label: string) {
+  const re = new RegExp(
+    `>${label}:\\s*</div>\\s*<div[^>]*class=['"]MiddleSubHeaderItemValue['"][^>]*>([\\s\\S]*?)</div>\\s*</div>`,
+    "i",
+  );
+  const m = html.match(re);
+  if (!m) return { value: null, deltaSign: null as null | "up" | "down", deltaValue: null };
+  const inner = m[1];
+  const valMatch = inner.match(/^([^<]+)/);
+  const value = valMatch ? valMatch[1].trim() : null;
+  const deltaSign: "up" | "down" | null = /angle-up/i.test(inner)
+    ? "up"
+    : /angle-down/i.test(inner)
+    ? "down"
+    : null;
+  const deltaMatch = inner.match(/<\/div>\s*([^<()]+)\s*\)/);
+  const deltaValue = deltaMatch ? deltaMatch[1].trim() : null;
+  return { value, deltaSign, deltaValue };
+}
+
+function extractPeriodStat(html: string, label: string): PeriodStat | null {
+  const re = new RegExp(
+    `<h4[^>]*>${label}</h4>[\\s\\S]*?InfoStatPanelTLCell['"]>([^<]+)</div>[\\s\\S]*?InfoStatPanelBLCell\\s+(Positive|Negative)['"]>([^<]+)</div>[\\s\\S]*?InfoStatPanelTRCell\\s+(Positive|Negative)['"]>([\\s\\S]*?)</div>\\s*</div>\\s*</div>`,
+    "i",
+  );
+  const m = html.match(re);
+  if (!m) return null;
+  const value = m[1].trim();
+  const sign: "up" | "down" = m[2] === "Positive" ? "up" : "down";
+  const delta = m[3].trim();
+  const trBlock = m[5];
+  const pctMatch = trBlock.match(/>([\d.]+%)</);
+  return {
+    label,
+    value,
+    delta,
+    deltaSign: sign,
+    deltaPct: pctMatch ? pctMatch[1] : null,
+  };
+}
+
+function parseChannelHeader(html: string): ChannelHeader {
+  return {
+    followers: extractHeaderItem(html, "Followers"),
+    status: extractHeaderItem(html, "Status"),
+    mature: extractHeaderItem(html, "Mature"),
+    language: extractHeaderItem(html, "Language"),
+    created: extractHeaderItem(html, "Created"),
+    lastOnline: extractHeaderItem(html, "Last online"),
+    ranks: {
+      peakViewer: extractRankItem(html, "Peak viewer rank"),
+      avgViewer: extractRankItem(html, "Average viewer rank"),
+      follower: extractRankItem(html, "Follower rank"),
+      followerGain: extractRankItem(html, "Follower gain rank"),
+    },
+  };
+}
+
+function parsePeriodStats(html: string): PeriodStat[] {
+  const labels = ["Average viewers", "Hours watched", "Followers gained", "Peak viewers", "Hours streamed", "Streams"];
+  const out: PeriodStat[] = [];
+  for (const l of labels) {
+    const s = extractPeriodStat(html, l);
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+async function fetchStreams(
+  streamerLogin: string,
+  channelId: string,
+  days: number,
+  timecode: string,
+): Promise<any[]> {
+  const apiUrl = `https://sullygnome.com/api/tables/channeltables/streams/${days}/${channelId}/%20/1/1/desc/0/100`;
+  const referer = `https://sullygnome.com/channel/${streamerLogin}/${days}/streams`;
+  try {
+    const res = await fetch(apiUrl, {
+      headers: {
+        ...BROWSER_HEADERS,
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": referer,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        ...(timecode ? { Timecode: timecode } : {}),
+      },
+    });
+    if (!res.ok) {
+      console.warn(`[fetchStreams] HTTP ${res.status}`);
+      return [];
+    }
+    const parsed = await res.json();
+    return Array.isArray(parsed?.data) ? parsed.data : [];
+  } catch (e: any) {
+    console.warn(`[fetchStreams] failed: ${e?.message}`);
+    return [];
+  }
+}
+
 async function getChannelInfo(
   streamerLogin: string,
   days: number,
-): Promise<{ channelId: string; timecode: string }> {
+): Promise<{ channelId: string; timecode: string; header: ChannelHeader; periodStats: PeriodStat[] }> {
   const url = `https://sullygnome.com/channel/${streamerLogin}`;
   const html = await smartFetch(url, BROWSER_HEADERS, "channel_page");
 
