@@ -482,6 +482,9 @@ async function scrapeSullyGnome(streamerLogin: string, days: number) {
     channelId,
     source: "sullygnome",
     period: `${days}d`,
+    header,
+    periodStats,
+    streams,
     gameStats: parsed,
     summary: {
       totalCategories: parsed.length,
