@@ -449,9 +449,12 @@ async function soloResume(runId: string) {
         const ref = tilesByKey.get(key);
         if (!ref) continue;
         if (!tile.game_name) continue;
-        if ((tile.confidence ?? 0) < 0.5) continue;
         const profile = profileById.get(tile.game_name.toLowerCase());
         if (!profile) continue;
+        const tileConf = tile.confidence ?? 0;
+        const perGameThreshold = Number((profile as any).agent_confidence_threshold);
+        const threshold = Number.isFinite(perGameThreshold) && perGameThreshold > 0 ? perGameThreshold : 0.5;
+        if (tileConf < threshold) continue;
         detRows.push({
           vod_id: run.vod_id,
           streamer_login: run.streamer_login,
