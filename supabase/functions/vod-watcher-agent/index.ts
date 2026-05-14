@@ -604,6 +604,10 @@ Deno.serve(async (req) => {
       return jsonResponse({ status: "completed" });
     }
 
+    const vodStartMs = (audit as any).vod_created_at
+      ? new Date((audit as any).vod_created_at).getTime()
+      : Date.now() - audit.vod_duration_seconds * 1000;
+
     console.log(`[Watcher ${audit_id}] processing mosaics ${startIdx}-${endIdx} of ${plan.mosaics.length}`);
 
     let totalDetectionsThisChunk = 0;
