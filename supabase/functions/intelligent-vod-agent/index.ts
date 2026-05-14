@@ -427,7 +427,7 @@ async function soloResume(runId: string) {
 
   const { data: profiles } = await sb
     .from("game_visual_library")
-    .select("id, game_name, provider_name, agent_keywords, agent_visual_markers")
+    .select("id, game_name, provider_name, agent_keywords, agent_visual_markers, agent_confidence_threshold")
     .not("agent_learned_at", "is", null);
   const profilesArr = profiles || [];
   const profileById = new Map(profilesArr.map((p) => [p.game_name.toLowerCase(), p]));
@@ -449,9 +449,12 @@ async function soloResume(runId: string) {
         const ref = tilesByKey.get(key);
         if (!ref) continue;
         if (!tile.game_name) continue;
-        if ((tile.confidence ?? 0) < 0.5) continue;
         const profile = profileById.get(tile.game_name.toLowerCase());
         if (!profile) continue;
+        const tileConf = tile.confidence ?? 0;
+        const perGameThreshold = Number((profile as any).agent_confidence_threshold);
+        const threshold = Number.isFinite(perGameThreshold) && perGameThreshold > 0 ? perGameThreshold : 0.5;
+        if (tileConf < threshold) continue;
         detRows.push({
           vod_id: run.vod_id,
           streamer_login: run.streamer_login,
@@ -473,8 +476,12 @@ async function soloResume(runId: string) {
     }
   }
 
-  // Insere detecções pontuais (sem dedup de bloco ainda — finalize agrupa)
-  if (detRows.length > 0) await sb.from("agent_analyses").insert(detRows);
+  // Insere detecções pontuais (sem dedup de bloco ainda — finalize agrupa).
+  // Sort by timestamp so finalizeSolo grouping produces correct continuous blocks.
+  if (detRows.length > 0) {
+    detRows.sort((a, b) => a.start_seconds - b.start_seconds);
+    await sb.from("agent_analyses").insert(detRows);
+  }
 
   const newCursor = end;
   await sb.from("agent_runs").update({

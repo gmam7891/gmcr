@@ -622,7 +622,9 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
 
     const rawBlocks: RawBlock[] = [];
     let current: RawBlock | null = null;
-    const gapThreshold = frameInterval * 3;
+    // 1.5× tolerates one missed frame without splitting; 3× was allowing
+    // ~2-minute breaks to inflate the previous block's duration.
+    const gapThreshold = Math.round(frameInterval * 1.5);
 
     for (const ev of evidences as any[]) {
       if (!current || current.game !== ev.game_detected || (ev.timestamp_seconds - current.lastFrameTs) > gapThreshold) {
@@ -654,7 +656,7 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
     const merged: typeof refinedBlocks = [];
     for (const block of refinedBlocks) {
       const last = merged[merged.length - 1];
-      if (last && last.game === block.game && block.startSec - last.endSec <= frameInterval * 2) {
+      if (last && last.game === block.game && block.startSec - last.endSec <= Math.round(frameInterval * 1.5)) {
         last.endSec = block.endSec;
         last.lastFrameTs = block.lastFrameTs;
         last.confidences.push(...block.confidences);

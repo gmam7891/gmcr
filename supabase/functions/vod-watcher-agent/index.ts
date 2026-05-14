@@ -186,6 +186,15 @@ function buildMosaicPrompt(libraryContext: string): string {
   return MOSAIC_PROMPT_BASE + libraryContext;
 }
 
+function gameMatchKey(name: string | null | undefined): string {
+  if (!name) return "";
+  return String(name)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 // Normaliza variantes conhecidas de nomes de provedora.
 function normalizeProviderName(name: string | null | undefined): string {
   if (!name) return "Unknown";
@@ -604,6 +613,10 @@ Deno.serve(async (req) => {
       return jsonResponse({ status: "completed" });
     }
 
+    const vodStartMs = (audit as any).vod_created_at
+      ? new Date((audit as any).vod_created_at).getTime()
+      : Date.now() - audit.vod_duration_seconds * 1000;
+
     console.log(`[Watcher ${audit_id}] processing mosaics ${startIdx}-${endIdx} of ${plan.mosaics.length}`);
 
     let totalDetectionsThisChunk = 0;
@@ -685,7 +698,7 @@ ${nameOnlyContext}`
     // matching contra a biblioteca aceite também jogos sem visual_dna.
     const libraryIndex = new Map<string, { name: string; provider: string }>();
     for (const g of gameLibrary) {
-      libraryIndex.set(g.name.toLowerCase(), { name: g.name, provider: g.provider });
+      libraryIndex.set(gameMatchKey(g.name), { name: g.name, provider: g.provider });
     }
 
 
@@ -807,7 +820,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
 
         if (det.game_name && (screenState === "gameplay" || screenState === "loading")) {
           const rawGame = String(det.game_name).trim();
-          const match = libraryIndex.get(rawGame.toLowerCase());
+          const match = libraryIndex.get(gameMatchKey(rawGame));
 
           if (match && conf >= LIBRARY_MATCH_CONF_FLOOR) {
             // Match canônico na biblioteca COM confiança suficiente
@@ -860,7 +873,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           streamer_login: audit.streamer_login,
           vod_id: audit.vod_id,
           source: "storyboard",
-          captured_at: new Date(Date.now() - (audit.vod_duration_seconds - tile.ts) * 1000).toISOString(),
+          captured_at: new Date(vodStartMs + tile.ts * 1000).toISOString(),
           is_live: false,
           game_name: gameName,
           game_detected: gameName,
@@ -897,11 +910,26 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         });
       }
       if (snapshotRows.length > 0) {
+        snapshotRows.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
+        rawEvidenceRows.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
         const { error: snapErr } = await sb.from("stream_snapshots").insert(snapshotRows);
-        if (snapErr) console.warn("[Watcher] snapshot insert failed:", snapErr.message);
         const { error: rawErr } = await sb.from("raw_evidences").insert(rawEvidenceRows);
-        if (rawErr) console.warn("[Watcher] raw evidence insert failed:", rawErr.message);
-        else {
+        if (snapErr || rawErr) {
+          console.error(
+            `[Watcher ${audit.id}] insert failure on mosaic ${mIdx}: ` +
+            `snapshot=${snapErr?.message || "ok"} raw=${rawErr?.message || "ok"} ` +
+            `(rows=${snapshotRows.length})`,
+          );
+          flagged.push({
+            mosaic_index: mIdx,
+            mosaic_url: mosaic.url,
+            ts_window: [firstTs, lastTs],
+            reason: "insert_failed",
+            snapshot_error: snapErr?.message || null,
+            raw_evidence_error: rawErr?.message || null,
+            rows_attempted: snapshotRows.length,
+          });
+        } else {
           totalDetectionsThisChunk += snapshotRows.length;
           framesSinceCheckpoint += snapshotRows.length;
         }
@@ -976,23 +1004,25 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         : 39;
 
     // =================================================================
-    // DEDUP POR TIMESTAMP — bug fix: stream_snapshots pode ter múltiplas
-    // rows para o mesmo timestamp (uma por mosaico). Mantemos apenas a
-    // row com maior confiança por timestamp para não inflar a contagem.
+    // DEDUP POR (TIMESTAMP, GAME) — keeps different games at the same
+    // second (PIP, scene transition) while still collapsing duplicate
+    // rows for the same game from overlapping mosaics.
     // =================================================================
-    const snapDedupMap = new Map<number, any>();
+    const snapDedupMap = new Map<string, any>();
     let snapDuplicatesFound = 0;
     for (const snap of (rawStoryboardSnaps || [])) {
       const ts = Number(snap.timestamp_seconds);
       if (!Number.isFinite(ts)) continue;
-      const existing = snapDedupMap.get(ts);
+      const gameKey = String(snap.game_detected || "").toLowerCase();
+      const key = `${ts}|${gameKey}`;
+      const existing = snapDedupMap.get(key);
       if (!existing) {
-        snapDedupMap.set(ts, snap);
+        snapDedupMap.set(key, snap);
       } else {
         snapDuplicatesFound++;
         const existingConf = Number(existing.ai_confidence ?? existing.confidence_score ?? 0);
         const newConf = Number(snap.ai_confidence ?? snap.confidence_score ?? 0);
-        if (newConf > existingConf) snapDedupMap.set(ts, snap);
+        if (newConf > existingConf) snapDedupMap.set(key, snap);
       }
     }
     const storyboardSnaps = Array.from(snapDedupMap.values());
