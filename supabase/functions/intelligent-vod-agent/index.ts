@@ -476,8 +476,12 @@ async function soloResume(runId: string) {
     }
   }
 
-  // Insere detecções pontuais (sem dedup de bloco ainda — finalize agrupa)
-  if (detRows.length > 0) await sb.from("agent_analyses").insert(detRows);
+  // Insere detecções pontuais (sem dedup de bloco ainda — finalize agrupa).
+  // Sort by timestamp so finalizeSolo grouping produces correct continuous blocks.
+  if (detRows.length > 0) {
+    detRows.sort((a, b) => a.start_seconds - b.start_seconds);
+    await sb.from("agent_analyses").insert(detRows);
+  }
 
   const newCursor = end;
   await sb.from("agent_runs").update({
