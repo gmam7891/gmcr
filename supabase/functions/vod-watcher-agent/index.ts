@@ -811,7 +811,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
 
         if (det.game_name && (screenState === "gameplay" || screenState === "loading")) {
           const rawGame = String(det.game_name).trim();
-          const match = libraryIndex.get(rawGame.toLowerCase());
+          const match = libraryIndex.get(gameMatchKey(rawGame));
 
           if (match && conf >= LIBRARY_MATCH_CONF_FLOOR) {
             // Match canônico na biblioteca COM confiança suficiente
