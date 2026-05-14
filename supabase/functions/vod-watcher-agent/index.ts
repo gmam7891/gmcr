@@ -689,7 +689,7 @@ ${nameOnlyContext}`
     // matching contra a biblioteca aceite também jogos sem visual_dna.
     const libraryIndex = new Map<string, { name: string; provider: string }>();
     for (const g of gameLibrary) {
-      libraryIndex.set(g.name.toLowerCase(), { name: g.name, provider: g.provider });
+      libraryIndex.set(gameMatchKey(g.name), { name: g.name, provider: g.provider });
     }
 
 
