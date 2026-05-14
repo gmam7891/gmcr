@@ -213,7 +213,7 @@ function stripTags(s: string): string {
 
 function extractHeaderItem(html: string, label: string): string | null {
   const re = new RegExp(
-    `>${label.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\s*<\\/div>\\s*<div[^>]*class=['"]MiddleSubHeaderItemValue['"][^>]*>([\\s\\S]*?)</div>`,
+    `>${label}:?\\s*<\\/div>\\s*<div[^>]*class=['"]MiddleSubHeaderItemValue['"][^>]*>([\\s\\S]*?)<\\/div>`,
     "i",
   );
   const m = html.match(re);
