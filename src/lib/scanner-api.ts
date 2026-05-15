@@ -57,8 +57,9 @@ export async function getQualityMetrics() {
   return callRead({ action: "get_quality_metrics" });
 }
 export async function getResultsAggregated(params: {
-  date_from?: string; date_to?: string; streamer?: string;
+  date_from?: string; date_to?: string; streamer?: string; streamers?: string[];
   block_status_filter?: string; group_by?: "game" | "vod" | "streamer_game";
+  platform?: string; source_type?: string; provider_ids?: string[]; game_id?: string;
 }) {
   return callRead({ action: "get_results_aggregated", ...params });
 }
@@ -75,7 +76,9 @@ export async function getDashboardData(filters: {
   return callRead({ action: "get_dashboard", ...filters });
 }
 export async function getRankings(params: {
-  date_from?: string; date_to?: string; rank_by: "streamer" | "provider" | "game"; block_status_filter?: string;
+  date_from?: string; date_to?: string; rank_by: "streamer" | "provider" | "game";
+  block_status_filter?: string; streamers?: string[]; provider_ids?: string[];
+  platform?: string; source_type?: string; game_id?: string;
 }) {
   return callRead({ action: "get_rankings", ...params });
 }
