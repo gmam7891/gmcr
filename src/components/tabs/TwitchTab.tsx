@@ -9,6 +9,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { PlatformCampaignSection } from "@/components/platform/PlatformCampaignSection";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 export function TwitchTab() {
   const { t, language } = useLanguage();
@@ -29,6 +30,7 @@ export function TwitchTab() {
   const [userData, setUserData] = useState<TwitchUser | null>(null);
   const [streamData, setStreamData] = useState<TwitchStream | null>(null);
   const [vodStats, setVodStats] = useState<{ count: number; avgViews: number; medianViews: number; vph: number } | null>(null);
+  const [gameViewership, setGameViewership] = useState<Array<{ category: string; avgViewers: number; hoursWatched: number }>>([]);
 
   const fetchChannel = async () => {
     if (!channel.trim()) return;
@@ -64,6 +66,14 @@ export function TwitchTab() {
       });
       if (sully?.summary?.overallAvgViewers > 0) setAvgViewers(sully.summary.overallAvgViewers);
       if (sully?.summary?.overallPeakViewers > 0) setPeakViewers(sully.summary.overallPeakViewers);
+      const stats = Array.isArray(sully?.gameStats) ? sully.gameStats : [];
+      setGameViewership(
+        stats
+          .filter((g: any) => g?.category && g.avgViewers > 0)
+          .sort((a: any, b: any) => b.avgViewers - a.avgViewers)
+          .slice(0, 10)
+          .map((g: any) => ({ category: g.category, avgViewers: g.avgViewers, hoursWatched: g.hoursWatched })),
+      );
     } catch (err) { console.warn("SullyGnome auto-fetch failed:", err); }
     setSullyLoading(false);
   };
@@ -239,6 +249,41 @@ export function TwitchTab() {
           <MetricCard label={t("tw.max_fee")} value={fmtMoney(results.feeMaxRoi)} />
         </div>
         {fee > 0 && getStatus() && <StatusBadge status={getStatus()!} />}
+
+        {gameViewership.length > 0 && (
+          <div className="card-surface p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{language === "pt" ? "Viewership por Jogo (30d)" : "Viewership by Game (30d)"}</h2>
+              <span className="text-[10px] text-muted-foreground font-mono">SullyGnome · panelviews</span>
+            </div>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={gameViewership} margin={{ top: 8, right: 8, left: 0, bottom: 56 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="category"
+                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                    angle={-30}
+                    textAnchor="end"
+                    interval={0}
+                    height={60}
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "hsl(var(--background))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: 6,
+                      fontSize: 12,
+                    }}
+                    formatter={(v: any, name: string) => [fmtInt(v), name === "avgViewers" ? "Avg Viewers" : "Hours Watched"]}
+                  />
+                  <Bar dataKey="avgViewers" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
 
         {/* Campaign Calculator Section */}
         <div className="border-t border-border pt-6 mt-6">
