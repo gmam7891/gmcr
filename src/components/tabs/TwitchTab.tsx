@@ -30,6 +30,7 @@ export function TwitchTab() {
   const [userData, setUserData] = useState<TwitchUser | null>(null);
   const [streamData, setStreamData] = useState<TwitchStream | null>(null);
   const [vodStats, setVodStats] = useState<{ count: number; avgViews: number; medianViews: number; vph: number } | null>(null);
+  const [gameViewership, setGameViewership] = useState<Array<{ category: string; avgViewers: number; hoursWatched: number }>>([]);
 
   const fetchChannel = async () => {
     if (!channel.trim()) return;
