@@ -450,9 +450,10 @@ async function scrapeSullyGnome(streamerLogin: string, days: number) {
   const { channelId, timecode, header, periodStats } = await getChannelInfo(streamerLogin, days);
   console.log(`[SullyGnome] channelId=${channelId} tc=${timecode ? "yes" : "no"}`);
 
-  const [data, streamsRaw] = await Promise.all([
+  const [data, streamsRaw, panelViews] = await Promise.all([
     fetchGameData(streamerLogin, channelId, days, timecode),
     fetchStreams(streamerLogin, channelId, days, timecode),
+    fetchPanelViews(streamerLogin, channelId, days, timecode),
   ]);
 
   const streams = streamsRaw.map((s: any) => ({
