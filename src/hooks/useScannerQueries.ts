@@ -46,12 +46,18 @@ export function useScannerTrendWeekly(filters: ScannerFilters) {
 
 export function useScannerResults(filters: ScannerFilters, groupBy: "game" | "vod" | "streamer_game") {
   return useQuery({
-    queryKey: ["scanner", "results", groupBy, filters.streamer, filters.date_from, filters.date_to],
+    queryKey: ["scanner", "results", groupBy, filters],
     queryFn: () => getResultsAggregated({
-      streamer: filters.streamer || undefined,
+      streamer: filters.streamers.length === 1 ? filters.streamers[0] : (filters.streamer || undefined),
+      streamers: filters.streamers.length > 1 ? filters.streamers : undefined,
       date_from: filters.date_from || undefined,
       date_to: filters.date_to || undefined,
-      group_by: groupBy, block_status_filter: "confirmed",
+      platform: filters.platform || undefined,
+      source_type: filters.source_type || undefined,
+      provider_ids: filters.provider_ids.length ? filters.provider_ids : undefined,
+      game_id: filters.game_id || undefined,
+      group_by: groupBy,
+      block_status_filter: "confirmed",
     }),
     staleTime: STALE,
   });
