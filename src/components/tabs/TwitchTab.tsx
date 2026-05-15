@@ -66,6 +66,14 @@ export function TwitchTab() {
       });
       if (sully?.summary?.overallAvgViewers > 0) setAvgViewers(sully.summary.overallAvgViewers);
       if (sully?.summary?.overallPeakViewers > 0) setPeakViewers(sully.summary.overallPeakViewers);
+      const stats = Array.isArray(sully?.gameStats) ? sully.gameStats : [];
+      setGameViewership(
+        stats
+          .filter((g: any) => g?.category && g.avgViewers > 0)
+          .sort((a: any, b: any) => b.avgViewers - a.avgViewers)
+          .slice(0, 10)
+          .map((g: any) => ({ category: g.category, avgViewers: g.avgViewers, hoursWatched: g.hoursWatched })),
+      );
     } catch (err) { console.warn("SullyGnome auto-fetch failed:", err); }
     setSullyLoading(false);
   };
