@@ -9,6 +9,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { PlatformCampaignSection } from "@/components/platform/PlatformCampaignSection";
 import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 export function TwitchTab() {
   const { t, language } = useLanguage();
