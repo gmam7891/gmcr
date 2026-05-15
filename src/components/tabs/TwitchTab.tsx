@@ -250,6 +250,41 @@ export function TwitchTab() {
         </div>
         {fee > 0 && getStatus() && <StatusBadge status={getStatus()!} />}
 
+        {gameViewership.length > 0 && (
+          <div className="card-surface p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("tw.viewership_by_game") || "Viewership por Jogo (30d)"}</h2>
+              <span className="text-[10px] text-muted-foreground font-mono">SullyGnome · panelviews</span>
+            </div>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={gameViewership} margin={{ top: 8, right: 8, left: 0, bottom: 56 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="category"
+                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                    angle={-30}
+                    textAnchor="end"
+                    interval={0}
+                    height={60}
+                  />
+                  <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "hsl(var(--background))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: 6,
+                      fontSize: 12,
+                    }}
+                    formatter={(v: any, name: string) => [fmtInt(v), name === "avgViewers" ? "Avg Viewers" : "Hours Watched"]}
+                  />
+                  <Bar dataKey="avgViewers" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
         {/* Campaign Calculator Section */}
         <div className="border-t border-border pt-6 mt-6">
           <PlatformCampaignSection platformReach={platformReach} fee={fee} />
