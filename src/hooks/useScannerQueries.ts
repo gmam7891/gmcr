@@ -18,8 +18,17 @@ export function useScannerDashboard(filters: ScannerFilters, dataFilter: string)
 
 export function useScannerRankings(filters: ScannerFilters, rankBy: "streamer" | "provider" | "game") {
   return useQuery({
-    queryKey: ["scanner", "rankings", rankBy, filters.date_from, filters.date_to],
-    queryFn: () => getRankings({ date_from: filters.date_from, date_to: filters.date_to, rank_by: rankBy }),
+    queryKey: ["scanner", "rankings", rankBy, filters],
+    queryFn: () => getRankings({
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+      rank_by: rankBy,
+      streamers: filters.streamers.length ? filters.streamers : undefined,
+      provider_ids: filters.provider_ids.length ? filters.provider_ids : undefined,
+      platform: filters.platform || undefined,
+      source_type: filters.source_type || undefined,
+      game_id: filters.game_id || undefined,
+    }),
     staleTime: STALE,
   });
 }
