@@ -253,7 +253,7 @@ export function TwitchTab() {
         {gameViewership.length > 0 && (
           <div className="card-surface p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("tw.viewership_by_game") || "Viewership por Jogo (30d)"}</h2>
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{language === "pt" ? "Viewership por Jogo (30d)" : "Viewership by Game (30d)"}</h2>
               <span className="text-[10px] text-muted-foreground font-mono">SullyGnome · panelviews</span>
             </div>
             <div className="h-72">
