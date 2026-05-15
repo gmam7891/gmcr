@@ -318,6 +318,35 @@ async function fetchStreams(
   }
 }
 
+async function fetchPanelViews(
+  streamerLogin: string,
+  channelId: string,
+  days: number,
+  timecode: string,
+): Promise<any> {
+  const apiUrl = `https://sullygnome.com/api/charts/channelcharts/panelviews/${days}/${channelId}`;
+  const referer = `https://sullygnome.com/channel/${streamerLogin}/${days}/games`;
+  try {
+    const res = await fetch(apiUrl, {
+      headers: {
+        ...BROWSER_HEADERS,
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": referer,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        ...(timecode ? { Timecode: timecode } : {}),
+      },
+    });
+    if (!res.ok) {
+      console.warn(`[fetchPanelViews] HTTP ${res.status}`);
+      return null;
+    }
+    return await res.json();
+  } catch (e: any) {
+    console.warn(`[fetchPanelViews] failed: ${e?.message}`);
+    return null;
+  }
+}
+
 async function getChannelInfo(
   streamerLogin: string,
   days: number,
