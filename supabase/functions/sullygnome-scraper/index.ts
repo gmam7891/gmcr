@@ -515,6 +515,7 @@ async function scrapeSullyGnome(streamerLogin: string, days: number) {
     header,
     periodStats,
     streams,
+    panelViews,
     gameStats: parsed,
     summary: {
       totalCategories: parsed.length,
