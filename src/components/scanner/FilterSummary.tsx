@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScannerFilters } from "@/contexts/ScannerFiltersContext";
 import { getProviders, getGames } from "@/lib/scanner-api";
@@ -10,11 +10,25 @@ export function FilterSummary() {
   const { filters } = useScannerFilters();
   const [providers, setProviders] = useState<any[]>([]);
   const [games, setGames] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getProviders().then(setProviders).catch(() => {});
-    getGames().then(setGames).catch(() => {});
+    let mounted = true;
+    setLoading(true);
+    Promise.all([
+      getProviders().catch(() => []),
+      getGames().catch(() => []),
+    ]).then(([p, g]) => {
+      if (!mounted) return;
+      setProviders(p || []);
+      setGames(g || []);
+      setLoading(false);
+    });
+    return () => { mounted = false; };
   }, []);
+
+  const needsLookup = filters.provider_ids.length > 0 || !!filters.game_id;
+  const isResolving = loading && needsLookup;
 
   const chips: { label: string; value: string }[] = [];
   if (filters.date_from || filters.date_to) {
@@ -35,11 +49,20 @@ export function FilterSummary() {
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-md border border-primary/30 bg-primary/5 text-[11px]">
-      <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+      {isResolving ? (
+        <Loader2 className="h-3.5 w-3.5 text-primary shrink-0 animate-spin" />
+      ) : (
+        <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+      )}
       <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
         {t("scan.filters_applied")}:
       </span>
-      {chips.length === 0 ? (
+      {isResolving ? (
+        <span className="text-muted-foreground italic flex items-center gap-1">
+          <span className="inline-block h-3 w-24 rounded bg-muted animate-pulse" />
+          <span className="inline-block h-3 w-16 rounded bg-muted animate-pulse" />
+        </span>
+      ) : chips.length === 0 ? (
         <span className="text-muted-foreground italic">{t("scan.no_filters")}</span>
       ) : (
         chips.map((c, i) => (
