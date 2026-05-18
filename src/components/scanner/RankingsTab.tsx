@@ -48,5 +48,6 @@ export function RankingsTab({ filters, rankBy }: Props) {
         </TableBody>
       </Table>
     </Card>
+    </div>
   );
 }
