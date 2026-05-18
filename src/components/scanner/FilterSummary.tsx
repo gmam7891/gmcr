@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScannerFilters } from "@/contexts/ScannerFiltersContext";
 import { getProviders, getGames } from "@/lib/scanner-api";
@@ -10,11 +10,25 @@ export function FilterSummary() {
   const { filters } = useScannerFilters();
   const [providers, setProviders] = useState<any[]>([]);
   const [games, setGames] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getProviders().then(setProviders).catch(() => {});
-    getGames().then(setGames).catch(() => {});
+    let mounted = true;
+    setLoading(true);
+    Promise.all([
+      getProviders().catch(() => []),
+      getGames().catch(() => []),
+    ]).then(([p, g]) => {
+      if (!mounted) return;
+      setProviders(p || []);
+      setGames(g || []);
+      setLoading(false);
+    });
+    return () => { mounted = false; };
   }, []);
+
+  const needsLookup = filters.provider_ids.length > 0 || !!filters.game_id;
+  const isResolving = loading && needsLookup;
 
   const chips: { label: string; value: string }[] = [];
   if (filters.date_from || filters.date_to) {
