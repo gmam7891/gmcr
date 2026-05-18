@@ -3,6 +3,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScannerRankings } from "@/hooks/useScannerQueries";
 import { TableSkeleton } from "./skeletons";
+import { FilterSummary } from "./FilterSummary";
 import type { ScannerFilters } from "@/contexts/ScannerFiltersContext";
 
 interface Props {
@@ -15,10 +16,12 @@ export function RankingsTab({ filters, rankBy }: Props) {
   const { data, isLoading } = useScannerRankings(filters, rankBy);
   const rankings = data?.rankings || [];
 
-  if (isLoading) return <TableSkeleton rows={10} cols={6} />;
-  if (rankings.length === 0) return <p className="text-[11px] text-muted-foreground text-center py-8 leading-tight">{t("scan.no_data")}</p>;
+  if (isLoading) return <div className="space-y-2"><FilterSummary /><TableSkeleton rows={10} cols={6} /></div>;
+  if (rankings.length === 0) return <div className="space-y-2"><FilterSummary /><p className="text-[11px] text-muted-foreground text-center py-8 leading-tight">{t("scan.no_data")}</p></div>;
 
   return (
+    <div className="space-y-2">
+      <FilterSummary />
     <Card className="p-2.5">
       <Table>
         <TableHeader>
@@ -45,5 +48,6 @@ export function RankingsTab({ filters, rankBy }: Props) {
         </TableBody>
       </Table>
     </Card>
+    </div>
   );
 }
