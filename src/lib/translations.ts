@@ -1325,6 +1325,8 @@ const en: Record<keyof typeof pt, string> = {
   "scan.streamer": "Streamer",
   "scan.source": "Source",
   "scan.clear": "Clear",
+  "scan.filters_applied": "Filters applied",
+  "scan.no_filters": "no active filters (showing last 30 days)",
   "scan.active_lives": "Active lives",
   "scan.pending_jobs": "Pending jobs",
   "scan.running_jobs": "Running jobs",
