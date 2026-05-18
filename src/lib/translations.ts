@@ -552,6 +552,8 @@ const pt = {
   "scan.streamer": "Streamer",
   "scan.source": "Fonte",
   "scan.clear": "Limpar",
+  "scan.filters_applied": "Filtros aplicados",
+  "scan.no_filters": "nenhum filtro ativo (mostrando últimos 30 dias)",
   "scan.active_lives": "Lives ativas",
   "scan.pending_jobs": "Jobs pendentes",
   "scan.running_jobs": "Jobs rodando",
