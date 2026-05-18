@@ -49,11 +49,20 @@ export function FilterSummary() {
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-md border border-primary/30 bg-primary/5 text-[11px]">
-      <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+      {isResolving ? (
+        <Loader2 className="h-3.5 w-3.5 text-primary shrink-0 animate-spin" />
+      ) : (
+        <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0" />
+      )}
       <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
         {t("scan.filters_applied")}:
       </span>
-      {chips.length === 0 ? (
+      {isResolving ? (
+        <span className="text-muted-foreground italic flex items-center gap-1">
+          <span className="inline-block h-3 w-24 rounded bg-muted animate-pulse" />
+          <span className="inline-block h-3 w-16 rounded bg-muted animate-pulse" />
+        </span>
+      ) : chips.length === 0 ? (
         <span className="text-muted-foreground italic">{t("scan.no_filters")}</span>
       ) : (
         chips.map((c, i) => (
