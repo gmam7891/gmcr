@@ -3,6 +3,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScannerRankings } from "@/hooks/useScannerQueries";
 import { TableSkeleton } from "./skeletons";
+import { FilterSummary } from "./FilterSummary";
 import type { ScannerFilters } from "@/contexts/ScannerFiltersContext";
 
 interface Props {
