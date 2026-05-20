@@ -1,6 +1,8 @@
 // vod-scan-worker — processa jobs `vod_process` da fila processing_queue.
-// Estratégia: delega ao intelligent-vod-agent (solo_start/solo_resume) e
-// espelha o progresso em processing_queue.metadata. Idempotente, seguro p/ cron.
+// Estratégia (v2): delega ao pipeline maduro `vod-watcher-agent` (action=start),
+// que tem detecção visual+OCR+lobby/gameplay, dedup e reconciliação. O worker
+// só observa `vod_audits` para refletir progresso/resultado no processing_queue.
+// Idempotente, seguro p/ cron.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
@@ -14,8 +16,8 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || "";
 const sb = createClient(SUPABASE_URL, SERVICE_ROLE);
 
-const MAX_PARALLEL = 2;     // máx. jobs running simultâneos
-const STALL_AFTER_MIN = 15; // requeue jobs running parados há > 15min
+const MAX_PARALLEL = 2;
+const STALL_AFTER_MIN = 20;
 
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), {
@@ -28,8 +30,23 @@ function extractVodId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-async function invokeAgent(body: Record<string, unknown>): Promise<any> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/intelligent-vod-agent`, {
+// "1h30m20s" → 5420
+function parseTwitchDuration(s: string): number {
+  if (!s) return 0;
+  let total = 0;
+  const re = /(\d+)([hms])/gi;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    const n = parseInt(m[1], 10);
+    if (m[2].toLowerCase() === "h") total += n * 3600;
+    else if (m[2].toLowerCase() === "m") total += n * 60;
+    else total += n;
+  }
+  return total;
+}
+
+async function invokeFn(name: string, body: Record<string, unknown>): Promise<any> {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON_KEY}` },
     body: JSON.stringify(body),
@@ -37,7 +54,7 @@ async function invokeAgent(body: Record<string, unknown>): Promise<any> {
   const text = await res.text();
   let data: any = null;
   try { data = JSON.parse(text); } catch { /* ignore */ }
-  if (!res.ok) throw new Error(data?.error || text || `agent error ${res.status}`);
+  if (!res.ok) throw new Error(data?.error || text || `${name} error ${res.status}`);
   return data;
 }
 
@@ -65,31 +82,78 @@ async function startJob(job: any) {
     });
     return;
   }
-  const streamer = job.streamer_login && job.streamer_login !== "unknown" ? job.streamer_login : (meta.streamer_login || "");
-  if (!streamer) {
+  let streamer = job.streamer_login && job.streamer_login !== "unknown" ? job.streamer_login : (meta.streamer_login || "");
+
+  // Busca metadados do VOD na Twitch
+  let durationSec = 0;
+  let title = "";
+  let thumbnail = "";
+  try {
+    const vodResp = await invokeFn("twitch-api", { action: "get_vod", vod_id: vodId });
+    const v = vodResp?.data?.[0];
+    if (v) {
+      durationSec = parseTwitchDuration(v.duration || "");
+      title = v.title || "";
+      thumbnail = (v.thumbnail_url || "").replace("%{width}", "1280").replace("%{height}", "720");
+      if (!streamer && v.user_login) streamer = v.user_login;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     await patchJob(job.id, {
       status: "failed",
-      error_message: "Streamer não informado. Preencha o campo Streamer ou use uma URL com login.",
+      error_message: `Falha ao buscar VOD na Twitch: ${msg}`,
       completed_at: new Date().toISOString(),
     });
     return;
   }
 
-  // marca running e dispara solo_start
+  if (!streamer) {
+    await patchJob(job.id, {
+      status: "failed",
+      error_message: "Streamer não informado e não detectado pela Twitch.",
+      completed_at: new Date().toISOString(),
+    });
+    return;
+  }
+  if (!durationSec) {
+    await patchJob(job.id, {
+      status: "failed",
+      error_message: "VOD sem duração na Twitch (privado, sub-only ou removido?).",
+      completed_at: new Date().toISOString(),
+    });
+    return;
+  }
+
   await patchJob(job.id, {
     status: "running",
     started_at: new Date().toISOString(),
     attempts: (job.attempts || 0) + 1,
-    metadata: { ...meta, vod_id: vodId, current_step: "starting", progress_percent: 1 },
+    streamer_login: streamer,
+    metadata: {
+      ...meta,
+      vod_id: vodId,
+      streamer_login: streamer,
+      vod_title: title,
+      vod_duration_seconds: durationSec,
+      current_step: "starting",
+      progress_percent: 1,
+    },
   });
 
   try {
-    const out = await invokeAgent({ action: "solo_start", vod_id: vodId, streamer_login: streamer });
-    if (!out?.run_id) throw new Error("solo_start não retornou run_id");
+    const out = await invokeFn("vod-watcher-agent", {
+      action: "start",
+      vod_id: vodId,
+      streamer_login: streamer,
+      vod_duration_seconds: durationSec,
+      thumbnail_url: thumbnail,
+      vod_title: title,
+    });
+    if (!out?.audit_id) throw new Error("vod-watcher-agent não retornou audit_id");
     await mergeMetadata(job.id, {
-      run_id: out.run_id,
-      total_mosaics: out.total_mosaics,
-      total_tiles: out.total_tiles,
+      audit_id: out.audit_id,
+      total_frames: out.total_frames,
+      total_minutes: out.total_minutes,
       current_step: "processing",
       progress_percent: 3,
     });
@@ -97,7 +161,7 @@ async function startJob(job: any) {
     const msg = err instanceof Error ? err.message : String(err);
     await patchJob(job.id, {
       status: "failed",
-      error_message: `solo_start: ${msg}`,
+      error_message: `vod-watcher start: ${msg}`,
       completed_at: new Date().toISOString(),
     });
   }
@@ -106,54 +170,55 @@ async function startJob(job: any) {
 // ─── Poll a running job ──────────────────────────────────────────────────
 async function pollJob(job: any) {
   const meta = job.metadata || {};
-  const runId: string | undefined = meta.run_id;
-  if (!runId) {
-    // running sem run_id → estado inconsistente, devolve para pending
-    await patchJob(job.id, { status: "pending", error_message: "running sem run_id; requeued" });
+  const auditId: string | undefined = meta.audit_id;
+  if (!auditId) {
+    await patchJob(job.id, { status: "pending", error_message: "running sem audit_id; requeued" });
     return;
   }
 
-  const { data: run } = await sb.from("agent_runs").select("*").eq("id", runId).maybeSingle();
-  if (!run) {
+  const { data: audit } = await sb.from("vod_audits").select("*").eq("id", auditId).maybeSingle();
+  if (!audit) {
     await patchJob(job.id, {
       status: "failed",
-      error_message: "agent_run desapareceu",
+      error_message: "vod_audit desapareceu",
       completed_at: new Date().toISOString(),
     });
     return;
   }
 
-  // progresso
-  const total = run.total_mosaics || 1;
-  const done = run.cursor_mosaic || 0;
-  const pct = Math.max(3, Math.min(99, Math.round((done / total) * 100)));
+  const expected = audit.expected_frames || 1;
+  const processed = audit.processed_frames || 0;
+  const pct = Math.max(3, Math.min(99, Math.round((processed / expected) * 100)));
 
-  if (run.status === "running" || run.status === "queued") {
-    // Stall protection: se o agent_run não avança há tempo, dá um nudge solo_resume
-    const lastUpdated = run.updated_at ? new Date(run.updated_at).getTime() : 0;
+  // status do vod_audits: queued | processing | completed | failed
+  if (audit.status === "processing" || audit.status === "queued") {
+    // Nudge se o audit parou de atualizar
+    const lastUpdated = audit.updated_at ? new Date(audit.updated_at).getTime() : 0;
     const stalledMin = (Date.now() - lastUpdated) / 60000;
-    if (stalledMin > 2) {
-      try { await invokeAgent({ action: "solo_resume", run_id: runId }); } catch (_) { /* fire-and-forget */ }
+    if (stalledMin > 3) {
+      try { await invokeFn("vod-watcher-agent", { action: "resume", audit_id: auditId }); } catch (_) {}
     }
     await mergeMetadata(job.id, {
       progress_percent: pct,
-      current_step: `mosaic ${done}/${total}`,
-      detections_count: run.detections_count || 0,
+      current_step: audit.progress_phase || `frame ${processed}/${expected}`,
+      progress_message: audit.progress_message || null,
+      games_found: audit.progress_games_found || 0,
     });
     return;
   }
 
-  if (run.status === "completed") {
-    // Agrega análises do VOD para gerar resultado
-    const vodId = meta.vod_id || run.vod_id;
-    const { data: analyses } = await sb
-      .from("agent_analyses")
-      .select("duration_seconds, game_name, provider_name")
-      .eq("vod_id", vodId);
-
-    const casinoSeconds = (analyses || []).reduce((s, a) => s + (a.duration_seconds || 0), 0);
-    const vodDuration = (run.total_tiles || 0) * 30; // tile = 30s aprox.
+  if (audit.status === "completed") {
+    // Busca report consolidado
+    let report: any = null;
+    try {
+      report = await invokeFn("vod-watcher-agent", { action: "report", audit_id: auditId });
+    } catch (e) {
+      console.warn("[worker] report fetch failed:", e);
+    }
+    const casinoSeconds = report?.total_casino_seconds ?? 0;
+    const vodDuration = report?.vod_duration_seconds ?? audit.vod_duration_seconds ?? 0;
     const casinoPercent = vodDuration > 0 ? (casinoSeconds / vodDuration) * 100 : 0;
+    const games = Array.isArray(report?.games) ? report.games : [];
 
     await mergeMetadata(job.id, {
       progress_percent: 100,
@@ -161,8 +226,15 @@ async function pollJob(job: any) {
       result: {
         casino_seconds: casinoSeconds,
         casino_percent: Number(casinoPercent.toFixed(2)),
-        detections_count: (analyses || []).length,
+        detections_count: games.length,
         vod_duration_seconds: vodDuration,
+        summary: report?.summary || null,
+        top_games: games.slice(0, 8).map((g: any) => ({
+          game: g.game,
+          provider: g.provider,
+          seconds: g.seconds,
+          status: g.status,
+        })),
       },
     });
     await patchJob(job.id, {
@@ -172,19 +244,18 @@ async function pollJob(job: any) {
     return;
   }
 
-  if (run.status === "failed") {
+  if (audit.status === "failed") {
     await patchJob(job.id, {
       status: "failed",
-      error_message: run.error_message || "agent_run failed",
+      error_message: audit.error_message || "vod_audit failed",
       completed_at: new Date().toISOString(),
     });
     return;
   }
 }
 
-// ─── Tick: avança fila ───────────────────────────────────────────────────
+// ─── Tick ────────────────────────────────────────────────────────────────
 async function tick() {
-  // 1) Requeue stalls (running sem updated_at recente, sem run_id)
   const stallCutoff = new Date(Date.now() - STALL_AFTER_MIN * 60_000).toISOString();
   await sb
     .from("processing_queue")
@@ -192,9 +263,8 @@ async function tick() {
     .eq("job_type", "vod_process")
     .eq("status", "running")
     .lt("updated_at", stallCutoff)
-    .is("metadata->>run_id", null);
+    .is("metadata->>audit_id", null);
 
-  // 2) Polla os running atuais
   const { data: running } = await sb
     .from("processing_queue")
     .select("*")
@@ -204,7 +274,6 @@ async function tick() {
     .limit(MAX_PARALLEL);
   for (const j of running || []) await pollJob(j);
 
-  // 3) Inicia novos pendentes até atingir MAX_PARALLEL
   const slots = Math.max(0, MAX_PARALLEL - (running?.length || 0));
   if (slots > 0) {
     const { data: pending } = await sb
@@ -218,10 +287,7 @@ async function tick() {
     for (const j of pending || []) await startJob(j);
   }
 
-  return {
-    polled: running?.length || 0,
-    started: slots,
-  };
+  return { polled: running?.length || 0, started: slots };
 }
 
 Deno.serve(async (req) => {
