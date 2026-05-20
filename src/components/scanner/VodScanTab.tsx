@@ -74,8 +74,28 @@ export function VodScanTab() {
 
   useEffect(() => {
     if (!hasActive) return;
-    const id = window.setInterval(loadJobs, 3000);
-    return () => window.clearInterval(id);
+    // Bug #9: backoff (3s → 5s → 10s → 15s) quando não há mudança de estado.
+    let cancelled = false;
+    let delay = 3000;
+    let lastSig = "";
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const d = await getQueue();
+        const list = (d.jobs || []).filter((j: any) => j.job_type === "vod_process");
+        const sig = list.map((j: any) => `${j.id}:${j.status}:${j.metadata?.progress_percent ?? ""}:${j.metadata?.current_step ?? ""}`).join("|");
+        if (sig === lastSig) {
+          delay = delay < 5000 ? 5000 : delay < 10000 ? 10000 : 15000;
+        } else {
+          delay = 3000;
+          lastSig = sig;
+          setJobs(list);
+        }
+      } catch { /* keep current delay on error */ }
+      if (!cancelled) setTimeout(tick, delay);
+    };
+    const id = setTimeout(tick, delay);
+    return () => { cancelled = true; clearTimeout(id); };
   }, [hasActive]);
 
   const handleSubmit = async (e: React.FormEvent) => {

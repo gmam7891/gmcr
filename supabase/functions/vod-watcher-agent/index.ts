@@ -254,31 +254,73 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, maxAttempts = M
   throw lastErr;
 }
 
-async function callAI(messages: any[]): Promise<{ items: any[]; ok: boolean; status: number; raw: string }> {
-  try {
-    return await withRetry("ai-gateway", async () => {
-      const res = await fetch(AI_GATEWAY, {
+// ── AI Gateway call with structured backoff ──────────────────────────────────
+// Bug #2: dedicated exponential backoff with jitter for 429/402/5xx that
+// respects Retry-After header. 402 (quota) is non-retryable and surfaced via
+// `quota_exhausted` so callers can pause the audit with needs_review status.
+async function callAI(messages: any[]): Promise<{
+  items: any[]; ok: boolean; status: number; raw: string;
+  quota_exhausted?: boolean; retry_after_seconds?: number;
+}> {
+  const MAX_ATTEMPTS = 5;
+  const BASE_DELAY_MS = 1000;
+  const MAX_DELAY_MS = 16000;
+  let lastStatus = 0;
+  let lastBody = "";
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(AI_GATEWAY, {
         method: "POST",
         headers: { "Authorization": `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: "google/gemini-2.5-flash", messages, max_tokens: 8192 }),
       });
-      // Don't retry 4xx — they won't fix themselves
-      if (res.status === 429 || res.status === 402 || res.status >= 500) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`gateway ${res.status}: ${txt.slice(0, 120)}`);
-      }
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        return { items: [], ok: false, status: res.status, raw: txt };
-      }
-      const data = await res.json();
+    } catch (e) {
+      lastBody = (e as Error).message;
+      lastStatus = 0;
+      const backoff = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * Math.pow(2, attempt - 1)) + Math.random() * 500;
+      console.warn(`[Watcher] AI network error attempt ${attempt}/${MAX_ATTEMPTS}: ${lastBody}. Retrying in ${Math.round(backoff)}ms`);
+      if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, backoff));
+      continue;
+    }
+
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
       const raw = data?.choices?.[0]?.message?.content ?? "[]";
       return { items: parseAIBatch(raw), ok: true, status: 200, raw };
-    });
-  } catch (e) {
-    console.warn(`[Watcher] AI call exhausted retries: ${(e as Error).message}`);
-    return { items: [], ok: false, status: 0, raw: String(e) };
+    }
+
+    lastStatus = res.status;
+    lastBody = await res.text().catch(() => "");
+
+    // 402: quota exhausted — do NOT retry, signal upstream to stop the audit.
+    if (res.status === 402) {
+      console.error(`[Watcher] AI gateway quota exhausted (402): ${lastBody.slice(0, 200)}`);
+      return { items: [], ok: false, status: 402, raw: lastBody, quota_exhausted: true };
+    }
+
+    if (res.status === 429 || res.status >= 500) {
+      const retryAfterHeader = res.headers.get("Retry-After");
+      const retryAfterSec = retryAfterHeader ? Number(retryAfterHeader) : NaN;
+      const backoff = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+        ? Math.min(MAX_DELAY_MS, retryAfterSec * 1000)
+        : Math.min(MAX_DELAY_MS, BASE_DELAY_MS * Math.pow(2, attempt - 1)) + Math.random() * 500;
+      console.warn(
+        `[Watcher] AI ${res.status} attempt ${attempt}/${MAX_ATTEMPTS}` +
+        (retryAfterHeader ? ` (Retry-After=${retryAfterHeader}s)` : "") +
+        `. Backing off ${Math.round(backoff)}ms. body="${lastBody.slice(0, 120)}"`
+      );
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+    }
+
+    // Non-retryable 4xx (other than 402) — return immediately
+    return { items: [], ok: false, status: res.status, raw: lastBody };
   }
+  console.warn(`[Watcher] AI call exhausted ${MAX_ATTEMPTS} attempts (last status=${lastStatus})`);
+  return { items: [], ok: false, status: lastStatus, raw: lastBody };
 }
 
 async function fetchChapters(vodId: string): Promise<any[]> {
@@ -327,14 +369,15 @@ async function fetchVodCreatedAt(vodId: string): Promise<string | null> {
 
 // Fetch the storyboard descriptor + URLs.
 // Returns null when storyboards are unavailable (very fresh VOD, deleted, etc).
-async function fetchStoryboardPlan(vodId: string): Promise<
-  | {
-      mosaics: Array<{ url: string; cols: number; rows: number; tile_w: number; tile_h: number; tiles: Array<{ row: number; col: number; ts: number }> }>;
-      interval: number;
-      total_tiles: number;
-    }
-  | null
-> {
+// Sets a `reason` flag we surface upstream (not_found | gql_failed | info_failed | empty).
+type StoryboardPlan = {
+  mosaics: Array<{ url: string; cols: number; rows: number; tile_w: number; tile_h: number; tiles: Array<{ row: number; col: number; ts: number }> }>;
+  interval: number;
+  total_tiles: number;
+};
+type StoryboardResult = { plan: StoryboardPlan | null; reason: "ok" | "not_found" | "gql_failed" | "info_failed" | "empty" };
+
+async function fetchStoryboardPlan(vodId: string): Promise<StoryboardResult> {
   // 1. Get seekPreviewsURL via GraphQL (with retry — Twitch GQL flakes)
   const gqlBody = await withRetry("twitch-gql-storyboard", async () => {
     const r = await fetch(GQL_URL, {
@@ -345,8 +388,9 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     if (!r.ok) throw new Error(`gql ${r.status}`);
     return await r.json();
   }).catch((e) => { console.warn(`[Watcher] storyboard gql exhausted: ${e.message}`); return null; });
+  if (!gqlBody) return { plan: null, reason: "gql_failed" };
   const infoUrl: string | undefined = gqlBody?.data?.video?.seekPreviewsURL;
-  if (!infoUrl) return null;
+  if (!infoUrl) return { plan: null, reason: "not_found" };
 
   // 2. Fetch the info.json (with retry)
   const variants: any[] = await withRetry("storyboard-info-json", async () => {
@@ -354,18 +398,13 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     if (!r.ok) throw new Error(`info ${r.status}`);
     return await r.json();
   }).catch(() => []);
-  if (!Array.isArray(variants) || variants.length === 0) return null;
+  if (!Array.isArray(variants) || variants.length === 0) return { plan: null, reason: "info_failed" };
 
   console.log(
     `[storyboard] All variants for VOD ${vodId}: ` +
     variants.map((v: any) => `${v.quality}(${v.count}t,${v.interval}s,${v.width}x${v.height})`).join(", ")
   );
 
-  // Trade-off: "high" (~320x180px, ~30s/tile) é o mais legível mas perde
-  // transições curtas (loading screens 3-8s ficam de fora). "medium"
-  // (~160x90px, ~15s/tile) é o sweet-spot: ainda legível para HUDs e logos
-  // grandes, com 2x mais cobertura temporal. "low" (~80x45px) é descartado
-  // porque a IA alucina nele.
   const byQuality = (q: string) => variants.find((v: any) => String(v.quality).toLowerCase() === q);
   const variant =
     byQuality("medium") ??
@@ -384,9 +423,10 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     `interval ${variant.interval}s, tile ${variant.width}x${variant.height}.`
   );
   const { count, cols, rows, width, height, interval, images } = variant;
-  if (!count || !cols || !rows || !width || !height || !interval || !Array.isArray(images)) return null;
+  if (!count || !cols || !rows || !width || !height || !interval || !Array.isArray(images)) {
+    return { plan: null, reason: "empty" };
+  }
 
-  // 3. Compute base URL (info.json sits next to the storyboard images)
   const baseUrl = infoUrl.substring(0, infoUrl.lastIndexOf("/") + 1);
   const tilesPerImage = cols * rows;
 
@@ -399,25 +439,39 @@ async function fetchStoryboardPlan(vodId: string): Promise<
       tiles.push({
         row: Math.floor(localIdx / cols),
         col: localIdx % cols,
-        ts: Math.round(g * interval + interval / 2), // midpoint timestamp
+        ts: Math.round(g * interval + interval / 2),
       });
     }
     return { url: baseUrl + imgName, cols, rows, tile_w: width, tile_h: height, tiles };
   });
 
-  return { mosaics, interval, total_tiles: count };
+  return { plan: { mosaics, interval, total_tiles: count }, reason: "ok" };
 }
 
+// Bug #7: self-invoke must use SERVICE_ROLE for internal authenticated calls
+// and we want to log the result so a failed resume doesn't disappear silently.
 async function selfInvokeResume(auditId: string) {
   const url = `${SUPABASE_URL}/functions/v1/vod-watcher-agent`;
-  fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${ANON_KEY}`,
-    },
-    body: JSON.stringify({ action: "resume", audit_id: auditId }),
-  }).catch((e) => console.warn("[Watcher] self-invoke failed:", e));
+  const token = SERVICE_KEY || ANON_KEY;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+        "apikey": token,
+      },
+      body: JSON.stringify({ action: "resume", audit_id: auditId }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn(`[Watcher] self-invoke resume returned ${res.status}: ${body.slice(0, 200)}`);
+    } else {
+      console.log(`[Watcher] self-invoke resume queued for audit ${auditId}`);
+    }
+  } catch (e) {
+    console.warn("[Watcher] self-invoke failed:", e);
+  }
 }
 
 Deno.serve(async (req) => {
@@ -443,11 +497,14 @@ Deno.serve(async (req) => {
 
     const totalMinutes = Math.round(vod_duration_seconds / 60);
 
-    // Fetch storyboard plan + chapters + VOD created_at in parallel
-    const [storyboard, chapters, vodCreatedAt] = await Promise.all([
+    // Fetch storyboard plan + chapters + VOD created_at in parallel.
+    // Bug #3: differentiate `timeout` from `not_found` so the UI/error can
+    // explain why we couldn't proceed.
+    const TIMEOUT_TOKEN = { __timeout: true } as const;
+    const [storyboardOutcome, chapters, vodCreatedAt] = await Promise.all([
       Promise.race([
         fetchStoryboardPlan(vod_id),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+        new Promise<typeof TIMEOUT_TOKEN>((resolve) => setTimeout(() => resolve(TIMEOUT_TOKEN), 8000)),
       ]),
       Promise.race([
         fetchChapters(vod_id),
@@ -459,8 +516,18 @@ Deno.serve(async (req) => {
       ]),
     ]);
 
-    if (!storyboard || storyboard.mosaics.length === 0) {
-      // Hard fail with clear message — UI can explain
+    const storyboardTimedOut = storyboardOutcome === TIMEOUT_TOKEN;
+    const storyboard = storyboardTimedOut ? null : (storyboardOutcome as StoryboardResult);
+
+    if (storyboardTimedOut || !storyboard?.plan || storyboard.plan.mosaics.length === 0) {
+      const reason = storyboardTimedOut ? "timeout" : (storyboard?.reason ?? "not_found");
+      const errMap: Record<string, string> = {
+        timeout: "Timeout ao buscar storyboards na Twitch (>8s). VOD pode estar com storyboard ainda processando. Tente novamente em alguns minutos.",
+        not_found: "Storyboards indisponíveis para este VOD (Twitch não retornou seekPreviewsURL). Tente um VOD mais recente.",
+        gql_failed: "Falha ao consultar Twitch GraphQL para storyboards após retries.",
+        info_failed: "Twitch retornou um descritor de storyboard inválido (info.json vazio).",
+        empty: "Storyboard descritor está sem variantes utilizáveis.",
+      };
       const auditPayload = {
         vod_id,
         streamer_login,
@@ -472,11 +539,12 @@ Deno.serve(async (req) => {
         processed_frames: 0,
         started_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
-        error_message: "Storyboards indisponíveis para este VOD (Twitch removeu thumbs por timestamp). Tente um VOD mais recente.",
+        error_message: errMap[reason] || errMap.not_found,
         progress_phase: "failed",
-        progress_message: "Sem fonte de imagens — Twitch não expôs storyboards para este VOD.",
+        progress_message: errMap[reason] || errMap.not_found,
+        partial_reason: `storyboard_${reason}`,
         sullygnome_snapshot: {},
-        pending_audit_segments: { plan: null, flagged: [] } as any,
+        pending_audit_segments: { plan: null, flagged: [{ reason: `storyboard_${reason}` }] } as any,
       };
       const { data: row } = await sb.from("vod_audits").upsert(auditPayload, { onConflict: "vod_id,platform" }).select("id").single();
       return jsonResponse({
@@ -484,25 +552,27 @@ Deno.serve(async (req) => {
         total_frames: 0,
         total_minutes: totalMinutes,
         chapters: chapters?.length ?? 0,
-        message: "Storyboards indisponíveis — auditoria não pôde iniciar.",
+        storyboard_reason: reason,
+        message: errMap[reason] || errMap.not_found,
       });
     }
 
-    const totalFrames = storyboard.total_tiles;
-    // Sanity check: VOD recente pode estar com storyboard ainda processando.
-    // Threshold: pelo menos 1 tile a cada 60s do VOD.
+    const plan = storyboard.plan;
+    const totalFrames = plan.total_tiles;
+    // Bug #3c: VOD recente pode estar com storyboard ainda processando. Em vez
+    // de seguir silenciosamente, marcamos partial_reason para que a UI mostre
+    // o aviso de baixa precisão.
     const minExpectedTiles = Math.max(20, Math.floor(vod_duration_seconds / 60));
+    let partialReason: string | null = null;
     if (totalFrames < minExpectedTiles) {
+      partialReason = `low_storyboard_coverage:${totalFrames}/${minExpectedTiles}`;
       console.warn(
         `[storyboard] VOD ${vod_id}: only ${totalFrames} tiles for ${vod_duration_seconds}s VOD. ` +
-        `Expected at least ${minExpectedTiles}. Storyboard may still be processing on Twitch's side. ` +
-        `Proceeding anyway, but precision will be lower.`
+        `Expected at least ${minExpectedTiles}. Marking audit as partial.`
       );
     }
 
-    // Wipe any stale data for this VOD so re-scans don't accumulate duplicates
-    // in raw_evidences / stream_snapshots / gameplay_blocks. Without this, every
-    // re-run inflates frame counts and game durations.
+    // Wipe any stale data for this VOD so re-scans don't accumulate duplicates.
     await Promise.all([
       sb.from("raw_evidences").delete().eq("vod_id", vod_id),
       sb.from("stream_snapshots").delete().eq("vod_id", vod_id).eq("source", "storyboard"),
@@ -521,21 +591,22 @@ Deno.serve(async (req) => {
       started_at: new Date().toISOString(),
       completed_at: null,
       error_message: null,
+      partial_reason: partialReason,
       progress_phase: "starting",
       progress_total_minutes: totalMinutes,
       progress_current_minute: 0,
       progress_games_found: 0,
-      progress_message: `Plano: ${storyboard.mosaics.length} mosaicos | ${totalFrames} frames | ${chapters.length} capítulos`,
+      progress_message: `Plano: ${plan.mosaics.length} mosaicos | ${totalFrames} frames | ${chapters.length} capítulos` + (partialReason ? " ⚠ baixa precisão (storyboard incompleto)" : ""),
       sullygnome_snapshot: {},
       pending_audit_segments: {
         plan: {
-          mosaics: storyboard.mosaics,
-          interval: storyboard.interval,
+          mosaics: plan.mosaics,
+          interval: plan.interval,
           chapters,
           vod_title: vod_title || "",
           processed_mosaic: 0,
         },
-        flagged: [],
+        flagged: partialReason ? [{ reason: partialReason }] : [],
       } as any,
     };
 
@@ -787,6 +858,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       // ── SSoT: write detections into stream_snapshots ──────────────────────
       const snapshotRows: any[] = [];
       const rawEvidenceRows: any[] = [];
+      const rejectedRows: any[] = [];
       for (const det of detections) {
         const row = Number(det.row);
         const col = Number(det.col);
@@ -833,6 +905,18 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
               `[Watcher ${audit.id}] Discarding low-confidence library guess: "${rawGame}" ` +
               `(conf=${conf.toFixed(2)} < ${LIBRARY_MATCH_CONF_FLOOR}). evidence="${det.evidence || ""}"`,
             );
+            rejectedRows.push({
+              vod_id: audit.vod_id,
+              audit_id: audit.id,
+              streamer_login: audit.streamer_login,
+              timestamp_seconds: tile.ts,
+              proposed_game: rawGame,
+              proposed_provider: match.provider,
+              confidence: conf,
+              reason: "low_confidence_library_match",
+              evidence: det.evidence || null,
+              raw_payload: { screen_state: screenState, det },
+            });
           } else if (isUnknownGame && conf >= UNKNOWN_GAME_CONF_FLOOR) {
             // Fora da biblioteca, mas Gemini admitiu — aceita com flag
             validatedGameName = rawGame.slice(0, 80);
@@ -845,6 +929,18 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
               `[Watcher ${audit.id}] Discarding hallucinated game: "${rawGame}" ` +
               `(not in library, is_unknown_game=${isUnknownGame}, conf=${conf.toFixed(2)})`,
             );
+            rejectedRows.push({
+              vod_id: audit.vod_id,
+              audit_id: audit.id,
+              streamer_login: audit.streamer_login,
+              timestamp_seconds: tile.ts,
+              proposed_game: rawGame,
+              proposed_provider: det.provider_name || null,
+              confidence: conf,
+              reason: isUnknownGame ? "unknown_game_low_confidence" : "hallucinated_outside_library",
+              evidence: det.evidence || null,
+              raw_payload: { screen_state: screenState, det },
+            });
           }
         }
 
@@ -909,30 +1005,81 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           extra_metadata: commonMetadata,
         });
       }
-      if (snapshotRows.length > 0) {
-        snapshotRows.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
-        rawEvidenceRows.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
-        const { error: snapErr } = await sb.from("stream_snapshots").insert(snapshotRows);
-        const { error: rawErr } = await sb.from("raw_evidences").insert(rawEvidenceRows);
+      // Bug #1: dedup snapshotRows/rawEvidenceRows by chave única ANTES de
+      // inserir. Mosaicos sobrepostos geram tiles com mesmo (ts, game).
+      // Mantém a entrada com maior confiança.
+      const dedupByKey = <T extends { timestamp_seconds?: number; game_detected?: string | null; confidence_score?: number; ai_confidence?: number }>(
+        rows: T[], includeGame: boolean,
+      ): T[] => {
+        const m = new Map<string, T>();
+        for (const r of rows) {
+          const ts = Number(r.timestamp_seconds);
+          if (!Number.isFinite(ts)) continue;
+          const key = includeGame ? `${ts}|${String(r.game_detected || "").toLowerCase()}` : String(ts);
+          const ex = m.get(key);
+          if (!ex) { m.set(key, r); continue; }
+          const exConf = Number((ex as any).ai_confidence ?? ex.confidence_score ?? 0);
+          const rConf = Number((r as any).ai_confidence ?? r.confidence_score ?? 0);
+          if (rConf > exConf) m.set(key, r);
+        }
+        return Array.from(m.values());
+      };
+      const dedupSnaps = dedupByKey(snapshotRows, true);
+      const dedupEvs = dedupByKey(rawEvidenceRows, false);
+
+      if (dedupSnaps.length > 0) {
+        dedupSnaps.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
+        dedupEvs.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
+        // Use upsert tolerante ao índice único parcial (migration nova).
+        const { error: snapErr } = await sb.from("stream_snapshots")
+          .upsert(dedupSnaps, { onConflict: "vod_id,timestamp_seconds,game_detected", ignoreDuplicates: true });
+        const { error: rawErr } = await sb.from("raw_evidences")
+          .upsert(dedupEvs, { onConflict: "vod_id,timestamp_seconds", ignoreDuplicates: true });
+
         if (snapErr || rawErr) {
           console.error(
-            `[Watcher ${audit.id}] insert failure on mosaic ${mIdx}: ` +
+            `[Watcher ${audit.id}] bulk upsert failure on mosaic ${mIdx}: ` +
             `snapshot=${snapErr?.message || "ok"} raw=${rawErr?.message || "ok"} ` +
-            `(rows=${snapshotRows.length})`,
+            `(rows=${dedupSnaps.length}). Falling back to per-row.`,
           );
+          // Bug #6: fallback linha-a-linha p/ identificar a linha problemática.
+          let okSnap = 0, badSnap = 0; const badSnapSamples: any[] = [];
+          for (const row of dedupSnaps) {
+            const { error: e } = await sb.from("stream_snapshots").upsert(row, { onConflict: "vod_id,timestamp_seconds,game_detected", ignoreDuplicates: true });
+            if (e) {
+              badSnap++;
+              if (badSnapSamples.length < 3) badSnapSamples.push({ ts: row.timestamp_seconds, game: row.game_detected, err: e.message });
+            } else okSnap++;
+          }
+          let okEv = 0, badEv = 0; const badEvSamples: any[] = [];
+          for (const row of dedupEvs) {
+            const { error: e } = await sb.from("raw_evidences").upsert(row, { onConflict: "vod_id,timestamp_seconds", ignoreDuplicates: true });
+            if (e) {
+              badEv++;
+              if (badEvSamples.length < 3) badEvSamples.push({ ts: row.timestamp_seconds, err: e.message });
+            } else okEv++;
+          }
           flagged.push({
             mosaic_index: mIdx,
             mosaic_url: mosaic.url,
             ts_window: [firstTs, lastTs],
-            reason: "insert_failed",
+            reason: "insert_failed_partial",
             snapshot_error: snapErr?.message || null,
             raw_evidence_error: rawErr?.message || null,
-            rows_attempted: snapshotRows.length,
+            per_row_recovery: { okSnap, badSnap, okEv, badEv, badSnapSamples, badEvSamples },
           });
+          totalDetectionsThisChunk += okSnap;
+          framesSinceCheckpoint += okSnap;
         } else {
-          totalDetectionsThisChunk += snapshotRows.length;
-          framesSinceCheckpoint += snapshotRows.length;
+          totalDetectionsThisChunk += dedupSnaps.length;
+          framesSinceCheckpoint += dedupSnaps.length;
         }
+      }
+
+      // Bug #10: persistir candidatos descartados para revisão humana.
+      if (rejectedRows.length > 0) {
+        const { error: rejErr } = await sb.from("rejected_detections").insert(rejectedRows);
+        if (rejErr) console.warn(`[Watcher ${audit.id}] rejected_detections insert failed: ${rejErr.message}`);
       }
 
       // ── Checkpoint every CHECKPOINT_FRAMES detected frames ────────────────
@@ -1183,7 +1330,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         liveSnaps?.sort((a, b) =>
           new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime()
         );
-        liveSnaps?.splice(maxPossibleSnapshots);
+        if (liveSnaps) liveSnaps.length = Math.min(liveSnaps.length, maxPossibleSnapshots);
       }
 
       snapshotsFound = (liveSnaps || []).length;
@@ -1324,11 +1471,18 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
   const detectedSeconds = validRows.length * interval;
   const vodDuration = audit.vod_duration_seconds || 0;
 
-  let reconciliationStatus = "ok";
+  // Bug #4: audit com 0 frames NÃO pode ficar "ok". Marca needs_review/mismatch.
+  let reconciliationStatus: "ok" | "mismatch" | "needs_review" = "ok";
   let reconciliationNotes = `${validRows.length} frames × ${interval}s = ${detectedSeconds}s detectados em ${vodDuration}s totais.`;
   if (vodDuration === 0) {
     reconciliationStatus = "mismatch";
     reconciliationNotes = "VOD duration desconhecido — não é possível reconciliar.";
+  } else if (validRows.length === 0) {
+    reconciliationStatus = "needs_review";
+    reconciliationNotes += " ⚠ Nenhum frame de cassino detectado — revisar manualmente.";
+  } else if (detectedSeconds < vodDuration * 0.05) {
+    reconciliationStatus = "needs_review";
+    reconciliationNotes += ` ⚠ Detecção <5% da duração (${detectedSeconds}s de ${vodDuration}s) — revisar.`;
   } else if (detectedSeconds > vodDuration * 1.05) {
     reconciliationStatus = "mismatch";
     reconciliationNotes += " ⚠ Soma de frames excede duração do VOD (>105%).";
