@@ -8,7 +8,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2,
   Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck,
-  Search, Activity, BarChart3, FlaskConical, Trophy, ChevronDown, Settings2, Brain,
+  Search, Activity, BarChart3, FlaskConical, Trophy, ChevronDown, Settings2, Brain, ScanLine,
 } from "lucide-react";
 import { StatusHeader } from "@/components/scanner/StatusHeader";
 import { GlobalFilters } from "@/components/scanner/GlobalFilters";
@@ -27,6 +27,7 @@ import { SullyGnomeTab } from "@/components/scanner/SullyGnomeTab";
 import { AiLabTab } from "@/components/scanner/AiLabTab";
 import { IntelAgentTab } from "@/components/scanner/IntelAgentTab";
 import { ResultsTab } from "@/components/scanner/ResultsTab";
+import { VodScanTab } from "@/components/scanner/VodScanTab";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,6 +78,7 @@ const Scanner = () => {
     { id: "chat", label: t("scan.chat_tab"), icon: MessageSquare },
     { id: "ai_lab", label: t("scan.ai_lab_title"), icon: FlaskConical },
     { id: "intel_agent", label: "Agente IA", icon: Brain },
+    { id: "vod_scan", label: "VOD Scan Local", icon: ScanLine },
   ];
 
   const activeOpsTab = opsTabs.find(tab => tab.id === activeTab);
@@ -277,6 +279,12 @@ const Scanner = () => {
             {isAdmin ? <IntelAgentTab /> : (
               <FeatureGate requiredPlan="Enterprise" isLocked><div /></FeatureGate>
             )}
+          </TabsContent>
+
+          <TabsContent value="vod_scan">
+            <FeatureGate requiredPlan="Pro" isLocked={!canAccessQueue}>
+              <VodScanTab />
+            </FeatureGate>
           </TabsContent>
         </Tabs>
       </main>
