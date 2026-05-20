@@ -219,6 +219,18 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
           </div>
         )}
 
+        {report.partial_reason && (
+          <div className="text-[11px] text-accent border border-accent/30 rounded p-2 bg-accent/5">
+            ⚠ Auditoria parcial: <span className="font-mono">{report.partial_reason}</span>. Os números abaixo podem subestimar o tempo real de cassino.
+          </div>
+        )}
+
+        {(report.audit_status === "needs_review" || report.reconciliation_status === "needs_review") && (
+          <div className="text-[11px] text-destructive border border-destructive/30 rounded p-2 bg-destructive/5">
+            🔍 Esta auditoria foi marcada para revisão humana antes de ser certificada (cobertura ou consistência abaixo do esperado).
+          </div>
+        )}
+
         {/* Diagnostic log: shown when fallback couldn't recover data */}
         {report.diagnostic_log && (
           <div className="text-[11px] text-accent border border-accent/30 rounded p-2 bg-accent/5 font-mono">

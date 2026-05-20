@@ -1413,6 +1413,8 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       reconciliation_status: audit.reconciliation_status || "pending",
       reconciliation_notes: audit.reconciliation_notes || null,
       last_checkpoint_at: audit.last_checkpoint_at || null,
+      partial_reason: (audit as any).partial_reason || null,
+      status: audit.status,
     });
   }
 

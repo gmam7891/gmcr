@@ -6,6 +6,9 @@ export interface WatcherStartResult {
   total_minutes: number;
   chapters: number;
   message: string;
+  partial_reason?: string | null;
+  storyboard_reason?: string | null;
+  status?: string;
 }
 
 export interface AuditReportGame {
@@ -52,9 +55,11 @@ export interface AuditReport {
   diagnostic_log?: string | null;
   pending_review_frames?: number;
   expected_frames?: number | null;
-  reconciliation_status?: "ok" | "mismatch" | "pending";
+  reconciliation_status?: "ok" | "mismatch" | "pending" | "needs_review";
   reconciliation_notes?: string | null;
   last_checkpoint_at?: string | null;
+  partial_reason?: string | null;
+  status?: string;
 }
 
 /** Start the autonomous VOD Watcher Agent. Returns immediately; agent runs in background. */

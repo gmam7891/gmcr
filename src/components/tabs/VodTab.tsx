@@ -213,10 +213,22 @@ export function VodTab() {
         [vod.id]: { auditId: result.audit_id, loading: false, error: null },
       }));
 
-      toast({
-        title: "🤖 Agente iniciado em background",
-        description: `${result.total_frames} frames serão analisados. Pode fechar a página — o agente continua.`,
-      });
+      if (result.partial_reason) {
+        toast({
+          title: "⚠ Auditoria iniciada em modo parcial",
+          description: `Motivo: ${result.partial_reason}. ${
+            result.partial_reason.startsWith("storyboard_")
+              ? "A Twitch ainda não disponibilizou storyboards completos para este VOD — tente novamente em alguns minutos para precisão total."
+              : "A cobertura está abaixo do ideal — os números podem subestimar o tempo real de cassino."
+          }`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "🤖 Agente iniciado em background",
+          description: `${result.total_frames} frames serão analisados. Pode fechar a página — o agente continua.`,
+        });
+      }
     } catch (err: any) {
       const msg = err?.message || String(err);
       console.error("Watcher start error:", err);
