@@ -858,6 +858,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       // ── SSoT: write detections into stream_snapshots ──────────────────────
       const snapshotRows: any[] = [];
       const rawEvidenceRows: any[] = [];
+      const rejectedRows: any[] = [];
       for (const det of detections) {
         const row = Number(det.row);
         const col = Number(det.col);
