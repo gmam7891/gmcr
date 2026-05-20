@@ -904,6 +904,18 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
               `[Watcher ${audit.id}] Discarding low-confidence library guess: "${rawGame}" ` +
               `(conf=${conf.toFixed(2)} < ${LIBRARY_MATCH_CONF_FLOOR}). evidence="${det.evidence || ""}"`,
             );
+            rejectedRows.push({
+              vod_id: audit.vod_id,
+              audit_id: audit.id,
+              streamer_login: audit.streamer_login,
+              timestamp_seconds: tile.ts,
+              proposed_game: rawGame,
+              proposed_provider: match.provider,
+              confidence: conf,
+              reason: "low_confidence_library_match",
+              evidence: det.evidence || null,
+              raw_payload: { screen_state: screenState, det },
+            });
           } else if (isUnknownGame && conf >= UNKNOWN_GAME_CONF_FLOOR) {
             // Fora da biblioteca, mas Gemini admitiu — aceita com flag
             validatedGameName = rawGame.slice(0, 80);
@@ -916,6 +928,18 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
               `[Watcher ${audit.id}] Discarding hallucinated game: "${rawGame}" ` +
               `(not in library, is_unknown_game=${isUnknownGame}, conf=${conf.toFixed(2)})`,
             );
+            rejectedRows.push({
+              vod_id: audit.vod_id,
+              audit_id: audit.id,
+              streamer_login: audit.streamer_login,
+              timestamp_seconds: tile.ts,
+              proposed_game: rawGame,
+              proposed_provider: det.provider_name || null,
+              confidence: conf,
+              reason: isUnknownGame ? "unknown_game_low_confidence" : "hallucinated_outside_library",
+              evidence: det.evidence || null,
+              raw_payload: { screen_state: screenState, det },
+            });
           }
         }
 
