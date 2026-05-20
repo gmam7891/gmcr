@@ -1079,6 +1079,51 @@ export type Database = {
         }
         Relationships: []
       }
+      rejected_detections: {
+        Row: {
+          audit_id: string | null
+          confidence: number | null
+          created_at: string
+          evidence: string | null
+          id: string
+          proposed_game: string | null
+          proposed_provider: string | null
+          raw_payload: Json | null
+          reason: string
+          streamer_login: string | null
+          timestamp_seconds: number | null
+          vod_id: string
+        }
+        Insert: {
+          audit_id?: string | null
+          confidence?: number | null
+          created_at?: string
+          evidence?: string | null
+          id?: string
+          proposed_game?: string | null
+          proposed_provider?: string | null
+          raw_payload?: Json | null
+          reason: string
+          streamer_login?: string | null
+          timestamp_seconds?: number | null
+          vod_id: string
+        }
+        Update: {
+          audit_id?: string | null
+          confidence?: number | null
+          created_at?: string
+          evidence?: string | null
+          id?: string
+          proposed_game?: string | null
+          proposed_provider?: string | null
+          raw_payload?: Json | null
+          reason?: string
+          streamer_login?: string | null
+          timestamp_seconds?: number | null
+          vod_id?: string
+        }
+        Relationships: []
+      }
       stream_snapshots: {
         Row: {
           ai_confidence: number | null
@@ -1241,6 +1286,7 @@ export type Database = {
           id: string
           last_checkpoint_at: string | null
           model_version: string | null
+          partial_reason: string | null
           pending_audit_segments: Json | null
           platform: string
           processed_duration_seconds: number | null
@@ -1282,6 +1328,7 @@ export type Database = {
           id?: string
           last_checkpoint_at?: string | null
           model_version?: string | null
+          partial_reason?: string | null
           pending_audit_segments?: Json | null
           platform?: string
           processed_duration_seconds?: number | null
@@ -1323,6 +1370,7 @@ export type Database = {
           id?: string
           last_checkpoint_at?: string | null
           model_version?: string | null
+          partial_reason?: string | null
           pending_audit_segments?: Json | null
           platform?: string
           processed_duration_seconds?: number | null
