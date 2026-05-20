@@ -1005,30 +1005,81 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           extra_metadata: commonMetadata,
         });
       }
-      if (snapshotRows.length > 0) {
-        snapshotRows.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
-        rawEvidenceRows.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
-        const { error: snapErr } = await sb.from("stream_snapshots").insert(snapshotRows);
-        const { error: rawErr } = await sb.from("raw_evidences").insert(rawEvidenceRows);
+      // Bug #1: dedup snapshotRows/rawEvidenceRows by chave única ANTES de
+      // inserir. Mosaicos sobrepostos geram tiles com mesmo (ts, game).
+      // Mantém a entrada com maior confiança.
+      const dedupByKey = <T extends { timestamp_seconds?: number; game_detected?: string | null; confidence_score?: number; ai_confidence?: number }>(
+        rows: T[], includeGame: boolean,
+      ): T[] => {
+        const m = new Map<string, T>();
+        for (const r of rows) {
+          const ts = Number(r.timestamp_seconds);
+          if (!Number.isFinite(ts)) continue;
+          const key = includeGame ? `${ts}|${String(r.game_detected || "").toLowerCase()}` : String(ts);
+          const ex = m.get(key);
+          if (!ex) { m.set(key, r); continue; }
+          const exConf = Number((ex as any).ai_confidence ?? ex.confidence_score ?? 0);
+          const rConf = Number((r as any).ai_confidence ?? r.confidence_score ?? 0);
+          if (rConf > exConf) m.set(key, r);
+        }
+        return Array.from(m.values());
+      };
+      const dedupSnaps = dedupByKey(snapshotRows, true);
+      const dedupEvs = dedupByKey(rawEvidenceRows, false);
+
+      if (dedupSnaps.length > 0) {
+        dedupSnaps.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
+        dedupEvs.sort((a, b) => (a.timestamp_seconds ?? 0) - (b.timestamp_seconds ?? 0));
+        // Use upsert tolerante ao índice único parcial (migration nova).
+        const { error: snapErr } = await sb.from("stream_snapshots")
+          .upsert(dedupSnaps, { onConflict: "vod_id,timestamp_seconds,game_detected", ignoreDuplicates: true });
+        const { error: rawErr } = await sb.from("raw_evidences")
+          .upsert(dedupEvs, { onConflict: "vod_id,timestamp_seconds", ignoreDuplicates: true });
+
         if (snapErr || rawErr) {
           console.error(
-            `[Watcher ${audit.id}] insert failure on mosaic ${mIdx}: ` +
+            `[Watcher ${audit.id}] bulk upsert failure on mosaic ${mIdx}: ` +
             `snapshot=${snapErr?.message || "ok"} raw=${rawErr?.message || "ok"} ` +
-            `(rows=${snapshotRows.length})`,
+            `(rows=${dedupSnaps.length}). Falling back to per-row.`,
           );
+          // Bug #6: fallback linha-a-linha p/ identificar a linha problemática.
+          let okSnap = 0, badSnap = 0; const badSnapSamples: any[] = [];
+          for (const row of dedupSnaps) {
+            const { error: e } = await sb.from("stream_snapshots").upsert(row, { onConflict: "vod_id,timestamp_seconds,game_detected", ignoreDuplicates: true });
+            if (e) {
+              badSnap++;
+              if (badSnapSamples.length < 3) badSnapSamples.push({ ts: row.timestamp_seconds, game: row.game_detected, err: e.message });
+            } else okSnap++;
+          }
+          let okEv = 0, badEv = 0; const badEvSamples: any[] = [];
+          for (const row of dedupEvs) {
+            const { error: e } = await sb.from("raw_evidences").upsert(row, { onConflict: "vod_id,timestamp_seconds", ignoreDuplicates: true });
+            if (e) {
+              badEv++;
+              if (badEvSamples.length < 3) badEvSamples.push({ ts: row.timestamp_seconds, err: e.message });
+            } else okEv++;
+          }
           flagged.push({
             mosaic_index: mIdx,
             mosaic_url: mosaic.url,
             ts_window: [firstTs, lastTs],
-            reason: "insert_failed",
+            reason: "insert_failed_partial",
             snapshot_error: snapErr?.message || null,
             raw_evidence_error: rawErr?.message || null,
-            rows_attempted: snapshotRows.length,
+            per_row_recovery: { okSnap, badSnap, okEv, badEv, badSnapSamples, badEvSamples },
           });
+          totalDetectionsThisChunk += okSnap;
+          framesSinceCheckpoint += okSnap;
         } else {
-          totalDetectionsThisChunk += snapshotRows.length;
-          framesSinceCheckpoint += snapshotRows.length;
+          totalDetectionsThisChunk += dedupSnaps.length;
+          framesSinceCheckpoint += dedupSnaps.length;
         }
+      }
+
+      // Bug #10: persistir candidatos descartados para revisão humana.
+      if (rejectedRows.length > 0) {
+        const { error: rejErr } = await sb.from("rejected_detections").insert(rejectedRows);
+        if (rejErr) console.warn(`[Watcher ${audit.id}] rejected_detections insert failed: ${rejErr.message}`);
       }
 
       // ── Checkpoint every CHECKPOINT_FRAMES detected frames ────────────────
