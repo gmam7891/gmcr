@@ -1471,11 +1471,18 @@ async function finalizeAudit(sb: any, audit: any, flagged: any[]) {
   const detectedSeconds = validRows.length * interval;
   const vodDuration = audit.vod_duration_seconds || 0;
 
-  let reconciliationStatus = "ok";
+  // Bug #4: audit com 0 frames NÃO pode ficar "ok". Marca needs_review/mismatch.
+  let reconciliationStatus: "ok" | "mismatch" | "needs_review" = "ok";
   let reconciliationNotes = `${validRows.length} frames × ${interval}s = ${detectedSeconds}s detectados em ${vodDuration}s totais.`;
   if (vodDuration === 0) {
     reconciliationStatus = "mismatch";
     reconciliationNotes = "VOD duration desconhecido — não é possível reconciliar.";
+  } else if (validRows.length === 0) {
+    reconciliationStatus = "needs_review";
+    reconciliationNotes += " ⚠ Nenhum frame de cassino detectado — revisar manualmente.";
+  } else if (detectedSeconds < vodDuration * 0.05) {
+    reconciliationStatus = "needs_review";
+    reconciliationNotes += ` ⚠ Detecção <5% da duração (${detectedSeconds}s de ${vodDuration}s) — revisar.`;
   } else if (detectedSeconds > vodDuration * 1.05) {
     reconciliationStatus = "mismatch";
     reconciliationNotes += " ⚠ Soma de frames excede duração do VOD (>105%).";
