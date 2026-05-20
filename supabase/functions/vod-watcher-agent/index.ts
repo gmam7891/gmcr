@@ -369,14 +369,15 @@ async function fetchVodCreatedAt(vodId: string): Promise<string | null> {
 
 // Fetch the storyboard descriptor + URLs.
 // Returns null when storyboards are unavailable (very fresh VOD, deleted, etc).
-async function fetchStoryboardPlan(vodId: string): Promise<
-  | {
-      mosaics: Array<{ url: string; cols: number; rows: number; tile_w: number; tile_h: number; tiles: Array<{ row: number; col: number; ts: number }> }>;
-      interval: number;
-      total_tiles: number;
-    }
-  | null
-> {
+// Sets a `reason` flag we surface upstream (not_found | gql_failed | info_failed | empty).
+type StoryboardPlan = {
+  mosaics: Array<{ url: string; cols: number; rows: number; tile_w: number; tile_h: number; tiles: Array<{ row: number; col: number; ts: number }> }>;
+  interval: number;
+  total_tiles: number;
+};
+type StoryboardResult = { plan: StoryboardPlan | null; reason: "ok" | "not_found" | "gql_failed" | "info_failed" | "empty" };
+
+async function fetchStoryboardPlan(vodId: string): Promise<StoryboardResult> {
   // 1. Get seekPreviewsURL via GraphQL (with retry — Twitch GQL flakes)
   const gqlBody = await withRetry("twitch-gql-storyboard", async () => {
     const r = await fetch(GQL_URL, {
@@ -387,8 +388,9 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     if (!r.ok) throw new Error(`gql ${r.status}`);
     return await r.json();
   }).catch((e) => { console.warn(`[Watcher] storyboard gql exhausted: ${e.message}`); return null; });
+  if (!gqlBody) return { plan: null, reason: "gql_failed" };
   const infoUrl: string | undefined = gqlBody?.data?.video?.seekPreviewsURL;
-  if (!infoUrl) return null;
+  if (!infoUrl) return { plan: null, reason: "not_found" };
 
   // 2. Fetch the info.json (with retry)
   const variants: any[] = await withRetry("storyboard-info-json", async () => {
@@ -396,18 +398,13 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     if (!r.ok) throw new Error(`info ${r.status}`);
     return await r.json();
   }).catch(() => []);
-  if (!Array.isArray(variants) || variants.length === 0) return null;
+  if (!Array.isArray(variants) || variants.length === 0) return { plan: null, reason: "info_failed" };
 
   console.log(
     `[storyboard] All variants for VOD ${vodId}: ` +
     variants.map((v: any) => `${v.quality}(${v.count}t,${v.interval}s,${v.width}x${v.height})`).join(", ")
   );
 
-  // Trade-off: "high" (~320x180px, ~30s/tile) é o mais legível mas perde
-  // transições curtas (loading screens 3-8s ficam de fora). "medium"
-  // (~160x90px, ~15s/tile) é o sweet-spot: ainda legível para HUDs e logos
-  // grandes, com 2x mais cobertura temporal. "low" (~80x45px) é descartado
-  // porque a IA alucina nele.
   const byQuality = (q: string) => variants.find((v: any) => String(v.quality).toLowerCase() === q);
   const variant =
     byQuality("medium") ??
@@ -426,9 +423,10 @@ async function fetchStoryboardPlan(vodId: string): Promise<
     `interval ${variant.interval}s, tile ${variant.width}x${variant.height}.`
   );
   const { count, cols, rows, width, height, interval, images } = variant;
-  if (!count || !cols || !rows || !width || !height || !interval || !Array.isArray(images)) return null;
+  if (!count || !cols || !rows || !width || !height || !interval || !Array.isArray(images)) {
+    return { plan: null, reason: "empty" };
+  }
 
-  // 3. Compute base URL (info.json sits next to the storyboard images)
   const baseUrl = infoUrl.substring(0, infoUrl.lastIndexOf("/") + 1);
   const tilesPerImage = cols * rows;
 
@@ -441,25 +439,39 @@ async function fetchStoryboardPlan(vodId: string): Promise<
       tiles.push({
         row: Math.floor(localIdx / cols),
         col: localIdx % cols,
-        ts: Math.round(g * interval + interval / 2), // midpoint timestamp
+        ts: Math.round(g * interval + interval / 2),
       });
     }
     return { url: baseUrl + imgName, cols, rows, tile_w: width, tile_h: height, tiles };
   });
 
-  return { mosaics, interval, total_tiles: count };
+  return { plan: { mosaics, interval, total_tiles: count }, reason: "ok" };
 }
 
+// Bug #7: self-invoke must use SERVICE_ROLE for internal authenticated calls
+// and we want to log the result so a failed resume doesn't disappear silently.
 async function selfInvokeResume(auditId: string) {
   const url = `${SUPABASE_URL}/functions/v1/vod-watcher-agent`;
-  fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${ANON_KEY}`,
-    },
-    body: JSON.stringify({ action: "resume", audit_id: auditId }),
-  }).catch((e) => console.warn("[Watcher] self-invoke failed:", e));
+  const token = SERVICE_KEY || ANON_KEY;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+        "apikey": token,
+      },
+      body: JSON.stringify({ action: "resume", audit_id: auditId }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn(`[Watcher] self-invoke resume returned ${res.status}: ${body.slice(0, 200)}`);
+    } else {
+      console.log(`[Watcher] self-invoke resume queued for audit ${auditId}`);
+    }
+  } catch (e) {
+    console.warn("[Watcher] self-invoke failed:", e);
+  }
 }
 
 Deno.serve(async (req) => {
