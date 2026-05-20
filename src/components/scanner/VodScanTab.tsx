@@ -28,8 +28,18 @@ function fmtHMS(secs: number) {
 }
 
 function extractStreamerFromUrl(url: string): string {
-  const m = url.match(/twitch\.tv\/([^/]+)\/videos?/i) || url.match(/twitch\.tv\/videos\/(\d+)/i);
-  return m && !/^\d+$/.test(m[1]) ? m[1] : "";
+  // só consegue extrair quando a URL é do tipo twitch.tv/<login>/videos/...
+  const m = url.match(/twitch\.tv\/([^/?#]+)\/videos?/i);
+  if (!m) return "";
+  const login = m[1];
+  // bloqueia matches em twitch.tv/videos/<id>
+  if (/^\d+$/.test(login) || login.toLowerCase() === "videos") return "";
+  return login;
+}
+
+function extractVodId(url: string): string {
+  const m = url.match(/twitch\.tv\/videos?\/(\d+)/i);
+  return m ? m[1] : "";
 }
 
 export function VodScanTab() {
@@ -70,11 +80,19 @@ export function VodScanTab() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!vodUrl.trim() || !/twitch\.tv\/videos?\//i.test(vodUrl)) {
-      toast({ title: "URL inválida", description: "Informe uma URL de VOD da Twitch.", variant: "destructive" });
+    if (!vodUrl.trim() || !extractVodId(vodUrl)) {
+      toast({ title: "URL inválida", description: "Use uma URL no formato twitch.tv/videos/12345678.", variant: "destructive" });
       return;
     }
-    const login = streamer.trim() || extractStreamerFromUrl(vodUrl) || "unknown";
+    const login = streamer.trim() || extractStreamerFromUrl(vodUrl);
+    if (!login) {
+      toast({
+        title: "Streamer obrigatório",
+        description: "URLs do tipo /videos/<id> não contêm o login. Preencha o campo Streamer.",
+        variant: "destructive",
+      });
+      return;
+    }
     setSubmitting(true);
     try {
       await enqueueJob({
@@ -83,6 +101,7 @@ export function VodScanTab() {
         platform: "twitch",
         metadata: {
           vod_url: vodUrl.trim(),
+          vod_id: extractVodId(vodUrl),
           interval: Number(interval),
           provider,
           progress_percent: 0,
