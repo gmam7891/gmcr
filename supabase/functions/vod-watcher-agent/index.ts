@@ -254,31 +254,73 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, maxAttempts = M
   throw lastErr;
 }
 
-async function callAI(messages: any[]): Promise<{ items: any[]; ok: boolean; status: number; raw: string }> {
-  try {
-    return await withRetry("ai-gateway", async () => {
-      const res = await fetch(AI_GATEWAY, {
+// ── AI Gateway call with structured backoff ──────────────────────────────────
+// Bug #2: dedicated exponential backoff with jitter for 429/402/5xx that
+// respects Retry-After header. 402 (quota) is non-retryable and surfaced via
+// `quota_exhausted` so callers can pause the audit with needs_review status.
+async function callAI(messages: any[]): Promise<{
+  items: any[]; ok: boolean; status: number; raw: string;
+  quota_exhausted?: boolean; retry_after_seconds?: number;
+}> {
+  const MAX_ATTEMPTS = 5;
+  const BASE_DELAY_MS = 1000;
+  const MAX_DELAY_MS = 16000;
+  let lastStatus = 0;
+  let lastBody = "";
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(AI_GATEWAY, {
         method: "POST",
         headers: { "Authorization": `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: "google/gemini-2.5-flash", messages, max_tokens: 8192 }),
       });
-      // Don't retry 4xx — they won't fix themselves
-      if (res.status === 429 || res.status === 402 || res.status >= 500) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`gateway ${res.status}: ${txt.slice(0, 120)}`);
-      }
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        return { items: [], ok: false, status: res.status, raw: txt };
-      }
-      const data = await res.json();
+    } catch (e) {
+      lastBody = (e as Error).message;
+      lastStatus = 0;
+      const backoff = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * Math.pow(2, attempt - 1)) + Math.random() * 500;
+      console.warn(`[Watcher] AI network error attempt ${attempt}/${MAX_ATTEMPTS}: ${lastBody}. Retrying in ${Math.round(backoff)}ms`);
+      if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, backoff));
+      continue;
+    }
+
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
       const raw = data?.choices?.[0]?.message?.content ?? "[]";
       return { items: parseAIBatch(raw), ok: true, status: 200, raw };
-    });
-  } catch (e) {
-    console.warn(`[Watcher] AI call exhausted retries: ${(e as Error).message}`);
-    return { items: [], ok: false, status: 0, raw: String(e) };
+    }
+
+    lastStatus = res.status;
+    lastBody = await res.text().catch(() => "");
+
+    // 402: quota exhausted — do NOT retry, signal upstream to stop the audit.
+    if (res.status === 402) {
+      console.error(`[Watcher] AI gateway quota exhausted (402): ${lastBody.slice(0, 200)}`);
+      return { items: [], ok: false, status: 402, raw: lastBody, quota_exhausted: true };
+    }
+
+    if (res.status === 429 || res.status >= 500) {
+      const retryAfterHeader = res.headers.get("Retry-After");
+      const retryAfterSec = retryAfterHeader ? Number(retryAfterHeader) : NaN;
+      const backoff = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+        ? Math.min(MAX_DELAY_MS, retryAfterSec * 1000)
+        : Math.min(MAX_DELAY_MS, BASE_DELAY_MS * Math.pow(2, attempt - 1)) + Math.random() * 500;
+      console.warn(
+        `[Watcher] AI ${res.status} attempt ${attempt}/${MAX_ATTEMPTS}` +
+        (retryAfterHeader ? ` (Retry-After=${retryAfterHeader}s)` : "") +
+        `. Backing off ${Math.round(backoff)}ms. body="${lastBody.slice(0, 120)}"`
+      );
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, backoff));
+        continue;
+      }
+    }
+
+    // Non-retryable 4xx (other than 402) — return immediately
+    return { items: [], ok: false, status: res.status, raw: lastBody };
   }
+  console.warn(`[Watcher] AI call exhausted ${MAX_ATTEMPTS} attempts (last status=${lastStatus})`);
+  return { items: [], ok: false, status: lastStatus, raw: lastBody };
 }
 
 async function fetchChapters(vodId: string): Promise<any[]> {
