@@ -28,8 +28,18 @@ function fmtHMS(secs: number) {
 }
 
 function extractStreamerFromUrl(url: string): string {
-  const m = url.match(/twitch\.tv\/([^/]+)\/videos?/i) || url.match(/twitch\.tv\/videos\/(\d+)/i);
-  return m && !/^\d+$/.test(m[1]) ? m[1] : "";
+  // só consegue extrair quando a URL é do tipo twitch.tv/<login>/videos/...
+  const m = url.match(/twitch\.tv\/([^/?#]+)\/videos?/i);
+  if (!m) return "";
+  const login = m[1];
+  // bloqueia matches em twitch.tv/videos/<id>
+  if (/^\d+$/.test(login) || login.toLowerCase() === "videos") return "";
+  return login;
+}
+
+function extractVodId(url: string): string {
+  const m = url.match(/twitch\.tv\/videos?\/(\d+)/i);
+  return m ? m[1] : "";
 }
 
 export function VodScanTab() {
