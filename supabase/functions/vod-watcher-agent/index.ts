@@ -497,11 +497,14 @@ Deno.serve(async (req) => {
 
     const totalMinutes = Math.round(vod_duration_seconds / 60);
 
-    // Fetch storyboard plan + chapters + VOD created_at in parallel
-    const [storyboard, chapters, vodCreatedAt] = await Promise.all([
+    // Fetch storyboard plan + chapters + VOD created_at in parallel.
+    // Bug #3: differentiate `timeout` from `not_found` so the UI/error can
+    // explain why we couldn't proceed.
+    const TIMEOUT_TOKEN = { __timeout: true } as const;
+    const [storyboardOutcome, chapters, vodCreatedAt] = await Promise.all([
       Promise.race([
         fetchStoryboardPlan(vod_id),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+        new Promise<typeof TIMEOUT_TOKEN>((resolve) => setTimeout(() => resolve(TIMEOUT_TOKEN), 8000)),
       ]),
       Promise.race([
         fetchChapters(vod_id),
@@ -513,8 +516,18 @@ Deno.serve(async (req) => {
       ]),
     ]);
 
-    if (!storyboard || storyboard.mosaics.length === 0) {
-      // Hard fail with clear message — UI can explain
+    const storyboardTimedOut = storyboardOutcome === TIMEOUT_TOKEN;
+    const storyboard = storyboardTimedOut ? null : (storyboardOutcome as StoryboardResult);
+
+    if (storyboardTimedOut || !storyboard?.plan || storyboard.plan.mosaics.length === 0) {
+      const reason = storyboardTimedOut ? "timeout" : (storyboard?.reason ?? "not_found");
+      const errMap: Record<string, string> = {
+        timeout: "Timeout ao buscar storyboards na Twitch (>8s). VOD pode estar com storyboard ainda processando. Tente novamente em alguns minutos.",
+        not_found: "Storyboards indisponíveis para este VOD (Twitch não retornou seekPreviewsURL). Tente um VOD mais recente.",
+        gql_failed: "Falha ao consultar Twitch GraphQL para storyboards após retries.",
+        info_failed: "Twitch retornou um descritor de storyboard inválido (info.json vazio).",
+        empty: "Storyboard descritor está sem variantes utilizáveis.",
+      };
       const auditPayload = {
         vod_id,
         streamer_login,
@@ -526,11 +539,12 @@ Deno.serve(async (req) => {
         processed_frames: 0,
         started_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
-        error_message: "Storyboards indisponíveis para este VOD (Twitch removeu thumbs por timestamp). Tente um VOD mais recente.",
+        error_message: errMap[reason] || errMap.not_found,
         progress_phase: "failed",
-        progress_message: "Sem fonte de imagens — Twitch não expôs storyboards para este VOD.",
+        progress_message: errMap[reason] || errMap.not_found,
+        partial_reason: `storyboard_${reason}`,
         sullygnome_snapshot: {},
-        pending_audit_segments: { plan: null, flagged: [] } as any,
+        pending_audit_segments: { plan: null, flagged: [{ reason: `storyboard_${reason}` }] } as any,
       };
       const { data: row } = await sb.from("vod_audits").upsert(auditPayload, { onConflict: "vod_id,platform" }).select("id").single();
       return jsonResponse({
@@ -538,25 +552,27 @@ Deno.serve(async (req) => {
         total_frames: 0,
         total_minutes: totalMinutes,
         chapters: chapters?.length ?? 0,
-        message: "Storyboards indisponíveis — auditoria não pôde iniciar.",
+        storyboard_reason: reason,
+        message: errMap[reason] || errMap.not_found,
       });
     }
 
-    const totalFrames = storyboard.total_tiles;
-    // Sanity check: VOD recente pode estar com storyboard ainda processando.
-    // Threshold: pelo menos 1 tile a cada 60s do VOD.
+    const plan = storyboard.plan;
+    const totalFrames = plan.total_tiles;
+    // Bug #3c: VOD recente pode estar com storyboard ainda processando. Em vez
+    // de seguir silenciosamente, marcamos partial_reason para que a UI mostre
+    // o aviso de baixa precisão.
     const minExpectedTiles = Math.max(20, Math.floor(vod_duration_seconds / 60));
+    let partialReason: string | null = null;
     if (totalFrames < minExpectedTiles) {
+      partialReason = `low_storyboard_coverage:${totalFrames}/${minExpectedTiles}`;
       console.warn(
         `[storyboard] VOD ${vod_id}: only ${totalFrames} tiles for ${vod_duration_seconds}s VOD. ` +
-        `Expected at least ${minExpectedTiles}. Storyboard may still be processing on Twitch's side. ` +
-        `Proceeding anyway, but precision will be lower.`
+        `Expected at least ${minExpectedTiles}. Marking audit as partial.`
       );
     }
 
-    // Wipe any stale data for this VOD so re-scans don't accumulate duplicates
-    // in raw_evidences / stream_snapshots / gameplay_blocks. Without this, every
-    // re-run inflates frame counts and game durations.
+    // Wipe any stale data for this VOD so re-scans don't accumulate duplicates.
     await Promise.all([
       sb.from("raw_evidences").delete().eq("vod_id", vod_id),
       sb.from("stream_snapshots").delete().eq("vod_id", vod_id).eq("source", "storyboard"),
@@ -575,21 +591,22 @@ Deno.serve(async (req) => {
       started_at: new Date().toISOString(),
       completed_at: null,
       error_message: null,
+      partial_reason: partialReason,
       progress_phase: "starting",
       progress_total_minutes: totalMinutes,
       progress_current_minute: 0,
       progress_games_found: 0,
-      progress_message: `Plano: ${storyboard.mosaics.length} mosaicos | ${totalFrames} frames | ${chapters.length} capítulos`,
+      progress_message: `Plano: ${plan.mosaics.length} mosaicos | ${totalFrames} frames | ${chapters.length} capítulos` + (partialReason ? " ⚠ baixa precisão (storyboard incompleto)" : ""),
       sullygnome_snapshot: {},
       pending_audit_segments: {
         plan: {
-          mosaics: storyboard.mosaics,
-          interval: storyboard.interval,
+          mosaics: plan.mosaics,
+          interval: plan.interval,
           chapters,
           vod_title: vod_title || "",
           processed_mosaic: 0,
         },
-        flagged: [],
+        flagged: partialReason ? [{ reason: partialReason }] : [],
       } as any,
     };
 
