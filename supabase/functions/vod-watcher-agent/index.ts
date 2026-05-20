@@ -1330,7 +1330,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         liveSnaps?.sort((a, b) =>
           new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime()
         );
-        liveSnaps?.splice(maxPossibleSnapshots);
+        if (liveSnaps) liveSnaps.length = Math.min(liveSnaps.length, maxPossibleSnapshots);
       }
 
       snapshotsFound = (liveSnaps || []).length;
