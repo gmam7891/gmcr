@@ -10,7 +10,7 @@ import { getProviders, getGames } from "@/lib/scanner-api";
 import { supabase } from "@/integrations/supabase/client";
 import { Filter, X, ChevronDown } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useScannerFilters, defaultFilters, ScannerFilters } from "@/contexts/ScannerFiltersContext";
+import { useScannerFilters, ScannerFilters } from "@/contexts/ScannerFiltersContext";
 
 // Re-export so existing imports keep working
 export type { ScannerFilters } from "@/contexts/ScannerFiltersContext";
