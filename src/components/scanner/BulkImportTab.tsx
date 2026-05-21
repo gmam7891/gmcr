@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
-  Loader2, Upload, CheckCircle2, XCircle, Search, Trash2, Play,
+  Loader2, Upload, CheckCircle2, Search, Trash2, Play,
 } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
