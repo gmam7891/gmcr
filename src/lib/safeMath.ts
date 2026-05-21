@@ -6,6 +6,3 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-export function safePercent(value: number, total: number): number {
-  return safeDivide(value, total) * 100;
-}
