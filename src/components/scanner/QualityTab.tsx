@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getQualityMetrics, getPipelineConfig, updatePipelineConfig } from "@/lib/scanner-api";
 import { MetricCard } from "@/components/MetricCard";

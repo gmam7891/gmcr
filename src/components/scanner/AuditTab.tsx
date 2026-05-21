@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getVodAuditDetail, getVodAudits, getQualityMetrics } from "@/lib/scanner-api";
 import { MetricCard } from "@/components/MetricCard";
-import { Search, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import type { ScannerFilters } from "./GlobalFilters";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -173,9 +171,7 @@ function VodDetailPanel({ detail }: { detail: any }) {
   const logs = detail.logs || [];
   const evidenceSummary = detail.evidence_summary || {};
 
-  const confirmedBlocks = blocks.filter((b: any) => b.status === "confirmed");
-  const suspectBlocks = blocks.filter((b: any) => b.status === "suspect");
-  const discardedBlocks = blocks.filter((b: any) => b.status === "discarded");
+
 
   return (
     <div className="bg-secondary/30 p-4 space-y-4 border-t border-border">

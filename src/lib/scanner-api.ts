@@ -18,15 +18,6 @@ async function callWrite(body: Record<string, unknown>) {
 export async function saveRawEvidences(evidences: any[], processingBatchId?: string) {
   return callWrite({ action: "save_raw_evidences", evidences, processing_batch_id: processingBatchId });
 }
-export async function validateVod(vodId: string) {
-  return callWrite({ action: "validate_vod", vod_id: vodId });
-}
-export async function consolidateVod(vodId: string) {
-  return callWrite({ action: "consolidate_vod", vod_id: vodId });
-}
-export async function computeMetrics(vodId: string, vodDurationSeconds?: number) {
-  return callWrite({ action: "compute_metrics", vod_id: vodId, vod_duration_seconds: vodDurationSeconds });
-}
 export async function runPipeline(vodId: string, streamerLogin: string, vodDurationSeconds?: number) {
   return callWrite({ action: "run_pipeline", vod_id: vodId, streamer_login: streamerLogin, vod_duration_seconds: vodDurationSeconds });
 }
@@ -96,30 +87,6 @@ export async function getChatStats(params: {
   return callRead({ action: "get_chat_stats", ...params });
 }
 
-// ─── Misc (still routed via legacy proxy for compat) ──────────────────
-export async function processVod(vodId: string, streamerLogin: string) {
-  const { data, error } = await supabase.functions.invoke("scanner-pipeline", {
-    body: { action: "process_vod", vod_id: vodId, streamer_login: streamerLogin },
-  });
-  if (error) throw new Error(error.message);
-  return data;
-}
-
-export async function saveDetections(detections: any[]) {
-  const { data, error } = await supabase.functions.invoke("scanner-pipeline", {
-    body: { action: "save_detections", detections },
-  });
-  if (error) throw new Error(error.message);
-  return data;
-}
-
-export async function reconcile(streamerLogin: string, sourceId?: string, sourceType?: string) {
-  const { data, error } = await supabase.functions.invoke("scanner-pipeline", {
-    body: { action: "reconcile", streamer_login: streamerLogin, source_id: sourceId, source_type: sourceType },
-  });
-  if (error) throw new Error(error.message);
-  return data;
-}
 
 // ─── Direct DB ──────────────────
 export async function getProviders() {

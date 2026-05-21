@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { MetricCard } from "@/components/MetricCard";
+
 import { NumberField, FieldSection } from "@/components/FieldGroup";
 import { fmtInt, fmtPercent } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";

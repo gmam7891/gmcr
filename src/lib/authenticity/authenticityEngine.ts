@@ -44,7 +44,7 @@ export function calculateAuthenticity(input: AuthenticityInput): AuthenticityRes
   const {
     avgViewers, peakViewers, uniqueChatters, duplicateMessageRate,
     avgMessageLength, chatConsistencyScore, usernameSimilarityScore,
-    chatBurstiness, newAccountActivityRate, totalMessages, messagesPerMinute,
+    chatBurstiness, newAccountActivityRate,
   } = input;
 
   // 1. Viewer-to-Chat Ratio

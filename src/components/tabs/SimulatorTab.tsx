@@ -2,9 +2,8 @@ import { useState, useMemo } from "react";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
 import { MetricCard } from "@/components/MetricCard";
-import { NumberField, FieldSection } from "@/components/FieldGroup";
-import { StatusBadge } from "@/components/StatusBadge";
-import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
+import { NumberField } from "@/components/FieldGroup";
+import { fmtMoney, fmtPercent } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {

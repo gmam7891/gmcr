@@ -69,7 +69,7 @@ export function KickTab() {
     setAiLoading(false);
   };
 
-  const totalViews = videos.reduce((s, v) => s + v.viewCount, 0);
+  
 
   const results = useMemo(() => {
     const viewerHours = avgViewers * plannedHours;

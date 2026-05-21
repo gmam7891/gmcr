@@ -1,8 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   getDashboardData, getRankings, getTrendWeekly, getResultsAggregated,
-  getReviewQueue, getQualityMetrics, getPipelineConfig, getSystemStatus,
-  getQueue, getChatStats, getVodAuditDetail, getProviders, getGames,
+  getProviders, getGames,
 } from "@/lib/scanner-api";
 import type { ScannerFilters } from "@/contexts/ScannerFiltersContext";
 
@@ -63,62 +62,6 @@ export function useScannerResults(filters: ScannerFilters, groupBy: "game" | "vo
   });
 }
 
-export function useReviewQueue() {
-  return useQuery({
-    queryKey: ["scanner", "review_queue"],
-    queryFn: getReviewQueue,
-    staleTime: STALE,
-  });
-}
-
-export function useQualityMetrics() {
-  return useQuery({
-    queryKey: ["scanner", "quality_metrics"],
-    queryFn: getQualityMetrics,
-    staleTime: STALE,
-  });
-}
-
-export function usePipelineConfig() {
-  return useQuery({
-    queryKey: ["scanner", "pipeline_config"],
-    queryFn: getPipelineConfig,
-    staleTime: STALE,
-  });
-}
-
-export function useSystemStatus() {
-  return useQuery({
-    queryKey: ["scanner", "system_status"],
-    queryFn: getSystemStatus,
-    staleTime: 60 * 1000, // 1 min — status atualiza mais rápido
-  });
-}
-
-export function useQueue(status?: string) {
-  return useQuery({
-    queryKey: ["scanner", "queue", status],
-    queryFn: () => getQueue(status),
-    staleTime: STALE,
-  });
-}
-
-export function useChatStats(params: { streamer_login?: string; date_from?: string; date_to?: string }) {
-  return useQuery({
-    queryKey: ["scanner", "chat_stats", params],
-    queryFn: () => getChatStats(params),
-    staleTime: STALE,
-  });
-}
-
-export function useVodAuditDetail(vodId: string | undefined) {
-  return useQuery({
-    queryKey: ["scanner", "vod_audit_detail", vodId],
-    queryFn: () => getVodAuditDetail(vodId!),
-    staleTime: STALE,
-    enabled: !!vodId,
-  });
-}
 
 // Reference data — long stale time (rarely changes)
 export function useProviders() {

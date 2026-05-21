@@ -45,10 +45,6 @@ function clamp(v: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, v));
 }
 
-/** Normalize a value into 0-1 using a logistic-like curve */
-function norm(value: number, midpoint: number, steepness = 0.05): number {
-  return 1 / (1 + Math.exp(-steepness * (value - midpoint)));
-}
 
 export function calculateIvs(input: IvsInput): IvsResult {
   // 1. ROI (25pts) – 200% = full marks, linear capped

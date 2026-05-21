@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
-  Loader2, Upload, CheckCircle2, XCircle, Search, Trash2, Play,
+  Loader2, Upload, CheckCircle2, Search, Trash2, Play,
 } from "lucide-react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -48,9 +48,6 @@ const PROVIDER_PATTERNS: Record<string, RegExp[]> = {
   "Spinomenal": [/spinomenal/i],
 };
 
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-}
 
 function parseRawText(raw: string): ParsedGame[] {
   const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);

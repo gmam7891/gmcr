@@ -17,13 +17,6 @@ export const analyzeVod = (vodId: string) => call({ action: "analyze_vod", vod_i
 export const getVodAnalyses = (vodId: string) =>
   call({ action: "get_vod_analyses", vod_id: vodId });
 
-export const submitFeedback = (params: {
-  analysis_id: string;
-  correction_type: "confirmed" | "wrong_game" | "wrong_provider" | "false_positive";
-  corrected_game_id?: string | null;
-  notes?: string;
-  user_id?: string;
-}) => call({ action: "submit_feedback", ...params });
 
 export const getAgentDashboard = () => call({ action: "get_dashboard" });
 

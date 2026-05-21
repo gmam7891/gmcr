@@ -3,7 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getReviewQueue, reviewBlock, requestReprocess } from "@/lib/scanner-api";
 import { CheckCircle, XCircle, AlertTriangle, RotateCcw } from "lucide-react";
