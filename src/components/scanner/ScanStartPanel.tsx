@@ -36,7 +36,6 @@ function buildFrameSamples(
   cols: number,
   rows: number,
   totalCount: number,
-  vodDurationSec: number
 ): { urls: string[]; timestamps: number[] } {
   const framesPerStrip = cols * rows;
   const totalFrames = Math.min(totalCount || storyboardUrls.length * framesPerStrip, storyboardUrls.length * framesPerStrip);
