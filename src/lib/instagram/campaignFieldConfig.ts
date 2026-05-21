@@ -223,7 +223,3 @@ export function getCampaignConfigs(t: TFunc): Record<string, CampaignConfig> {
     },
   };
 }
-
-// Keep backward-compatible export for any imports that don't pass t
-// This uses Portuguese fallback keys directly
-export const campaignConfigs = getCampaignConfigs((k) => k);
