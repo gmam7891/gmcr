@@ -171,9 +171,7 @@ function VodDetailPanel({ detail }: { detail: any }) {
   const logs = detail.logs || [];
   const evidenceSummary = detail.evidence_summary || {};
 
-  const confirmedBlocks = blocks.filter((b: any) => b.status === "confirmed");
-  const suspectBlocks = blocks.filter((b: any) => b.status === "suspect");
-  const discardedBlocks = blocks.filter((b: any) => b.status === "discarded");
+
 
   return (
     <div className="bg-secondary/30 p-4 space-y-4 border-t border-border">
