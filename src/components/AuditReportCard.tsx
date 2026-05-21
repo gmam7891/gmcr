@@ -238,13 +238,6 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
           </div>
         )}
 
-        {/* Data source indicator when fallback was triggered */}
-        {report.data_source === "stream_snapshots:live" && report.games.length > 0 && (
-          <div className="text-[11px] text-primary border border-primary/30 rounded p-2 bg-primary/5">
-            ℹ Storyboard audit retornou 0 evidences. Relatório reconstruído a partir de {report.snapshots_found} snapshots do monitor live (categoria Twitch).
-          </div>
-        )}
-
         {/* Reconciliation status badge */}
         {report.reconciliation_status === "mismatch" && report.reconciliation_notes && (
           <div className="text-[11px] text-accent border border-accent/30 rounded p-2 bg-accent/5 font-mono">
@@ -427,7 +420,7 @@ export function AuditReportCard({ auditId, autoLoad = false }: { auditId: string
         )}
 
         <p className="text-[10px] text-muted-foreground font-mono pt-2 border-t border-border">
-          Fonte: {report.data_source === "stream_snapshots:live" ? "monitor live (categoria Twitch)" : report.data_source === "stream_snapshots:storyboard" ? "varredura visual (storyboards)" : "sem dados"} · SSoT: stream_snapshots · Starklytic
+          Fonte: {report.data_source === "stream_snapshots:storyboard" ? "varredura visual (storyboards)" : "sem dados"} · SSoT: stream_snapshots · Starklytic
         </p>
       </div>
     </div>

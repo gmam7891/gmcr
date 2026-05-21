@@ -1340,7 +1340,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       );
     }
 
-    let dataSource: "stream_snapshots:storyboard" | "stream_snapshots:live" | "none" =
+    const dataSource: "stream_snapshots:storyboard" | "none" =
       byGame.size > 0 ? "stream_snapshots:storyboard" : "none";
     let diagnosticLog: string | null = null;
     let snapshotsFound = (storyboardSnaps || []).length;
@@ -1380,16 +1380,12 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
     };
 
     const summaryLines = confirmedGames
-      .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" && g.provider !== "Twitch Category" ? ` (${g.provider})` : ""}`)
+      .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" ? ` (${g.provider})` : ""}`)
       .slice(0, 10);
-
-    const sourceNote = dataSource === "stream_snapshots:live"
-      ? " (fonte: monitor live — categorias Twitch)"
-      : "";
 
     const summary = games.length === 0
       ? `Auditoria do VOD de "${audit.streamer_login}" (${fmt(vodDuration)}) concluída sem detectar conteúdo de cassino.`
-      : `O streamer "${audit.streamer_login}" jogou ${fmt(vodDuration)}, sendo ${fmt(totalCasinoSeconds)} de jogos de cassino e ${fmt(otherSeconds)} de Conteúdo Geral${sourceNote}. Detalhe: ${summaryLines.join(", ")}.`;
+      : `O streamer "${audit.streamer_login}" jogou ${fmt(vodDuration)}, sendo ${fmt(totalCasinoSeconds)} de jogos de cassino e ${fmt(otherSeconds)} de Conteúdo Geral. Detalhe: ${summaryLines.join(", ")}.`;
 
     return jsonResponse({
       audit_id,
