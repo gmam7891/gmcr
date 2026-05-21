@@ -53,7 +53,7 @@ interface Package {
 }
 
 export default function Admin() {
-  const { isAdmin, session } = useAuth();
+  const { isAdmin } = useAuth();
   const { t, language } = useLanguage();
   const navigate = useNavigate();
   const [users, setUsers] = useState<ManagedUser[]>([]);
