@@ -1,8 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   getDashboardData, getRankings, getTrendWeekly, getResultsAggregated,
-  getReviewQueue, getQualityMetrics, getPipelineConfig, getSystemStatus,
-  getQueue, getChatStats, getVodAuditDetail, getProviders, getGames,
+  getProviders, getGames,
 } from "@/lib/scanner-api";
 import type { ScannerFilters } from "@/contexts/ScannerFiltersContext";
 
