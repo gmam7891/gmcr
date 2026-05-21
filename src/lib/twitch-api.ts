@@ -43,60 +43,6 @@ interface VodChapter {
   gameBoxArt: string | null;
 }
 
-interface SullyGnomeStats {
-  avgViewers: number | null;
-  hoursWatched: number | null;
-  followersGained: number | null;
-  peakViewers: number | null;
-  hoursStreamed: number | null;
-  totalStreams: number | null;
-  streams: SullyGnomeStream[];
-  error?: string;
-}
-
-interface SullyGnomeStream {
-  date: string;
-  hours: number;
-  avgViewers: number;
-  peakViewers: number;
-  watchHours: number;
-  followers: number;
-}
-
-interface AiGameDetection {
-  game: string;
-  provider: string | null;
-  category: string;
-  confidence: string;
-  timestampSeconds?: number;
-}
-
-interface PendingAuditSegment {
-  start_minute: number;
-  chapter_category: string;
-  frames: string[];
-  timestamps: number[];
-  reason: string;
-}
-
-interface AiVodAnalysis {
-  games: AiGameDetection[];
-  gameTimeline: GameTimeSegment[];
-  pendingAuditSegments?: PendingAuditSegment[];
-  positiveFrames?: number;
-  totalSamples?: number;
-  sullygnome?: any;
-}
-
-interface GameTimeSegment {
-  game: string;
-  provider: string | null;
-  category: string;
-  startSeconds: number;
-  endSeconds: number;
-  durationSeconds: number;
-}
-
 async function callTwitch(body: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke('twitch-api', { body });
   if (error) throw new Error(error.message);
