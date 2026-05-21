@@ -81,7 +81,7 @@ export function ViewerTimeline({ timeline, rangeDays }: Props) {
     return `${hours}:${minutes}`;
   };
 
-  const data = sorted.map((b, idx) => {
+  const data = sorted.map((b) => {
     const dominantGame = Object.entries(b.games).sort((a, b) => b[1] - a[1])[0]?.[0] || "Offline";
     return {
       x: spanMs === 0 ? 0 : Math.min(axisEnd, Math.max(0, ((b.ts - startMs) / spanMs) * axisEnd)),
