@@ -75,50 +75,6 @@ export async function getVodChapters(vodId: string): Promise<VodChapter[]> {
 }
 
 
-export async function getStoryboardUrls(vodId: string, durationSeconds: number): Promise<{ urls: string[]; interval: number; framesPerStrip: number }> {
-  const result = await callTwitch({ action: 'get_storyboard_urls', vod_id: vodId, duration_seconds: durationSeconds });
-  return {
-    urls: result?.storyboardUrls ?? [],
-    interval: result?.interval ?? 19,
-    framesPerStrip: result?.framesPerStrip ?? 50,
-  };
-}
-
-export async function analyzeVodFrames(thumbnailUrls: string[], vodTitle?: string, timestamps?: number[], sampleInterval?: number): Promise<AiVodAnalysis> {
-  const result = await callTwitch({ action: 'analyze_vod_frames', thumbnail_urls: thumbnailUrls, vod_title: vodTitle, timestamps, sample_interval: sampleInterval });
-  return {
-    games: result?.games ?? [],
-    gameTimeline: result?.gameTimeline ?? [],
-  };
-}
-
-export async function analyzeVodSurgical(params: {
-  vodId: string;
-  thumbnailUrl: string;
-  vodTitle: string;
-  vodDurationSeconds: number;
-  streamerLogin: string;
-  auditId?: string;
-}): Promise<AiVodAnalysis> {
-  const result = await callTwitch({
-    action: 'analyze_vod_surgical',
-    vod_id: params.vodId,
-    thumbnail_url: params.thumbnailUrl,
-    vod_title: params.vodTitle,
-    vod_duration_seconds: params.vodDurationSeconds,
-    streamer_login: params.streamerLogin,
-    audit_id: params.auditId,
-  });
-  return {
-    games: result?.games ?? [],
-    gameTimeline: result?.gameTimeline ?? [],
-    pendingAuditSegments: result?.pendingAuditSegments ?? [],
-    positiveFrames: result?.positiveFrames ?? 0,
-    totalSamples: result?.totalSamples ?? 0,
-    sullygnome: result?.sullygnome ?? null,
-  };
-}
-
 export function parseDuration(s: string): number {
   if (!s) return 0;
   let h = 0, m = 0, sec = 0;
@@ -145,23 +101,4 @@ export function formatSeconds(totalSec: number): string {
   return `${m}m`;
 }
 
-export function getVodThumbnailAtOffset(thumbnailUrl: string, offsetSeconds: number, width = 1280, height = 720): string {
-  const base = thumbnailUrl
-    .replace('%{width}', String(width))
-    .replace('%{height}', String(height));
-  // Twitch VOD seek thumbnails: replace thumb0-WxH or thumb-WxH with thumb{offset}-WxH
-  return base.replace(/thumb\d*-\d+x\d+/, `thumb${offsetSeconds}-${width}x${height}`);
-}
-
-export function generateSeekThumbnails(thumbnailUrl: string, durationSeconds: number, intervalSeconds = 60): { url: string; offset: number }[] {
-  const thumbnails: { url: string; offset: number }[] = [];
-  for (let offset = 60; offset < durationSeconds - 30; offset += intervalSeconds) {
-    thumbnails.push({
-      url: getVodThumbnailAtOffset(thumbnailUrl, offset),
-      offset,
-    });
-  }
-  return thumbnails;
-}
-
-export type { TwitchUser, TwitchStream, TwitchVod, VodChapter, AiGameDetection, AiVodAnalysis, GameTimeSegment, PendingAuditSegment };
+export type { TwitchUser, TwitchStream, TwitchVod, VodChapter };
