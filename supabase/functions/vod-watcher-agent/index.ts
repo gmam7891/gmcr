@@ -1262,94 +1262,11 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
     let diagnosticLog: string | null = null;
     let snapshotsFound = (storyboardSnaps || []).length;
 
-    // ── 2) Fallback: live monitor snapshots (Twitch category-based) ─────────
     if (byGame.size === 0) {
-      // =================================================================
-      // FALLBACK: stream_snapshots — filtrar pela janela temporal real do VOD
-      // =================================================================
-      // Bug fix: antes pegava snapshots dos últimos 30 dias do streamer inteiro.
-      // Agora restringe à janela [vod_created_at .. vod_created_at + duration].
-      let vodStartIso: string | null = null;
-      let vodEndIso: string | null = null;
-      let windowSource: "audit_field" | "twitch_api" | "approximation" = "approximation";
-
-      if ((audit as any).vod_created_at) {
-        vodStartIso = new Date((audit as any).vod_created_at).toISOString();
-        windowSource = "audit_field";
-      }
-
-      if (!vodStartIso) {
-        const createdAt = await fetchVodCreatedAt(audit.vod_id);
-        if (createdAt) {
-          vodStartIso = createdAt;
-          windowSource = "twitch_api";
-          await sb.from("vod_audits").update({ vod_created_at: createdAt }).eq("id", audit.id);
-        }
-      }
-
-      if (!vodStartIso) {
-        const approximateStart = new Date(Date.now() - audit.vod_duration_seconds * 1000);
-        vodStartIso = approximateStart.toISOString();
-        windowSource = "approximation";
-        console.warn(
-          `[fallback] Using approximate VOD start time. Results may be ` +
-          `inaccurate if audit was run long after the live ended.`
-        );
-      }
-
-      const vodStart = new Date(vodStartIso);
-      const vodEnd = new Date(vodStart.getTime() + (audit.vod_duration_seconds + 90) * 1000);
-      vodEndIso = vodEnd.toISOString();
-
-      console.log(
-        `[fallback] VOD window: ${vodStartIso} → ${vodEndIso} ` +
-        `(source: ${windowSource}, duration=${audit.vod_duration_seconds}s)`
-      );
-
-      const { data: liveSnaps } = await sb
-        .from("stream_snapshots")
-        .select("game_name, captured_at")
-        .eq("streamer_login", audit.streamer_login)
-        .eq("is_live", true)
-        .eq("source", "live")
-        .gte("captured_at", vodStartIso)
-        .lte("captured_at", vodEndIso)
-        .not("game_name", "is", null);
-
-      console.log(
-        `[fallback] Found ${liveSnaps?.length || 0} snapshots in VOD window ` +
-        `(streamer=${audit.streamer_login})`
-      );
-
-      const maxPossibleSnapshots = Math.ceil(audit.vod_duration_seconds / 15) + 10;
-      if ((liveSnaps?.length || 0) > maxPossibleSnapshots) {
-        console.warn(
-          `[fallback] Anomaly: ${liveSnaps?.length} snapshots found but max ` +
-          `possible is ${maxPossibleSnapshots}. Capping at max.`
-        );
-        liveSnaps?.sort((a, b) =>
-          new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime()
-        );
-        if (liveSnaps) liveSnaps.length = Math.min(liveSnaps.length, maxPossibleSnapshots);
-      }
-
-      snapshotsFound = (liveSnaps || []).length;
-
-      if (snapshotsFound > 0) {
-        const CASINO_CATEGORIES = new Set(["Virtual Casino", "Slots", "Casino", "Poker"]);
-        const SECONDS_PER_SNAPSHOT = 15; // 0.25 min / snapshot
-
-        for (const s of liveSnaps || []) {
-          const cat = (s.game_name || "").trim();
-          if (!CASINO_CATEGORIES.has(cat)) continue;
-          pushDetection(cat, "Twitch Category", 1.0, SECONDS_PER_SNAPSHOT);
-        }
-
-        if (byGame.size > 0) dataSource = "stream_snapshots:live";
-        else diagnosticLog = `Encontrados ${snapshotsFound} snapshots, mas 0 blocos de gameplay. Erro na função de consolidação (nenhuma categoria de cassino reconhecida).`;
-      } else {
-        diagnosticLog = `Nenhum snapshot (storyboard ou live) encontrado para @${audit.streamer_login}.`;
-      }
+      diagnosticLog =
+        `Nenhuma detecção visual de cassino no VOD de @${audit.streamer_login}. ` +
+        `Storyboards retornaram 0 evidências de gameplay/loading. ` +
+        `Categorias da Twitch não são tratadas como detecção — apenas a análise visual conta.`;
     }
 
     // Stricter confirmation: a single frame OR avg confidence < 0.7 means
