@@ -48,9 +48,6 @@ const PROVIDER_PATTERNS: Record<string, RegExp[]> = {
   "Spinomenal": [/spinomenal/i],
 };
 
-function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
-}
 
 function parseRawText(raw: string): ParsedGame[] {
   const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
