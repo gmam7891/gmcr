@@ -132,7 +132,6 @@ export function ScanStartPanel({ onComplete }: ScanStartProps) {
           sbData.cols || 5,
           sbData.rows || 10,
           sbData.count || 0,
-          durationSec
         );
 
         if (sampledUrls.length === 0) {
