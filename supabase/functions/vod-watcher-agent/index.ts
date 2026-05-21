@@ -186,6 +186,41 @@ function buildMosaicPrompt(libraryContext: string): string {
   return MOSAIC_PROMPT_BASE + libraryContext;
 }
 
+// Tool schema for structured tile classification. Forces Gemini to return
+// well-formed JSON via function calling instead of free-form text parsing.
+const SAVE_TILES_TOOL = {
+  type: "function",
+  function: {
+    name: "save_tiles",
+    parameters: {
+      type: "object",
+      properties: {
+        tiles: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              row: { type: "number" },
+              col: { type: "number" },
+              screen_state: { type: "string", enum: ["gameplay", "loading", "lobby", "other"] },
+              game_name: { type: ["string", "null"] },
+              provider_name: { type: ["string", "null"] },
+              casino_brand: { type: ["string", "null"] },
+              is_unknown_game: { type: "boolean" },
+              confidence: { type: "number" },
+              evidence: { type: ["string", "null"] },
+            },
+            required: ["row", "col", "screen_state", "confidence"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["tiles"],
+      additionalProperties: false,
+    },
+  },
+} as const;
+
 function gameMatchKey(name: string | null | undefined): string {
   if (!name) return "";
   return String(name)
@@ -258,7 +293,7 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, maxAttempts = M
 // Bug #2: dedicated exponential backoff with jitter for 429/402/5xx that
 // respects Retry-After header. 402 (quota) is non-retryable and surfaced via
 // `quota_exhausted` so callers can pause the audit with needs_review status.
-async function callAI(messages: any[]): Promise<{
+async function callAI(messages: any[], aiOptions?: { tools?: any[]; tool_choice?: any }): Promise<{
   items: any[]; ok: boolean; status: number; raw: string;
   quota_exhausted?: boolean; retry_after_seconds?: number;
 }> {
@@ -270,10 +305,19 @@ async function callAI(messages: any[]): Promise<{
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let res: Response;
     try {
+      const payload: Record<string, unknown> = {
+        model: "google/gemini-3-flash-preview",
+        messages,
+        max_tokens: 8192,
+      };
+      if (aiOptions?.tools) {
+        payload.tools = aiOptions.tools;
+        if (aiOptions.tool_choice) payload.tool_choice = aiOptions.tool_choice;
+      }
       res = await fetch(AI_GATEWAY, {
         method: "POST",
         headers: { "Authorization": `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "google/gemini-2.5-flash", messages, max_tokens: 8192 }),
+        body: JSON.stringify(payload),
       });
     } catch (e) {
       lastBody = (e as Error).message;
@@ -286,7 +330,21 @@ async function callAI(messages: any[]): Promise<{
 
     if (res.ok) {
       const data = await res.json().catch(() => null);
-      const raw = data?.choices?.[0]?.message?.content ?? "[]";
+      const msg = data?.choices?.[0]?.message;
+      // Prefer tool_call output (structured); fallback to free-text parsing.
+      const toolCall = msg?.tool_calls?.[0];
+      if (toolCall?.function?.arguments) {
+        try {
+          const parsed = JSON.parse(toolCall.function.arguments);
+          const items = Array.isArray(parsed?.tiles)
+            ? parsed.tiles
+            : (Array.isArray(parsed) ? parsed : []);
+          return { items, ok: true, status: 200, raw: toolCall.function.arguments };
+        } catch (e) {
+          console.warn(`[Watcher] tool_call JSON parse failed: ${(e as Error).message}. Falling back to content.`);
+        }
+      }
+      const raw = msg?.content ?? "[]";
       return { items: parseAIBatch(raw), ok: true, status: 200, raw };
     }
 
@@ -702,7 +760,7 @@ Deno.serve(async (req) => {
     console.log(`[Watcher ${audit.id}] Loading game_visual_library...`);
     const { data: libraryRows, error: libErr } = await sb
       .from("game_visual_library")
-      .select("game_name, provider_name, visual_dna, training_status");
+      .select("game_name, provider_name, visual_dna, training_status, agent_keywords, agent_visual_markers, agent_confidence_threshold, agent_learned_at");
 
     if (libErr) {
       console.warn(`[Watcher ${audit.id}] Failed to load library: ${libErr.message}`);
@@ -712,20 +770,37 @@ Deno.serve(async (req) => {
       name: string;
       provider: string;
       keywords: string[];
+      visualMarkers: string[];
       trained: boolean;
+      confidenceThreshold: number | null;
     }> = (libraryRows || []).map((row: any) => {
       const dna = row.visual_dna || {};
       const provider = normalizeProviderName(
         dna.provider_canonical || row.provider_name || "Unknown",
       );
-      const keywords = Array.isArray(dna.detection_keywords)
-        ? dna.detection_keywords.slice(0, 6).map((k: any) => String(k))
+      // Prefer agent_keywords (trained via intelligent-vod-agent) over
+      // visual_dna.detection_keywords (legacy training path).
+      const agentKws = Array.isArray(row.agent_keywords)
+        ? row.agent_keywords.map((k: any) => String(k))
         : [];
+      const legacyKws = Array.isArray(dna.detection_keywords)
+        ? dna.detection_keywords.map((k: any) => String(k))
+        : [];
+      const keywords = (agentKws.length > 0 ? agentKws : legacyKws).slice(0, 8);
+      const visualMarkers = Array.isArray(row.agent_visual_markers)
+        ? row.agent_visual_markers.slice(0, 6).map((m: any) => String(m))
+        : [];
+      const rawThreshold = Number(row.agent_confidence_threshold);
+      const confidenceThreshold = Number.isFinite(rawThreshold) && rawThreshold > 0
+        ? rawThreshold
+        : null;
       return {
         name: row.game_name,
         provider,
         keywords,
-        trained: row.training_status === "trained" && keywords.length > 0,
+        visualMarkers,
+        trained: !!row.agent_learned_at || (row.training_status === "trained" && keywords.length > 0),
+        confidenceThreshold,
       };
     });
 
@@ -738,9 +813,13 @@ Deno.serve(async (req) => {
       `providers=${new Set(gameLibrary.map((g) => g.provider)).size}`,
     );
 
-    // Trained section (with keywords): "GameName|Provider|kw1,kw2,kw3,kw4"
+    // Trained section: "GameName|Provider|kw1,kw2,kw3,kw4,marker1,marker2,marker3"
+    // Mixes agent_keywords + agent_visual_markers so Gemini gets richer hints.
     const trainedContext = trainedGames
-      .map((g) => `${g.name}|${g.provider}|${g.keywords.slice(0, 4).join(",")}`)
+      .map((g) => {
+        const hints = [...g.keywords.slice(0, 4), ...g.visualMarkers.slice(0, 3)].filter(Boolean);
+        return `${g.name}|${g.provider}|${hints.join(",")}`;
+      })
       .join("\n");
 
     // Name-only section: just "GameName|Provider", no keywords. Helps the AI
@@ -767,9 +846,13 @@ ${nameOnlyContext}`
     // Index para validação rápida (case-insensitive) por nome do jogo.
     // Inclui TODOS os jogos catalogados (trained + name-only) para que o
     // matching contra a biblioteca aceite também jogos sem visual_dna.
-    const libraryIndex = new Map<string, { name: string; provider: string }>();
+    const libraryIndex = new Map<string, { name: string; provider: string; confidenceThreshold: number | null }>();
     for (const g of gameLibrary) {
-      libraryIndex.set(gameMatchKey(g.name), { name: g.name, provider: g.provider });
+      libraryIndex.set(gameMatchKey(g.name), {
+        name: g.name,
+        provider: g.provider,
+        confidenceThreshold: g.confidenceThreshold,
+      });
     }
 
 
@@ -811,7 +894,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           { type: "text", text: userText },
           { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
         ] },
-      ]);
+      ], { tools: [SAVE_TILES_TOOL], tool_choice: { type: "function", function: { name: "save_tiles" } } });
 
       console.log(
         `[Watcher ${audit.id}] AI mosaic ${mIdx + 1}/${plan.mosaics.length} ` +
@@ -833,7 +916,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
             { type: "text", text: userText },
             { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
           ] },
-        ]);
+        ], { tools: [SAVE_TILES_TOOL], tool_choice: { type: "function", function: { name: "save_tiles" } } });
         console.log(
           `[Watcher ${audit.id}] AI mosaic ${mIdx + 1}/${plan.mosaics.length} ` +
           `(tiles=${mosaic.tiles.length} ${mosaic.cols}x${mosaic.rows} ` +
@@ -878,12 +961,11 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           : "other";
 
         // ── Validação contra game_visual_library (anti-alucinação) ──────────
-        // Confidence floor: a library match alone is NOT enough — Gemini
-        // routinely defaults to popular library entries (Big Bass Bonanza,
-        // Candy Blitz, Mochimon, Inca Queen, etc.) whenever it sees a slot
-        // it can't actually read. Require ≥ 0.75 confidence for the match
-        // to count, otherwise treat it as a guess and discard.
-        const LIBRARY_MATCH_CONF_FLOOR = 0.65;
+        // Confidence floor: each trained game can have its own threshold
+        // (agent_confidence_threshold), set during training by the
+        // intelligent-vod-agent solo pipeline. Falls back to 0.5 for games
+        // that don't have a calibrated threshold yet.
+        const DEFAULT_LIBRARY_MATCH_FLOOR = 0.5;
         const UNKNOWN_GAME_CONF_FLOOR = 0.55;
         const isUnknownGame = !!det.is_unknown_game;
         let validatedGameName: string | null = null;
@@ -893,8 +975,9 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         if (det.game_name && (screenState === "gameplay" || screenState === "loading")) {
           const rawGame = String(det.game_name).trim();
           const match = libraryIndex.get(gameMatchKey(rawGame));
+          const effectiveFloor = match?.confidenceThreshold ?? DEFAULT_LIBRARY_MATCH_FLOOR;
 
-          if (match && conf >= LIBRARY_MATCH_CONF_FLOOR) {
+          if (match && conf >= effectiveFloor) {
             // Match canônico na biblioteca COM confiança suficiente
             validatedGameName = match.name;
             validatedProvider = match.provider;
@@ -903,7 +986,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
             // Está na biblioteca mas confiança baixa → provavelmente chute
             console.warn(
               `[Watcher ${audit.id}] Discarding low-confidence library guess: "${rawGame}" ` +
-              `(conf=${conf.toFixed(2)} < ${LIBRARY_MATCH_CONF_FLOOR}). evidence="${det.evidence || ""}"`,
+              `(conf=${conf.toFixed(2)} < ${effectiveFloor}). evidence="${det.evidence || ""}"`,
             );
             rejectedRows.push({
               vod_id: audit.vod_id,
@@ -1257,99 +1340,16 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       );
     }
 
-    let dataSource: "stream_snapshots:storyboard" | "stream_snapshots:live" | "none" =
+    const dataSource: "stream_snapshots:storyboard" | "none" =
       byGame.size > 0 ? "stream_snapshots:storyboard" : "none";
     let diagnosticLog: string | null = null;
     let snapshotsFound = (storyboardSnaps || []).length;
 
-    // ── 2) Fallback: live monitor snapshots (Twitch category-based) ─────────
     if (byGame.size === 0) {
-      // =================================================================
-      // FALLBACK: stream_snapshots — filtrar pela janela temporal real do VOD
-      // =================================================================
-      // Bug fix: antes pegava snapshots dos últimos 30 dias do streamer inteiro.
-      // Agora restringe à janela [vod_created_at .. vod_created_at + duration].
-      let vodStartIso: string | null = null;
-      let vodEndIso: string | null = null;
-      let windowSource: "audit_field" | "twitch_api" | "approximation" = "approximation";
-
-      if ((audit as any).vod_created_at) {
-        vodStartIso = new Date((audit as any).vod_created_at).toISOString();
-        windowSource = "audit_field";
-      }
-
-      if (!vodStartIso) {
-        const createdAt = await fetchVodCreatedAt(audit.vod_id);
-        if (createdAt) {
-          vodStartIso = createdAt;
-          windowSource = "twitch_api";
-          await sb.from("vod_audits").update({ vod_created_at: createdAt }).eq("id", audit.id);
-        }
-      }
-
-      if (!vodStartIso) {
-        const approximateStart = new Date(Date.now() - audit.vod_duration_seconds * 1000);
-        vodStartIso = approximateStart.toISOString();
-        windowSource = "approximation";
-        console.warn(
-          `[fallback] Using approximate VOD start time. Results may be ` +
-          `inaccurate if audit was run long after the live ended.`
-        );
-      }
-
-      const vodStart = new Date(vodStartIso);
-      const vodEnd = new Date(vodStart.getTime() + (audit.vod_duration_seconds + 90) * 1000);
-      vodEndIso = vodEnd.toISOString();
-
-      console.log(
-        `[fallback] VOD window: ${vodStartIso} → ${vodEndIso} ` +
-        `(source: ${windowSource}, duration=${audit.vod_duration_seconds}s)`
-      );
-
-      const { data: liveSnaps } = await sb
-        .from("stream_snapshots")
-        .select("game_name, captured_at")
-        .eq("streamer_login", audit.streamer_login)
-        .eq("is_live", true)
-        .eq("source", "live")
-        .gte("captured_at", vodStartIso)
-        .lte("captured_at", vodEndIso)
-        .not("game_name", "is", null);
-
-      console.log(
-        `[fallback] Found ${liveSnaps?.length || 0} snapshots in VOD window ` +
-        `(streamer=${audit.streamer_login})`
-      );
-
-      const maxPossibleSnapshots = Math.ceil(audit.vod_duration_seconds / 15) + 10;
-      if ((liveSnaps?.length || 0) > maxPossibleSnapshots) {
-        console.warn(
-          `[fallback] Anomaly: ${liveSnaps?.length} snapshots found but max ` +
-          `possible is ${maxPossibleSnapshots}. Capping at max.`
-        );
-        liveSnaps?.sort((a, b) =>
-          new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime()
-        );
-        if (liveSnaps) liveSnaps.length = Math.min(liveSnaps.length, maxPossibleSnapshots);
-      }
-
-      snapshotsFound = (liveSnaps || []).length;
-
-      if (snapshotsFound > 0) {
-        const CASINO_CATEGORIES = new Set(["Virtual Casino", "Slots", "Casino", "Poker"]);
-        const SECONDS_PER_SNAPSHOT = 15; // 0.25 min / snapshot
-
-        for (const s of liveSnaps || []) {
-          const cat = (s.game_name || "").trim();
-          if (!CASINO_CATEGORIES.has(cat)) continue;
-          pushDetection(cat, "Twitch Category", 1.0, SECONDS_PER_SNAPSHOT);
-        }
-
-        if (byGame.size > 0) dataSource = "stream_snapshots:live";
-        else diagnosticLog = `Encontrados ${snapshotsFound} snapshots, mas 0 blocos de gameplay. Erro na função de consolidação (nenhuma categoria de cassino reconhecida).`;
-      } else {
-        diagnosticLog = `Nenhum snapshot (storyboard ou live) encontrado para @${audit.streamer_login}.`;
-      }
+      diagnosticLog =
+        `Nenhuma detecção visual de cassino no VOD de @${audit.streamer_login}. ` +
+        `Storyboards retornaram 0 evidências de gameplay/loading. ` +
+        `Categorias da Twitch não são tratadas como detecção — apenas a análise visual conta.`;
     }
 
     // Stricter confirmation: a single frame OR avg confidence < 0.7 means
@@ -1380,16 +1380,12 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
     };
 
     const summaryLines = confirmedGames
-      .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" && g.provider !== "Twitch Category" ? ` (${g.provider})` : ""}`)
+      .map((g) => `${fmt(g.seconds)} de ${g.game}${g.provider !== "Unknown" ? ` (${g.provider})` : ""}`)
       .slice(0, 10);
-
-    const sourceNote = dataSource === "stream_snapshots:live"
-      ? " (fonte: monitor live — categorias Twitch)"
-      : "";
 
     const summary = games.length === 0
       ? `Auditoria do VOD de "${audit.streamer_login}" (${fmt(vodDuration)}) concluída sem detectar conteúdo de cassino.`
-      : `O streamer "${audit.streamer_login}" jogou ${fmt(vodDuration)}, sendo ${fmt(totalCasinoSeconds)} de jogos de cassino e ${fmt(otherSeconds)} de Conteúdo Geral${sourceNote}. Detalhe: ${summaryLines.join(", ")}.`;
+      : `O streamer "${audit.streamer_login}" jogou ${fmt(vodDuration)}, sendo ${fmt(totalCasinoSeconds)} de jogos de cassino e ${fmt(otherSeconds)} de Conteúdo Geral. Detalhe: ${summaryLines.join(", ")}.`;
 
     return jsonResponse({
       audit_id,

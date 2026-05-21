@@ -50,7 +50,7 @@ export interface AuditReport {
   pending_audits: number;
   audit_status?: string;
   error_message?: string | null;
-  data_source?: "stream_snapshots:storyboard" | "stream_snapshots:live" | "none";
+  data_source?: "stream_snapshots:storyboard" | "none";
   snapshots_found?: number;
   diagnostic_log?: string | null;
   pending_review_frames?: number;
