@@ -87,30 +87,6 @@ export async function getChatStats(params: {
   return callRead({ action: "get_chat_stats", ...params });
 }
 
-// ─── Misc (still routed via legacy proxy for compat) ──────────────────
-export async function processVod(vodId: string, streamerLogin: string) {
-  const { data, error } = await supabase.functions.invoke("scanner-pipeline", {
-    body: { action: "process_vod", vod_id: vodId, streamer_login: streamerLogin },
-  });
-  if (error) throw new Error(error.message);
-  return data;
-}
-
-export async function saveDetections(detections: any[]) {
-  const { data, error } = await supabase.functions.invoke("scanner-pipeline", {
-    body: { action: "save_detections", detections },
-  });
-  if (error) throw new Error(error.message);
-  return data;
-}
-
-export async function reconcile(streamerLogin: string, sourceId?: string, sourceType?: string) {
-  const { data, error } = await supabase.functions.invoke("scanner-pipeline", {
-    body: { action: "reconcile", streamer_login: streamerLogin, source_id: sourceId, source_type: sourceType },
-  });
-  if (error) throw new Error(error.message);
-  return data;
-}
 
 // ─── Direct DB ──────────────────
 export async function getProviders() {
