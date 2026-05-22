@@ -420,7 +420,22 @@ export function VodTab() {
             )}
 
             {auditId && (
-              <AuditReportCard auditId={auditId} autoLoad />
+              <>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => analyzeWithAI(singleVod, true)}
+                    disabled={isScanning}
+                  >
+                    {isScanning ? "🔄 Iniciando releitura..." : "🔄 Reler VOD"}
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    Inicia uma nova auditoria do zero (a anterior fica no histórico).
+                  </span>
+                </div>
+                <AuditReportCard auditId={auditId} autoLoad />
+              </>
             )}
 
             <VodAgentReadPanel vodId={singleVod.id} streamerLogin={singleVod.user_login} />
