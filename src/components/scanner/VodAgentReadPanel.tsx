@@ -4,8 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { analyzeVod, getVodAnalyses, soloStart, soloStatus, type AgentAnalysis } from "@/lib/intelligent-agent-api";
 import { formatSeconds } from "@/lib/twitch-api";
+import { supabase } from "@/integrations/supabase/client";
 import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
 
 interface Props {
   vodId: string;
