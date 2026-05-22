@@ -192,7 +192,19 @@ export function VodTab() {
     setLoadingChapters(null);
   };
 
-  const analyzeWithAI = async (vod: TwitchVod) => {
+  const analyzeWithAI = async (vod: TwitchVod, isRerun = false) => {
+    if (isRerun) {
+      const ok = window.confirm(
+        "Reler este VOD vai iniciar uma nova auditoria do zero. A leitura anterior continuará no histórico. Deseja continuar?"
+      );
+      if (!ok) return;
+      setExistingAudits((prev) => {
+        const next = { ...prev };
+        delete next[vod.id];
+        return next;
+      });
+    }
+
     setScanState((prev) => ({
       ...prev,
       [vod.id]: { auditId: null, loading: true, error: null },
@@ -225,7 +237,7 @@ export function VodTab() {
         });
       } else {
         toast({
-          title: "🤖 Agente iniciado em background",
+          title: isRerun ? "🔄 Releitura iniciada" : "🤖 Agente iniciado em background",
           description: `${result.total_frames} frames serão analisados. Pode fechar a página — o agente continua.`,
         });
       }
