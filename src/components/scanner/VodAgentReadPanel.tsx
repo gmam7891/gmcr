@@ -200,8 +200,8 @@ export function VodAgentReadPanel({ vodId, streamerLogin }: Props) {
             <Button size="sm" variant="outline" onClick={exportExcel}>
               📊 Excel
             </Button>
-            <Button size="sm" variant="outline" onClick={exportPdf}>
-              📄 PDF
+            <Button size="sm" variant="outline" onClick={exportPdf} disabled={pdfLoading}>
+              {pdfLoading ? "Gerando..." : "📄 PDF"}
             </Button>
           </div>
           <div className="space-y-2">
