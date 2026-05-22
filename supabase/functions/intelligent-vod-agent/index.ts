@@ -229,7 +229,8 @@ async function fetchStoryboardPlan(vodId: string) {
   const variants: any[] = await r2.json();
   if (!Array.isArray(variants) || variants.length === 0) return null;
   const byQ = (q: string) => variants.find((v: any) => String(v.quality).toLowerCase() === q);
-  const variant = byQ("medium") ?? byQ("high") ?? variants[variants.length - 1];
+  const variant = byQ("high") ?? byQ("medium") ?? variants[variants.length - 1];
+  const quality = String(variant?.quality ?? "unknown").toLowerCase();
   const { count, cols, rows, width, height, interval, images } = variant;
   if (!count || !cols || !rows || !interval || !Array.isArray(images)) return null;
   const baseUrl = infoUrl.substring(0, infoUrl.lastIndexOf("/") + 1);
@@ -244,7 +245,7 @@ async function fetchStoryboardPlan(vodId: string) {
     }
     return { url: baseUrl + imgName, cols, rows, tile_w: width, tile_h: height, tiles };
   });
-  return { mosaics, interval, total_tiles: count };
+  return { mosaics, interval, total_tiles: count, quality };
 }
 
 async function fetchAsBase64(url: string): Promise<string> {
@@ -394,9 +395,9 @@ async function soloStart(vodId: string, streamerLogin: string) {
     cursor_mosaic: 0,
     total_mosaics: plan.mosaics.length,
     total_tiles: plan.total_tiles,
-    plan: { mosaics: plan.mosaics, interval: plan.interval, profile_count: profiles.length },
+    plan: { mosaics: plan.mosaics, interval: plan.interval, profile_count: profiles.length, quality: plan.quality },
     started_at: new Date().toISOString(),
-    message: `Plano: ${plan.mosaics.length} mosaicos / ${plan.total_tiles} frames.`,
+    message: `Plano (${plan.quality}): ${plan.mosaics.length} mosaicos / ${plan.total_tiles} frames.`,
   }).select("id").single();
   if (error) throw error;
 
