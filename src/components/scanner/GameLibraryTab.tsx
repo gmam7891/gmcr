@@ -344,22 +344,41 @@ export function GameLibraryTab() {
 
       {/* Library List */}
       <Card className="p-5 space-y-3">
-        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <BookOpen className="h-4 w-4" />
-          {t("scan.lib_title")} ({library.length})
-        </h3>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <BookOpen className="h-4 w-4" />
+            {t("scan.lib_title")} ({filteredLibrary.length}{filterProvider !== "all" ? ` / ${library.length}` : ""})
+          </h3>
+          <div className="flex items-center gap-2">
+            <select
+              value={filterProvider}
+              onChange={(e) => setFilterProvider(e.target.value)}
+              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            >
+              <option value="all">Todas as provedoras</option>
+              {providerOptions.map(([slug, name]) => (
+                <option key={slug} value={slug}>{name}</option>
+              ))}
+            </select>
+            {filterProvider !== "all" && (
+              <Button size="sm" variant="ghost" onClick={() => setFilterProvider("all")} className="h-8 px-2 text-xs">
+                Limpar
+              </Button>
+            )}
+          </div>
+        </div>
 
         {loading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
-        ) : library.length === 0 ? (
+        ) : filteredLibrary.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
             {t("scan.lib_empty")}
           </p>
         ) : (
           <div className="space-y-2">
-            {library.map(entry => {
+            {filteredLibrary.map(entry => {
               const status = STATUS_CONFIG[entry.training_status] || STATUS_CONFIG.pending;
               const StatusIcon = status.icon;
               const isExpanded = expandedId === entry.id;
