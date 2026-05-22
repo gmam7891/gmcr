@@ -22,6 +22,7 @@ const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const AI_TIMEOUT_MS = 60_000;
 const LEARN_ALL_BATCH_SIZE = 2;
 const SOLO_MOSAICS_PER_CHUNK = 4; // baixa, pra não estourar o timeout
+const SOLO_MIN_CONFIDENCE = 0.85; // piso enquanto não há referências visuais (logo_url etc) na lib
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -270,10 +271,16 @@ function buildSoloPrompt(profiles: Array<{ game_name: string; provider_name: str
 - game_name: APENAS um nome EXATO da BIBLIOTECA abaixo, ou null
 - confidence: 0.0–1.0
 
-REGRAS:
-- NUNCA invente nome fora da biblioteca.
-- Em "lobby" ou "other": game_name=null sempre.
-- Em dúvida: game_name=null com confidence baixa.
+REGRAS CRÍTICAS (siga à risca):
+1. SÓ preencha game_name se o nome do jogo estiver LITERALMENTE LEGÍVEL no tile (no header, na logo, no label, na tela de loading, num título visível). Você precisa estar LENDO o nome com seus próprios olhos no tile.
+2. Markers visuais textuais (cor, layout, "header amarelo", "fundo azul") NÃO BASTAM para identificar. Eles só servem para CONFIRMAR um nome que você já leu, NUNCA para deduzir um nome.
+3. Se 2+ jogos da biblioteca poderiam bater apenas pelos markers: game_name=null.
+4. Se você "acha" que parece com algum jogo mas não está lendo o nome escrito: game_name=null.
+5. Em "lobby" (lista/grade de vários jogos) ou "other" (não-cassino): game_name=null SEMPRE.
+6. confidence: se game_name preenchido, deve ser >=0.85 (você LEU o nome com clareza). Se game_name=null, qualquer valor (use 0.0–0.5).
+7. NUNCA invente nome fora da biblioteca.
+
+É MUITO MELHOR retornar null do que errar. Um falso positivo prejudica o relatório; um null apenas omite. Não tente "ajudar adivinhando" — só responda com nomes que você efetivamente leu no tile.
 
 BIBLIOTECA OFICIAL (formato: Nome|Provedora|keywords|visual_markers):
 ${lib}`;
@@ -454,7 +461,8 @@ async function soloResume(runId: string) {
         if (!profile) continue;
         const tileConf = tile.confidence ?? 0;
         const perGameThreshold = Number((profile as any).agent_confidence_threshold);
-        const threshold = Number.isFinite(perGameThreshold) && perGameThreshold > 0 ? perGameThreshold : 0.5;
+        const baseThreshold = Number.isFinite(perGameThreshold) && perGameThreshold > 0 ? perGameThreshold : SOLO_MIN_CONFIDENCE;
+        const threshold = Math.max(baseThreshold, SOLO_MIN_CONFIDENCE);
         if (tileConf < threshold) continue;
         detRows.push({
           vod_id: run.vod_id,
