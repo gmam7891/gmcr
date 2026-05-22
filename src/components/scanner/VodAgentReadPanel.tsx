@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { analyzeVod, getVodAnalyses, soloStart, soloStatus, type AgentAnalysis } from "@/lib/intelligent-agent-api";
 import { formatSeconds } from "@/lib/twitch-api";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
 
 interface Props {
   vodId: string;
@@ -74,6 +76,151 @@ export function VodAgentReadPanel({ vodId, streamerLogin }: Props) {
     }
   };
 
+  const buildRows = () => {
+    const sorted = [...analyses].sort((a, b) => a.start_seconds - b.start_seconds);
+    const totalSec = sorted.reduce((s, a) => s + (a.duration_seconds || 0), 0);
+    const agree = sorted.filter((a) => a.agrees_with_pipeline === true).length;
+    const diverge = sorted.filter((a) => a.agrees_with_pipeline === false).length;
+    const avgConf = sorted.length
+      ? sorted.reduce((s, a) => s + (a.confidence || 0), 0) / sorted.length
+      : 0;
+    return { sorted, totalSec, agree, diverge, avgConf };
+  };
+
+  const exportExcel = () => {
+    if (!analyses.length) {
+      toast({ title: "Sem dados", description: "Nenhuma análise para exportar.", variant: "destructive" });
+      return;
+    }
+    const { sorted, totalSec, agree, diverge, avgConf } = buildRows();
+    const aoa: any[][] = [
+      ["Relatório — Leitura do Agente IA (Modo Solo)"],
+      [`VOD ${vodId}`, streamerLogin ? `@${streamerLogin}` : ""],
+      [`Gerado em ${new Date().toLocaleString("pt-BR")}`],
+      [],
+      ["Resumo"],
+      ["Total de detecções", sorted.length],
+      ["Duração total detectada (s)", totalSec],
+      ["Duração total formatada", formatSeconds(totalSec)],
+      ["Concorda com pipeline", agree],
+      ["Diverge do pipeline", diverge],
+      ["Confiança média", `${(avgConf * 100).toFixed(1)}%`],
+      [],
+      ["Detalhes"],
+      ["Jogo", "Provedora", "Início", "Fim", "Duração", "Confiança", "Confiança Visual", "Confiança Keyword", "Concorda com Pipeline"],
+    ];
+    for (const a of sorted) {
+      aoa.push([
+        a.game_name,
+        a.provider_name || "",
+        formatSeconds(a.start_seconds),
+        formatSeconds(a.end_seconds),
+        formatSeconds(a.duration_seconds),
+        `${(a.confidence * 100).toFixed(0)}%`,
+        `${(a.visual_confidence * 100).toFixed(0)}%`,
+        `${(a.keyword_confidence * 100).toFixed(0)}%`,
+        a.agrees_with_pipeline === true ? "Sim" : a.agrees_with_pipeline === false ? "Não" : "—",
+      ]);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [{ wch: 28 }, { wch: 22 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 14 }, { wch: 16 }, { wch: 18 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Modo Solo");
+    XLSX.writeFile(wb, `agente-solo-${streamerLogin || "vod"}-${vodId}.xlsx`);
+  };
+
+  const exportPdf = () => {
+    if (!analyses.length) {
+      toast({ title: "Sem dados", description: "Nenhuma análise para exportar.", variant: "destructive" });
+      return;
+    }
+    const { sorted, totalSec, agree, diverge, avgConf } = buildRows();
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 40;
+    let y = 50;
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text("Relatório — Leitura do Agente IA (Modo Solo)", marginX, y);
+    y += 18;
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text(`VOD ${vodId}${streamerLogin ? ` · @${streamerLogin}` : ""}`, marginX, y);
+    y += 12;
+    doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, marginX, y);
+    y += 20;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Resumo", marginX, y);
+    y += 14;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    const summary = [
+      `Total de detecções: ${sorted.length}`,
+      `Duração total detectada: ${formatSeconds(totalSec)}`,
+      `Concorda com pipeline: ${agree}`,
+      `Diverge do pipeline: ${diverge}`,
+      `Confiança média: ${(avgConf * 100).toFixed(1)}%`,
+    ];
+    for (const line of summary) {
+      doc.text(line, marginX, y);
+      y += 12;
+    }
+    y += 10;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Detecções", marginX, y);
+    y += 16;
+
+    const headers = ["Jogo", "Provedora", "Início", "Fim", "Duração", "Conf.", "Status"];
+    const colW = [140, 110, 50, 50, 55, 40, 60];
+    const drawHeader = () => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      let x = marginX;
+      headers.forEach((h, i) => {
+        doc.text(h, x, y);
+        x += colW[i];
+      });
+      y += 12;
+      doc.setLineWidth(0.5);
+      doc.line(marginX, y - 6, pageWidth - marginX, y - 6);
+      doc.setFont("helvetica", "normal");
+    };
+    drawHeader();
+
+    for (const a of sorted) {
+      if (y > pageHeight - 60) {
+        doc.addPage();
+        y = 50;
+        drawHeader();
+      }
+      const status =
+        a.agrees_with_pipeline === true ? "✓" : a.agrees_with_pipeline === false ? "✗" : "—";
+      const row = [
+        (a.game_name || "").slice(0, 28),
+        (a.provider_name || "").slice(0, 22),
+        formatSeconds(a.start_seconds),
+        formatSeconds(a.end_seconds),
+        formatSeconds(a.duration_seconds),
+        `${(a.confidence * 100).toFixed(0)}%`,
+        status,
+      ];
+      let x = marginX;
+      row.forEach((cell, i) => {
+        doc.text(String(cell), x, y);
+        x += colW[i];
+      });
+      y += 12;
+    }
+
+    doc.save(`agente-solo-${streamerLogin || "vod"}-${vodId}.pdf`);
+  };
+
   return (
     <div className="card-surface space-y-3 p-4">
       <div className="flex items-center justify-between gap-3">
@@ -110,27 +257,40 @@ export function VodAgentReadPanel({ vodId, streamerLogin }: Props) {
       {analyses.length === 0 ? (
         <p className="text-xs text-muted-foreground">Nenhuma análise do agente para este VOD ainda.</p>
       ) : (
-        <div className="space-y-2">
-          {analyses.map((a) => (
-            <div
-              key={a.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-border/50 p-2 text-xs"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="font-medium truncate">{a.game_name}</div>
-                <div className="text-muted-foreground">
-                  {formatSeconds(a.start_seconds)} → {formatSeconds(a.end_seconds)} ·{" "}
-                  {formatSeconds(a.duration_seconds)}
+        <>
+          <div className="flex flex-wrap items-center gap-2 pb-1 border-b border-border/50">
+            <span className="text-xs text-muted-foreground mr-auto">
+              {analyses.length} detecções
+            </span>
+            <Button size="sm" variant="outline" onClick={exportExcel}>
+              📊 Excel
+            </Button>
+            <Button size="sm" variant="outline" onClick={exportPdf}>
+              📄 PDF
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {analyses.map((a) => (
+              <div
+                key={a.id}
+                className="flex items-center justify-between gap-3 rounded-md border border-border/50 p-2 text-xs"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">{a.game_name}</div>
+                  <div className="text-muted-foreground">
+                    {formatSeconds(a.start_seconds)} → {formatSeconds(a.end_seconds)} ·{" "}
+                    {formatSeconds(a.duration_seconds)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge variant="outline">conf {(a.confidence * 100).toFixed(0)}%</Badge>
+                  {a.agrees_with_pipeline === true && <Badge variant="secondary">✓ concorda</Badge>}
+                  {a.agrees_with_pipeline === false && <Badge variant="destructive">✗ diverge</Badge>}
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <Badge variant="outline">conf {(a.confidence * 100).toFixed(0)}%</Badge>
-                {a.agrees_with_pipeline === true && <Badge variant="secondary">✓ concorda</Badge>}
-                {a.agrees_with_pipeline === false && <Badge variant="destructive">✗ diverge</Badge>}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
