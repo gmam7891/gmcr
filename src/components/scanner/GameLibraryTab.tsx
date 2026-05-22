@@ -84,6 +84,15 @@ export function GameLibraryTab() {
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, currentGame: "" });
   const [batchResults, setBatchResults] = useState({ trained: 0, failed: 0 });
   const [learningId, setLearningId] = useState<string | null>(null);
+  const [filterProvider, setFilterProvider] = useState<string>("all");
+
+  const providerOptions = Array.from(
+    new Map(library.map(e => [e.provider_slug, e.provider_name])).entries()
+  ).sort((a, b) => a[1].localeCompare(b[1]));
+
+  const filteredLibrary = filterProvider === "all"
+    ? library
+    : library.filter(e => e.provider_slug === filterProvider);
 
   const handleLearn = async (id: string) => {
     setLearningId(id);
