@@ -129,96 +129,31 @@ export function VodAgentReadPanel({ vodId, streamerLogin }: Props) {
     XLSX.writeFile(wb, `agente-solo-${streamerLogin || "vod"}-${vodId}.xlsx`);
   };
 
-  const exportPdf = () => {
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const exportPdf = async () => {
     if (!analyses.length) {
       toast({ title: "Sem dados", description: "Nenhuma análise para exportar.", variant: "destructive" });
       return;
     }
-    const { sorted, totalSec, agree, diverge, avgConf } = buildRows();
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const marginX = 40;
-    let y = 50;
-
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Relatório — Leitura do Agente IA (Modo Solo)", marginX, y);
-    y += 18;
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.text(`VOD ${vodId}${streamerLogin ? ` · @${streamerLogin}` : ""}`, marginX, y);
-    y += 12;
-    doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, marginX, y);
-    y += 20;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("Resumo", marginX, y);
-    y += 14;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    const summary = [
-      `Total de detecções: ${sorted.length}`,
-      `Duração total detectada: ${formatSeconds(totalSec)}`,
-      `Concorda com pipeline: ${agree}`,
-      `Diverge do pipeline: ${diverge}`,
-      `Confiança média: ${(avgConf * 100).toFixed(1)}%`,
-    ];
-    for (const line of summary) {
-      doc.text(line, marginX, y);
-      y += 12;
-    }
-    y += 10;
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("Detecções", marginX, y);
-    y += 16;
-
-    const headers = ["Jogo", "Provedora", "Início", "Fim", "Duração", "Conf.", "Status"];
-    const colW = [140, 110, 50, 50, 55, 40, 60];
-    const drawHeader = () => {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      let x = marginX;
-      headers.forEach((h, i) => {
-        doc.text(h, x, y);
-        x += colW[i];
+    setPdfLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-solo-report-pdf", {
+        body: { vod_id: vodId, streamer_login: streamerLogin || "vod" },
       });
-      y += 12;
-      doc.setLineWidth(0.5);
-      doc.line(marginX, y - 6, pageWidth - marginX, y - 6);
-      doc.setFont("helvetica", "normal");
-    };
-    drawHeader();
-
-    for (const a of sorted) {
-      if (y > pageHeight - 60) {
-        doc.addPage();
-        y = 50;
-        drawHeader();
-      }
-      const status =
-        a.agrees_with_pipeline === true ? "✓" : a.agrees_with_pipeline === false ? "✗" : "—";
-      const row = [
-        (a.game_name || "").slice(0, 28),
-        (a.provider_name || "").slice(0, 22),
-        formatSeconds(a.start_seconds),
-        formatSeconds(a.end_seconds),
-        formatSeconds(a.duration_seconds),
-        `${(a.confidence * 100).toFixed(0)}%`,
-        status,
-      ];
-      let x = marginX;
-      row.forEach((cell, i) => {
-        doc.text(String(cell), x, y);
-        x += colW[i];
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+      if (!data?.url) throw new Error("URL não retornada.");
+      window.open(data.url, "_blank", "noopener,noreferrer");
+      toast({ title: "PDF gerado", description: data.filename });
+    } catch (e) {
+      toast({
+        title: "Erro ao gerar PDF",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
       });
-      y += 12;
+    } finally {
+      setPdfLoading(false);
     }
-
-    doc.save(`agente-solo-${streamerLogin || "vod"}-${vodId}.pdf`);
   };
 
   return (
