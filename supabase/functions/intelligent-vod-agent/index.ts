@@ -22,7 +22,13 @@ const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const AI_TIMEOUT_MS = 60_000;
 const LEARN_ALL_BATCH_SIZE = 2;
 const SOLO_MOSAICS_PER_CHUNK = 4; // baixa, pra não estourar o timeout
-const SOLO_MIN_CONFIDENCE = 0.85; // piso enquanto não há referências visuais (logo_url etc) na lib
+// Anti-alucinação: dois pisos. Acima de PROMOTION vira detecção; entre REVIEW e
+// PROMOTION cai em fila silenciosa (não persistida) só para futura curadoria;
+// abaixo de REVIEW descartamos por completo.
+const SOLO_PROMOTION_THRESHOLD = 0.90;
+const SOLO_REVIEW_THRESHOLD = 0.80;
+const SOLO_MIN_CONFIDENCE = SOLO_PROMOTION_THRESHOLD;
+
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
