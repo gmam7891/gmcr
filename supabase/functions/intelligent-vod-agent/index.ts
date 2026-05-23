@@ -477,6 +477,8 @@ async function soloResume(runId: string) {
   const detRows: Array<{ vod_id: string; streamer_login: string; game_library_id: string; game_name: string; provider_name: string | null; start_seconds: number; end_seconds: number; duration_seconds: number; confidence: number; keyword_confidence: number; visual_confidence: number; agrees_with_pipeline: boolean | null }> = [];
   let processedTiles = 0;
 
+  const logRows: Array<Record<string, unknown>> = [];
+
   for (let i = cursor; i < end; i++) {
     const m = mosaics[i];
     try {
@@ -489,25 +491,56 @@ async function soloResume(runId: string) {
         const key = `${tile.row}-${tile.col}`;
         const ref = tilesByKey.get(key);
         if (!ref) continue;
+
+        const logBase = {
+          run_id: runId,
+          vod_id: run.vod_id,
+          streamer_login: run.streamer_login,
+          mosaic_index: i,
+          row_index: tile.row,
+          col_index: tile.col,
+          frame_ts_seconds: ref.ts,
+          screen_state: tile.screen_state ?? null,
+          reported_game_name: tile.game_name ?? null,
+          confidence: tile.confidence ?? 0,
+          visual_evidence: (tile as any).visual_evidence ?? null,
+          distinctive_elements: (tile as any).distinctive_elements_matched ?? [],
+          raw_response: tile as unknown as Record<string, unknown>,
+        };
+
         // Lobby/other nunca produzem game_name — descarte defensivo
         if (tile.screen_state === "lobby" || tile.screen_state === "other") {
           if (tile.game_name) nonGameplay++;
+          logRows.push({ ...logBase, outcome: "non_gameplay" });
           continue;
         }
-        if (!tile.game_name) continue;
+        if (!tile.game_name) {
+          logRows.push({ ...logBase, outcome: "no_game" });
+          continue;
+        }
         // Validação de lista fechada — modelo só pode citar nomes EXATOS da biblioteca
         const profile = profileById.get(tile.game_name.toLowerCase());
         if (!profile) {
           hallucinated++;
           console.warn(`solo: hallucinated game_name "${tile.game_name}" (não está na biblioteca)`);
+          logRows.push({ ...logBase, outcome: "hallucinated" });
           continue;
         }
         const tileConf = tile.confidence ?? 0;
         const perGameThreshold = Number((profile as any).agent_confidence_threshold);
         const baseThreshold = Number.isFinite(perGameThreshold) && perGameThreshold > 0 ? perGameThreshold : SOLO_PROMOTION_THRESHOLD;
         const promoteAt = Math.max(baseThreshold, SOLO_PROMOTION_THRESHOLD);
-        if (tileConf < SOLO_REVIEW_THRESHOLD) { lowConf++; continue; }
-        if (tileConf < promoteAt) { reviewSkipped++; continue; } // zona cinzenta — não promove
+        if (tileConf < SOLO_REVIEW_THRESHOLD) {
+          lowConf++;
+          logRows.push({ ...logBase, outcome: "low_confidence", matched_game_library_id: profile.id });
+          continue;
+        }
+        if (tileConf < promoteAt) {
+          reviewSkipped++;
+          logRows.push({ ...logBase, outcome: "review_skipped", matched_game_library_id: profile.id });
+          continue;
+        }
+        logRows.push({ ...logBase, outcome: "promoted", matched_game_library_id: profile.id });
         detRows.push({
           vod_id: run.vod_id,
           streamer_login: run.streamer_login,
@@ -539,6 +572,12 @@ async function soloResume(runId: string) {
     detRows.sort((a, b) => a.start_seconds - b.start_seconds);
     await sb.from("agent_analyses").insert(detRows);
   }
+  // Persiste log de auditoria por tile (best-effort — não falha o run se der erro)
+  if (logRows.length > 0) {
+    const { error: logErr } = await sb.from("agent_detection_log").insert(logRows);
+    if (logErr) console.warn("agent_detection_log insert failed:", logErr.message);
+  }
+
 
   const newCursor = end;
   await sb.from("agent_runs").update({

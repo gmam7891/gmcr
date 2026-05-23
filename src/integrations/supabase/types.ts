@@ -187,6 +187,66 @@ export type Database = {
           },
         ]
       }
+      agent_detection_log: {
+        Row: {
+          col_index: number | null
+          confidence: number | null
+          created_at: string
+          distinctive_elements: string[] | null
+          frame_ts_seconds: number
+          id: string
+          matched_game_library_id: string | null
+          mosaic_index: number | null
+          outcome: string
+          raw_response: Json | null
+          reported_game_name: string | null
+          row_index: number | null
+          run_id: string | null
+          screen_state: string | null
+          streamer_login: string | null
+          visual_evidence: string | null
+          vod_id: string
+        }
+        Insert: {
+          col_index?: number | null
+          confidence?: number | null
+          created_at?: string
+          distinctive_elements?: string[] | null
+          frame_ts_seconds?: number
+          id?: string
+          matched_game_library_id?: string | null
+          mosaic_index?: number | null
+          outcome: string
+          raw_response?: Json | null
+          reported_game_name?: string | null
+          row_index?: number | null
+          run_id?: string | null
+          screen_state?: string | null
+          streamer_login?: string | null
+          visual_evidence?: string | null
+          vod_id: string
+        }
+        Update: {
+          col_index?: number | null
+          confidence?: number | null
+          created_at?: string
+          distinctive_elements?: string[] | null
+          frame_ts_seconds?: number
+          id?: string
+          matched_game_library_id?: string | null
+          mosaic_index?: number | null
+          outcome?: string
+          raw_response?: Json | null
+          reported_game_name?: string | null
+          row_index?: number | null
+          run_id?: string | null
+          screen_state?: string | null
+          streamer_login?: string | null
+          visual_evidence?: string | null
+          vod_id?: string
+        }
+        Relationships: []
+      }
       agent_feedback: {
         Row: {
           analysis_id: string | null
