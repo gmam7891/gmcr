@@ -266,30 +266,53 @@ async function fetchAsBase64(url: string): Promise<string> {
 }
 
 function buildSoloPrompt(profiles: Array<{ game_name: string; provider_name: string | null; agent_keywords: string[]; agent_visual_markers: string[] }>) {
-  const lib = profiles.slice(0, 80).map((p) => {
-    const kws = (p.agent_keywords || []).slice(0, 8).join(",");
-    const mks = (p.agent_visual_markers || []).slice(0, 6).join(",");
-    return `${p.game_name}|${p.provider_name || ""}|${kws}|${mks}`;
+  const lib = profiles.slice(0, 120).map((p) => {
+    const traits = [
+      ...(p.agent_visual_markers || []).slice(0, 6),
+      ...(p.agent_keywords || []).slice(0, 4),
+    ].filter(Boolean).join(", ");
+    return `${p.game_name} | ${p.provider_name || "—"} | ${traits}`;
   }).join("\n");
-  return `Você está olhando um STORYBOARD da Twitch (grid de tiles em ordem linha-por-linha esquerda→direita, cima→baixo). Para CADA tile, classifique:
+  return `Você é um identificador visual de jogos de cassino online olhando UM STORYBOARD da Twitch (grid linha-por-linha, esquerda→direita, cima→baixo). Para CADA tile, decida qual jogo está sendo exibido naquele instante específico — ou diga que NÃO SABE.
 
-- screen_state: "gameplay" (jogando ativamente: rolos, botão spin, mesa de aposta, valores R$), "loading" (logo grande de jogo carregando), "lobby" (lista de vários jogos), "other" (qualquer não-cassino)
-- game_name: APENAS um nome EXATO da BIBLIOTECA abaixo, ou null
-- confidence: 0.0–1.0
+REGRA MAIS IMPORTANTE:
+"unknown" (game_name = null) é a resposta correta na MAIORIA dos casos. Se você não tem certeza visual ALTA de que o tile corresponde a um jogo da lista abaixo, devolva game_name = null. Não invente. Não escolha o "mais próximo". Não tente ser útil chutando. Errar com confiança alta é PIOR do que dizer null.
 
-REGRAS CRÍTICAS (siga à risca):
-1. SÓ preencha game_name se o nome do jogo estiver LITERALMENTE LEGÍVEL no tile (no header, na logo, no label, na tela de loading, num título visível). Você precisa estar LENDO o nome com seus próprios olhos no tile.
-2. Markers visuais textuais (cor, layout, "header amarelo", "fundo azul") NÃO BASTAM para identificar. Eles só servem para CONFIRMAR um nome que você já leu, NUNCA para deduzir um nome.
-3. Se 2+ jogos da biblioteca poderiam bater apenas pelos markers: game_name=null.
-4. Se você "acha" que parece com algum jogo mas não está lendo o nome escrito: game_name=null.
-5. Em "lobby" (lista/grade de vários jogos) ou "other" (não-cassino): game_name=null SEMPRE.
-6. confidence: se game_name preenchido, deve ser >=0.85 (você LEU o nome com clareza). Se game_name=null, qualquer valor (use 0.0–0.5).
-7. NUNCA invente nome fora da biblioteca.
+LISTA FECHADA DE JOGOS CONHECIDOS (formato: Nome | Provedora | traços visuais distintivos):
+${lib}
 
-É MUITO MELHOR retornar null do que errar. Um falso positivo prejudica o relatório; um null apenas omite. Não tente "ajudar adivinhando" — só responda com nomes que você efetivamente leu no tile.
+Você só pode preencher game_name com um dos nomes EXATOS da lista acima — caractere a caractere — OU null. Qualquer outro valor é tratado como alucinação e descartado.
 
-BIBLIOTECA OFICIAL (formato: Nome|Provedora|keywords|visual_markers):
-${lib}`;
+PARA CADA TILE, decida primeiro:
+- screen_state: "gameplay" (jogando: rolos, botão spin, mesa, valores R$), "loading" (logo grande do jogo carregando), "lobby" (lista de vários jogos), "other" (não-cassino, webcam, Just Chatting, BRB, etc.)
+
+CRITÉRIOS PARA PREENCHER game_name (TODOS precisam ser verdadeiros):
+1. Você consegue identificar visualmente pelo menos DOIS elementos distintivos descritos para aquele jogo na lista (HUD, símbolos únicos, paleta, logo, layout dos reels).
+2. Esses elementos NÃO são genéricos — símbolos comuns a vários slots (cerejas, 7s, BARs, diamantes) NÃO contam como distintivo.
+3. Você consegue descrever em UMA frase por que é esse jogo e não outro parecido.
+Se qualquer um dos três falhar: game_name = null.
+
+CASOS EM QUE game_name É SEMPRE null:
+- screen_state = "lobby" ou "other" (sempre null, sem exceção).
+- HUD coberto por webcam/overlay e você só vê pedaços genéricos.
+- Slot parece com algo da lista mas você não tem certeza alta.
+- Jogo de cassino que NÃO está na lista (mesmo que você "saiba" o nome por outro contexto).
+- Tile borrado, escuro, em transição ou com artefatos pesados.
+
+ANTI-PADRÕES (NÃO faça):
+- NÃO escolha um jogo só porque tem reels girando — reels existem em centenas de slots.
+- NÃO escolha por tema (frutas, pedras, animais) — temas são genéricos.
+- NÃO escolha porque o nome parece familiar. Sua familiaridade não é evidência visual.
+- NÃO escolha o "mais próximo" da lista quando nada bate. Ou bate, ou é null.
+- Markers visuais textuais ("header amarelo", "fundo azul") só servem para CONFIRMAR um jogo já candidato, NUNCA para deduzir um nome do zero.
+
+CALIBRAÇÃO DE confidence:
+- 0.95–1.00: 3+ elementos distintivos únicos batem. Sem ambiguidade.
+- 0.90–0.94: 2 elementos distintivos. Pequena ambiguidade.
+- 0.80–0.89: 1 elemento ou parcialmente coberto. Nesse intervalo, PREFIRA null salvo evidência muito forte.
+- < 0.80: SEMPRE null.
+
+É MUITO MELHOR retornar null do que errar. Um falso positivo prejudica o relatório do cliente; um null apenas omite. Você NÃO ajuda o sistema chutando — você ajuda sendo CONSERVADOR.`;
 }
 
 async function callVisionOnMosaic(prompt: string, base64: string, gridCols: number, gridRows: number, tileCount: number) {
@@ -304,7 +327,7 @@ async function callVisionOnMosaic(prompt: string, base64: string, gridCols: numb
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: "Você analisa storyboards de VOD da Twitch para detectar jogos de cassino. Sempre use a tool save_tiles." },
+          { role: "system", content: "Você analisa storyboards de VOD da Twitch para detectar jogos de cassino. Conservador por padrão — prefira null a errar. Sempre use a tool save_tiles." },
           { role: "user", content: [
             { type: "text", text: `${prompt}\n\nGRID_COLS=${gridCols} GRID_ROWS=${gridRows} TILE_COUNT=${tileCount}` },
             { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64}` } },
@@ -327,6 +350,8 @@ async function callVisionOnMosaic(prompt: string, base64: string, gridCols: numb
                       screen_state: { type: "string", enum: ["gameplay", "loading", "lobby", "other"] },
                       game_name: { type: ["string", "null"] },
                       confidence: { type: "number" },
+                      visual_evidence: { type: "string" },
+                      distinctive_elements_matched: { type: "array", items: { type: "string" } },
                     },
                     required: ["row", "col", "screen_state", "game_name", "confidence"],
                     additionalProperties: false,
@@ -351,8 +376,9 @@ async function callVisionOnMosaic(prompt: string, base64: string, gridCols: numb
   const data = await resp.json();
   const tc = data?.choices?.[0]?.message?.tool_calls?.[0];
   if (!tc) return { tiles: [] };
-  return JSON.parse(tc.function.arguments) as { tiles: Array<{ row: number; col: number; screen_state: string; game_name: string | null; confidence: number }> };
+  return JSON.parse(tc.function.arguments) as { tiles: Array<{ row: number; col: number; screen_state: string; game_name: string | null; confidence: number; visual_evidence?: string; distinctive_elements_matched?: string[] }> };
 }
+
 
 async function persistDetectionBlocks(
   vodId: string,
