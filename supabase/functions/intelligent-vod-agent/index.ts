@@ -484,18 +484,30 @@ async function soloResume(runId: string) {
       const out = await callVisionOnMosaic(prompt, b64, m.cols, m.rows, m.tiles.length);
       const tilesByKey = new Map<string, { ts: number }>();
       for (const t of m.tiles) tilesByKey.set(`${t.row}-${t.col}`, { ts: t.ts });
+      let hallucinated = 0, reviewSkipped = 0, lowConf = 0, nonGameplay = 0;
       for (const tile of out.tiles || []) {
         const key = `${tile.row}-${tile.col}`;
         const ref = tilesByKey.get(key);
         if (!ref) continue;
+        // Lobby/other nunca produzem game_name — descarte defensivo
+        if (tile.screen_state === "lobby" || tile.screen_state === "other") {
+          if (tile.game_name) nonGameplay++;
+          continue;
+        }
         if (!tile.game_name) continue;
+        // Validação de lista fechada — modelo só pode citar nomes EXATOS da biblioteca
         const profile = profileById.get(tile.game_name.toLowerCase());
-        if (!profile) continue;
+        if (!profile) {
+          hallucinated++;
+          console.warn(`solo: hallucinated game_name "${tile.game_name}" (não está na biblioteca)`);
+          continue;
+        }
         const tileConf = tile.confidence ?? 0;
         const perGameThreshold = Number((profile as any).agent_confidence_threshold);
-        const baseThreshold = Number.isFinite(perGameThreshold) && perGameThreshold > 0 ? perGameThreshold : SOLO_MIN_CONFIDENCE;
-        const threshold = Math.max(baseThreshold, SOLO_MIN_CONFIDENCE);
-        if (tileConf < threshold) continue;
+        const baseThreshold = Number.isFinite(perGameThreshold) && perGameThreshold > 0 ? perGameThreshold : SOLO_PROMOTION_THRESHOLD;
+        const promoteAt = Math.max(baseThreshold, SOLO_PROMOTION_THRESHOLD);
+        if (tileConf < SOLO_REVIEW_THRESHOLD) { lowConf++; continue; }
+        if (tileConf < promoteAt) { reviewSkipped++; continue; } // zona cinzenta — não promove
         detRows.push({
           vod_id: run.vod_id,
           streamer_login: run.streamer_login,
@@ -511,6 +523,10 @@ async function soloResume(runId: string) {
           agrees_with_pipeline: null,
         });
       }
+      if (hallucinated || reviewSkipped || lowConf || nonGameplay) {
+        console.log(`solo mosaic ${i}: hallucinated=${hallucinated} review=${reviewSkipped} low=${lowConf} nonGameplay=${nonGameplay}`);
+      }
+
       processedTiles += m.tiles.length;
     } catch (e) {
       console.warn(`solo mosaic ${i} failed:`, e);
