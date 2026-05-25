@@ -554,7 +554,13 @@ export async function handleWrite(supabase: SupabaseClient, body: any): Promise<
       provider_detected: e.provider || null, confidence_score: e.confidence || 0,
       processing_batch_id: processing_batch_id || null, validation_status: "pending", is_valid: true,
     }));
-    const { error } = await supabase.from("raw_evidences").insert(rows);
+    // Use upsert with ignoreDuplicates to avoid failing when the same
+    // (vod_id, timestamp_seconds) is re-scanned. Each strip can be re-processed
+    // across runs and the unique constraint `uniq_raw_evidences_vod_ts` would
+    // otherwise reject the whole batch.
+    const { error } = await supabase
+      .from("raw_evidences")
+      .upsert(rows, { onConflict: "vod_id,timestamp_seconds", ignoreDuplicates: true });
     if (error) throw new Error(`save_raw_evidences: ${error.message}`);
     return { saved: rows.length };
   }
