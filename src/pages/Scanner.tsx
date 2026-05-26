@@ -8,8 +8,9 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2,
   Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck,
-  Search, Activity, BarChart3, FlaskConical, Trophy, ChevronDown, Settings2, Brain, ScanLine,
+  Search, Activity, BarChart3, FlaskConical, Trophy, ChevronDown, Settings2, Brain, ScanLine, Library,
 } from "lucide-react";
+import { CasinoCatalogTab } from "@/components/scanner/CasinoCatalogTab";
 import { StatusHeader } from "@/components/scanner/StatusHeader";
 import { GlobalFilters } from "@/components/scanner/GlobalFilters";
 import { useScannerFilters } from "@/contexts/ScannerFiltersContext";
@@ -79,6 +80,7 @@ const Scanner = () => {
     { id: "ai_lab", label: t("scan.ai_lab_title"), icon: FlaskConical },
     { id: "intel_agent", label: "Agente IA", icon: Brain },
     { id: "vod_scan", label: "VOD Scan Local", icon: ScanLine },
+    { id: "casino_catalog", label: "Catálogos", icon: Library },
   ];
 
   const activeOpsTab = opsTabs.find(tab => tab.id === activeTab);
@@ -285,6 +287,12 @@ const Scanner = () => {
             <FeatureGate requiredPlan="Pro" isLocked={!canAccessQueue}>
               <VodScanTab />
             </FeatureGate>
+          </TabsContent>
+
+          <TabsContent value="casino_catalog">
+            {isAdmin ? <CasinoCatalogTab /> : (
+              <FeatureGate requiredPlan="Enterprise" isLocked><div /></FeatureGate>
+            )}
           </TabsContent>
         </Tabs>
       </main>
