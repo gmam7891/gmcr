@@ -8,8 +8,9 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Shield, LogOut, ArrowLeft, LayoutDashboard, Users, Gamepad2,
   Building2, MessageSquare, FileCheck, ListChecks, ClipboardCheck,
-  Search, Activity, BarChart3, FlaskConical, Trophy, ChevronDown, Settings2, Brain, ScanLine,
+  Search, Activity, BarChart3, FlaskConical, Trophy, ChevronDown, Settings2, Brain, ScanLine, Library,
 } from "lucide-react";
+import { CasinoCatalogTab } from "@/components/scanner/CasinoCatalogTab";
 import { StatusHeader } from "@/components/scanner/StatusHeader";
 import { GlobalFilters } from "@/components/scanner/GlobalFilters";
 import { useScannerFilters } from "@/contexts/ScannerFiltersContext";
