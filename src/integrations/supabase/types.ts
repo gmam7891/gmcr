@@ -359,6 +359,102 @@ export type Database = {
         }
         Relationships: []
       }
+      casino_catalog_thumbnails: {
+        Row: {
+          casino_name: string | null
+          casino_slug: string
+          created_at: string
+          error_message: string | null
+          game_library_id: string | null
+          game_name_normalized: string
+          game_name_raw: string
+          id: string
+          last_seen_at: string
+          metadata: Json
+          phash: string | null
+          provider_name: string | null
+          source_page_url: string | null
+          status: string
+          thumbnail_source_url: string | null
+          thumbnail_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          casino_name?: string | null
+          casino_slug: string
+          created_at?: string
+          error_message?: string | null
+          game_library_id?: string | null
+          game_name_normalized: string
+          game_name_raw: string
+          id?: string
+          last_seen_at?: string
+          metadata?: Json
+          phash?: string | null
+          provider_name?: string | null
+          source_page_url?: string | null
+          status?: string
+          thumbnail_source_url?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          casino_name?: string | null
+          casino_slug?: string
+          created_at?: string
+          error_message?: string | null
+          game_library_id?: string | null
+          game_name_normalized?: string
+          game_name_raw?: string
+          id?: string
+          last_seen_at?: string
+          metadata?: Json
+          phash?: string | null
+          provider_name?: string | null
+          source_page_url?: string | null
+          status?: string
+          thumbnail_source_url?: string | null
+          thumbnail_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      casino_catalogs: {
+        Row: {
+          casino_name: string
+          casino_slug: string
+          created_at: string
+          id: string
+          is_active: boolean
+          last_scraped_at: string | null
+          notes: string | null
+          updated_at: string
+          urls: string[]
+        }
+        Insert: {
+          casino_name: string
+          casino_slug: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_scraped_at?: string | null
+          notes?: string | null
+          updated_at?: string
+          urls?: string[]
+        }
+        Update: {
+          casino_name?: string
+          casino_slug?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_scraped_at?: string | null
+          notes?: string | null
+          updated_at?: string
+          urls?: string[]
+        }
+        Relationships: []
+      }
       chat_messages: {
         Row: {
           created_at: string
@@ -673,6 +769,8 @@ export type Database = {
           provider_name: string
           provider_slug: string
           source_url: string | null
+          thumbnail_phash: string | null
+          thumbnails: Json
           training_status: Database["public"]["Enums"]["training_status"]
           updated_at: string
           visual_dna: Json | null
@@ -697,6 +795,8 @@ export type Database = {
           provider_name: string
           provider_slug: string
           source_url?: string | null
+          thumbnail_phash?: string | null
+          thumbnails?: Json
           training_status?: Database["public"]["Enums"]["training_status"]
           updated_at?: string
           visual_dna?: Json | null
@@ -721,6 +821,8 @@ export type Database = {
           provider_name?: string
           provider_slug?: string
           source_url?: string | null
+          thumbnail_phash?: string | null
+          thumbnails?: Json
           training_status?: Database["public"]["Enums"]["training_status"]
           updated_at?: string
           visual_dna?: Json | null
@@ -1476,6 +1578,17 @@ export type Database = {
       }
     }
     Functions: {
+      find_game_by_phash: {
+        Args: { max_distance?: number; query_phash: string }
+        Returns: {
+          casino_slug: string
+          distance: number
+          game_library_id: string
+          game_name: string
+          provider_name: string
+          source: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1483,6 +1596,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      phash_hamming: { Args: { a: string; b: string }; Returns: number }
     }
     Enums: {
       app_role: "admin" | "user"

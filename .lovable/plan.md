@@ -1,99 +1,93 @@
-## Plano: Agente Inteligente de Análise de VOD (Segunda Opinião + Aprendizado)
 
-Incorpora o agente Python como um motor de **segunda opinião** que roda sob demanda em cima do pipeline atual, aprende automaticamente o perfil de cada jogo da Game Library via IA, e melhora com feedback do admin.
+# Catálogo de Cassinos → Visual Library (Piloto BullsBet)
 
----
+Transformar as páginas de catálogo das casas (BullsBet primeiro) na fonte de verdade visual da `game_visual_library`. Cada tile do lobby vira: nome canônico + provedora + thumbnail oficial em alta + hash perceptual (pHash) pra matching determinístico contra frames de VOD.
 
-### 1. Banco de dados (estender o que já existe)
+## Arquitetura
 
-**`game_visual_library`** — adicionar colunas para aprendizado do agente:
-- `agent_keywords TEXT[]` — palavras-chave que indicam o jogo (nome, símbolos, frases do HUD/paytable)
-- `agent_visual_markers TEXT[]` — marcadores visuais (cores dominantes, elementos de UI únicos)
-- `agent_confidence_threshold NUMERIC DEFAULT 0.70` — corte mínimo de confiança
-- `agent_times_identified INTEGER DEFAULT 0`
-- `agent_times_corrected INTEGER DEFAULT 0`
-- `agent_average_confidence NUMERIC DEFAULT 0`
-- `agent_last_identified_at TIMESTAMPTZ`
-- `agent_learned_at TIMESTAMPTZ` — quando a IA gerou o perfil
+```text
+[URL da casa]
+     │
+     ▼
+[edge: casino-catalog-scraper]──► Firecrawl scrape (HTML + links)
+     │                                │
+     │                                └─► extrai {name, provider, thumbnail_url}
+     │                                    de cada tile (parser HTML)
+     ▼
+[storage: game-thumbnails/{casino}/{slug}.jpg]
+     │
+     ▼
+[tabela: casino_catalog_thumbnails]  ◄── pHash 64-bit calculado server-side
+     │
+     ▼
+[merge na game_visual_library]
+     ├─ Match por nome normalizado → adiciona thumbnail como evidência
+     └─ Sem match → cria entrada nova, dispara learn_game (Visual DNA da key art)
+     │
+     ▼
+[intelligent-vod-agent] ──► quando vê tile no lobby:
+                              1. recorta tile
+                              2. calcula pHash
+                              3. Hamming distance ≤ 10 → match determinístico
+                              4. fallback: Visual DNA + Gemini (fluxo atual)
+```
 
-**Nova tabela `agent_analyses`** — cada detecção do agente em um VOD:
-- `id`, `vod_id`, `streamer_login`, `game_library_id` (FK), `game_name`, `provider_name`
-- `start_seconds`, `end_seconds`, `duration_seconds`
-- `confidence`, `keyword_confidence`, `visual_confidence`
-- `agrees_with_pipeline BOOLEAN` — bate com a detecção do pipeline atual?
-- `user_confirmed BOOLEAN`, `user_corrected BOOLEAN`, `feedback_at TIMESTAMPTZ`
-- `created_at`
+## Entregas
 
-**Nova tabela `agent_feedback`** — correções do admin:
-- `id`, `analysis_id` (FK), `original_game_id`, `corrected_game_id`, `correction_type` (`wrong_game | wrong_provider | false_positive | confirmed`), `notes`, `created_by`, `created_at`
+### 1. Migration: tabela `casino_catalog_thumbnails`
 
-Trigger: ao inserir feedback com `corrected_game_id`, incrementa `agent_times_corrected` do jogo errado e ajusta o threshold (sobe levemente após erros recorrentes).
+Colunas: `casino_slug`, `casino_name`, `game_name_raw`, `game_name_normalized`, `provider_name`, `thumbnail_url` (storage path), `source_page_url`, `phash` (`bytea`, 8 bytes), `game_library_id` (FK soft pra `game_visual_library`), `last_seen_at`, `metadata jsonb`.
 
-RLS: leitura para autenticados, escrita só admin.
+Index único: `(casino_slug, game_name_normalized, provider_name)`. Index BRIN em `phash` pra busca por similaridade.
 
----
+### 2. Migration: coluna `phash` em `game_visual_library`
 
-### 2. Edge function nova `intelligent-vod-agent`
+Adiciona `thumbnail_phash bytea` e `thumbnails jsonb` (array de `{casino, url, phash, captured_at}`) — permite múltiplas thumbnails por jogo (cada casa tem variação leve).
 
-Quatro actions:
+### 3. Edge function `casino-catalog-scraper`
 
-| Action | O que faz |
-|---|---|
-| `learn_game` | Recebe `game_library_id`. Busca `visual_dna`, logo/HUD/paytable. Chama Lovable AI (Gemini Flash) com tool-calling pedindo `agent_keywords` (15-25 palavras) e `agent_visual_markers` (8-15 traços). Salva no banco e marca `agent_learned_at`. |
-| `learn_all_pending` | Roda `learn_game` em lote para todos os jogos `trained` que ainda não têm `agent_learned_at`. |
-| `analyze_vod` | Segunda opinião sob demanda. Recebe `vod_id`. Busca frames já analisados em `raw_evidences` (texto OCR + cores) **OU** re-analisa storyboards via Gemini Vision. Para cada janela de tempo, calcula confidence combinada (`60% keywords + 40% visual`) contra cada perfil aprendido, agrupa em blocos contínuos, salva em `agent_analyses` com `agrees_with_pipeline`. |
-| `submit_feedback` | Recebe `analysis_id`, `corrected_game_id`, `correction_type`, `notes`. Insere em `agent_feedback`, atualiza estatísticas. |
+Actions:
+- `scrape_casino { casino_slug, urls[] }` — chama Firecrawl, extrai tiles, baixa thumbnails, calcula pHash, upserta em `casino_catalog_thumbnails`. Tudo background-friendly (responde 202 + processa).
+- `status { casino_slug }` — total, processados, pendentes, falhas.
+- `merge_to_library { casino_slug }` — faz o casamento com `game_visual_library` e dispara `learn_game` pros novos.
 
----
+pHash: implementação DCT 8x8 em Deno puro (sem dep nativa). Imagem reduzida a 32x32 grayscale → DCT → mediana dos 64 coefs de baixa frequência → bitmap.
 
-### 3. Frontend — Integração em telas existentes
+Parser de tiles do BullsBet: lê HTML retornado pelo Firecrawl, busca `img` dentro de cards de jogo, extrai `alt`/`title`/legenda como `game_name`, detecta badge da provedora (`PG`, `Pragmatic`, etc.) por classe ou OCR leve do canto da imagem (Gemini Vision se a badge não estiver no DOM).
 
-**Game Library (`GameLibraryTab.tsx`)** — em cada card expandido do jogo:
-- Nova seção "🧠 Agente IA" mostrando: keywords aprendidas, visual markers, threshold, contadores (`identified`, `corrected`, `accuracy %`)
-- Botão "Aprender / Re-aprender" que dispara `learn_game`
-- No header da aba: botão "Treinar Agente em todos pendentes" (chama `learn_all_pending`)
+### 4. UI: aba "Catálogos" no `/scanner`
 
-**Audit (`AuditTab.tsx`) — detalhe do VOD**:
-- Botão "🧠 Segunda opinião do Agente IA"
-- Painel de comparação lado-a-lado: blocos do pipeline atual × blocos do agente, marcando 🟢 concordância / 🟡 divergência
-- Em cada bloco do agente: botões `✓ Confirmar` / `✏ Corrigir jogo` (abre dropdown da Game Library) / `✗ Falso positivo`
+Componente novo `CasinoCatalogTab.tsx`:
+- Input pra colar URL(s) do catálogo da casa + nome do casino.
+- Botão "Importar catálogo" → chama `scrape_casino`.
+- Tabela mostrando: jogo, provedora, thumbnail (preview 80×80), pHash (hex truncado), status (novo / casado com biblioteca / pendente DNA).
+- Botão "Sincronizar com biblioteca" → chama `merge_to_library`.
+- Card de progresso com polling de `status`.
 
----
+### 5. Cron semanal
 
-### 4. Frontend — Nova aba `intel_agent` no Scanner
+`pg_cron` job: toda segunda 04:00 BRT, chama `casino-catalog-scraper` com `action=scrape_casino` pra cada casa ativa na tabela `casino_catalogs` (tabela leve com lista de URLs gerenciada via UI). Insere via `supabase--insert` (não migration, contém URL/anon key).
 
-Adicionar em `opsTabs` (admin only): **"Agente IA"** com ícone `Brain`.
+### 6. Integração com `intelligent-vod-agent`
 
-Dashboard contendo:
-- KPIs: total de análises, total de correções, acurácia geral, jogos treinados pelo agente
-- Top 10 jogos com melhor acurácia
-- Top 10 jogos que mais geram correção (precisam re-treino)
-- Fila de feedbacks recentes
-- Botão "Treinar todos pendentes"
+Adicionar passo no Modo Solo / Watcher antes de mandar pro Gemini:
+- Pra cada tile recortado do mosaico, calcula pHash.
+- Query: `SELECT game_library_id FROM casino_catalog_thumbnails WHERE bit_count(phash # $1) <= 10 ORDER BY bit_count(...) LIMIT 1`.
+- Se match: outcome `promoted_by_phash`, confidence 0.98, pula chamada de Gemini → economia de custo + zero alucinação.
+- Se não: fluxo atual (Gemini Vision com DNA).
 
----
+Loga em `agent_detection_log` com novo outcome `promoted_by_phash` pra você medir taxa de acerto vs Gemini.
 
-### 5. Arquivos a criar / modificar
+## Notas técnicas
 
-| Arquivo | Ação |
-|---|---|
-| migração SQL | criar (colunas + 2 tabelas + RLS + trigger) |
-| `supabase/functions/intelligent-vod-agent/index.ts` | criar |
-| `supabase/config.toml` | adicionar bloco `[functions.intelligent-vod-agent] verify_jwt = false` |
-| `src/lib/intelligent-agent-api.ts` | criar (wrappers `learnGame`, `analyzeVod`, `submitFeedback`, queries) |
-| `src/components/scanner/GameLibraryTab.tsx` | editar — bloco Agente IA por jogo + botão batch |
-| `src/components/scanner/AuditTab.tsx` | editar — botão segunda opinião + painel comparativo |
-| `src/components/scanner/IntelAgentTab.tsx` | criar (dashboard) |
-| `src/pages/Scanner.tsx` | editar — registrar tab `intel_agent` |
-| `src/lib/translations.ts` | editar — strings PT/EN |
+- **Firecrawl já está conectado** (`FIRECRAWL_API_KEY` presente). Sem secret novo.
+- **Storage**: criar bucket público `game-thumbnails` na mesma migration.
+- **pHash em Postgres**: usar `bytea` + `bit_count(a # b)` (XOR + popcount). Funciona out-of-the-box no PG 14+.
+- **Custo**: ~50 tiles por casa × 1 scrape Firecrawl ≈ 1 crédito Firecrawl/semana. Insignificante.
+- **Sem pgvector** nesta versão. Se quisermos similaridade fuzzy de embeddings depois, adicionamos como camada extra.
 
----
+## Fora do escopo do piloto
 
-### Detalhes técnicos
-
-- O agente **não substitui** o pipeline atual; ele lê/produz dados em paralelo, sempre comparando.
-- Aprendizado da IA usa **structured output via tool-calling** (confiável), modelo `google/gemini-3-flash-preview` (custo baixo, alta qualidade para extração).
-- Threshold inicial 0.70; ajuste automático: a cada 5 correções no mesmo jogo, threshold sobe 0.02 (até 0.95).
-- `analyze_vod` reusa frames de `raw_evidences` quando disponíveis (não re-baixa thumbs) — apenas cruza texto/visual com perfis aprendidos.
-
-Após sua aprovação, executo a migração primeiro (você confirma) e em seguida implemento edge function + UI.
+- Outras casas além de BullsBet (estrutura já pronta, só adicionar parsers).
+- OCR do nome do jogo na thumbnail (usar só `alt`/`title` do DOM por enquanto).
+- UI de revisão manual de duplicatas (jogo casado com nome errado) — mostro warning, correção fica pro V2.
