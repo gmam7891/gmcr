@@ -288,6 +288,12 @@ const Scanner = () => {
               <VodScanTab />
             </FeatureGate>
           </TabsContent>
+
+          <TabsContent value="casino_catalog">
+            {isAdmin ? <CasinoCatalogTab /> : (
+              <FeatureGate requiredPlan="Enterprise" isLocked><div /></FeatureGate>
+            )}
+          </TabsContent>
         </Tabs>
       </main>
     </div>
