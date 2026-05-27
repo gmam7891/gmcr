@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -61,7 +61,7 @@ const STORAGE_BASE = `${
 
 export function CasinoCatalogTab() {
   const qc = useQueryClient();
-  const [selectedSlug, setSelectedSlug] = useState<string>("bullsbet");
+  const [selectedSlug, setSelectedSlug] = useState<string>("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [showPasteForm, setShowPasteForm] = useState(false);
   const [pasteHtml, setPasteHtml] = useState("");
@@ -200,6 +200,15 @@ export function CasinoCatalogTab() {
   const casinos = casinosQuery.data?.casinos ?? [];
   const selected = casinos.find((c) => c.casino_slug === selectedSlug);
   const status = statusQuery.data;
+
+  useEffect(() => {
+    if (!selectedSlug && casinos.length > 0) {
+      setSelectedSlug(casinos[0].casino_slug);
+    }
+    if (selectedSlug && casinos.length > 0 && !selected) {
+      setSelectedSlug(casinos[0].casino_slug);
+    }
+  }, [casinos, selectedSlug, selected]);
 
   return (
     <div className="space-y-4">
