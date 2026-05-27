@@ -15,6 +15,8 @@ import {
   Sparkles,
   Plus,
   ImageIcon,
+  ClipboardPaste,
+  Upload,
 } from "lucide-react";
 
 interface Casino {
