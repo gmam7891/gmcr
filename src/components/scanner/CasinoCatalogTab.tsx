@@ -154,6 +154,34 @@ export function CasinoCatalogTab() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Treina o agente IA com as novas entradas do catálogo (gera keywords + markers
+  // a partir da thumbnail/nome). Roda em lotes até esgotar pendentes.
+  const trainMut = useMutation({
+    mutationFn: async () => {
+      let processed = 0;
+      let succeeded = 0;
+      for (let i = 0; i < 25; i++) {
+        const { data, error } = await supabase.functions.invoke(
+          "intelligent-vod-agent",
+          { body: { action: "learn_all_pending", limit: 4 } },
+        );
+        if (error) throw new Error(error.message);
+        if (data?.error) throw new Error(data.error);
+        processed += data?.processed ?? 0;
+        succeeded += data?.succeeded ?? 0;
+        if (!data?.has_more) break;
+      }
+      return { processed, succeeded };
+    },
+    onSuccess: (data) => {
+      toast.success(
+        `Agente treinado: ${data.succeeded}/${data.processed} perfis novos`,
+      );
+      qc.invalidateQueries({ queryKey: ["casino-catalog-status"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     casino: Casino,
