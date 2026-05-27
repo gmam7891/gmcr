@@ -309,6 +309,64 @@ async function downloadAndStore(
 
 // ─── Actions ───────────────────────────────────────────────────────────
 
+async function processTiles(
+  casino_slug: string,
+  casino_name: string,
+  pageUrl: string,
+  tiles: TileCandidate[],
+): Promise<{ stored: number; failed: number }> {
+  let stored = 0;
+  let failed = 0;
+  for (const tile of tiles) {
+    try {
+      const normalized = normalizeName(tile.game_name);
+      if (!normalized) continue;
+      const gameSlug = slugify(tile.game_name);
+      const result = await downloadAndStore(
+        tile.thumbnail_url,
+        casino_slug,
+        gameSlug,
+      );
+      if (!result) {
+        failed++;
+        continue;
+      }
+      const row = {
+        casino_slug,
+        casino_name,
+        game_name_raw: tile.game_name,
+        game_name_normalized: normalized,
+        provider_name: tile.provider,
+        thumbnail_url: result.storagePath,
+        thumbnail_source_url: tile.thumbnail_url,
+        source_page_url: pageUrl,
+        phash: result.phashBytes ? bytesToPgHex(result.phashBytes) : null,
+        status: "pending",
+        last_seen_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: {
+          phash_hex: result.phashBytes ? bytesToHex(result.phashBytes) : null,
+        },
+      };
+      const { error } = await sb
+        .from("casino_catalog_thumbnails")
+        .upsert(row, {
+          onConflict: "casino_slug,game_name_normalized,provider_name",
+        });
+      if (error) {
+        console.error("upsert error", error, row.game_name_raw);
+        failed++;
+      } else {
+        stored++;
+      }
+    } catch (e) {
+      console.error("tile error", e);
+      failed++;
+    }
+  }
+  return { stored, failed };
+}
+
 async function actionScrapeCasino(payload: any) {
   const casino_slug = String(payload.casino_slug || "").trim();
   const casino_name = String(payload.casino_name || casino_slug).trim();
@@ -318,7 +376,6 @@ async function actionScrapeCasino(payload: any) {
   }
   if (!FIRECRAWL_API_KEY) return json({ error: "FIRECRAWL_API_KEY missing" }, 500);
 
-  // Upsert casino registry
   await sb.from("casino_catalogs").upsert(
     {
       casino_slug,
@@ -330,7 +387,6 @@ async function actionScrapeCasino(payload: any) {
     { onConflict: "casino_slug" },
   );
 
-  // Fire and forget — run in background
   const task = (async () => {
     let totalTiles = 0;
     let stored = 0;
@@ -344,55 +400,9 @@ async function actionScrapeCasino(payload: any) {
         }
         const tiles = extractTiles(html, pageUrl);
         totalTiles += tiles.length;
-        for (const tile of tiles) {
-          try {
-            const normalized = normalizeName(tile.game_name);
-            if (!normalized) continue;
-            const gameSlug = slugify(tile.game_name);
-            const result = await downloadAndStore(
-              tile.thumbnail_url,
-              casino_slug,
-              gameSlug,
-            );
-            if (!result) {
-              failed++;
-              continue;
-            }
-            const row = {
-              casino_slug,
-              casino_name,
-              game_name_raw: tile.game_name,
-              game_name_normalized: normalized,
-              provider_name: tile.provider,
-              thumbnail_url: result.storagePath,
-              thumbnail_source_url: tile.thumbnail_url,
-              source_page_url: pageUrl,
-              phash: result.phashBytes ? bytesToPgHex(result.phashBytes) : null,
-              status: "pending",
-              last_seen_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              metadata: {
-                phash_hex: result.phashBytes
-                  ? bytesToHex(result.phashBytes)
-                  : null,
-              },
-            };
-            const { error } = await sb
-              .from("casino_catalog_thumbnails")
-              .upsert(row, {
-                onConflict: "casino_slug,game_name_normalized,provider_name",
-              });
-            if (error) {
-              console.error("upsert error", error, row.game_name_raw);
-              failed++;
-            } else {
-              stored++;
-            }
-          } catch (e) {
-            console.error("tile error", e);
-            failed++;
-          }
-        }
+        const r = await processTiles(casino_slug, casino_name, pageUrl, tiles);
+        stored += r.stored;
+        failed += r.failed;
       } catch (e) {
         console.error("page error", pageUrl, e);
         failed++;
@@ -403,7 +413,6 @@ async function actionScrapeCasino(payload: any) {
     );
   })();
 
-  // Use EdgeRuntime waitUntil if available
   try {
     // @ts-ignore
     EdgeRuntime?.waitUntil?.(task);
@@ -416,6 +425,63 @@ async function actionScrapeCasino(payload: any) {
     casino_slug,
     urls_count: urls.length,
     message: "Scraping started in background. Poll /status for progress.",
+  });
+}
+
+async function actionIngestHtml(payload: any) {
+  const casino_slug = String(payload.casino_slug || "").trim();
+  const casino_name = String(payload.casino_name || casino_slug).trim();
+  const html = String(payload.html || "");
+  const source_page_url = String(payload.source_page_url || "about:blank");
+  if (!casino_slug || !html) {
+    return json({ error: "casino_slug and html required" }, 400);
+  }
+  if (html.length > 12_000_000) {
+    return json({ error: "html too large (>12MB)" }, 413);
+  }
+
+  await sb.from("casino_catalogs").upsert(
+    {
+      casino_slug,
+      casino_name,
+      urls: source_page_url && source_page_url !== "about:blank"
+        ? [source_page_url]
+        : [],
+      is_active: true,
+      last_scraped_at: new Date().toISOString(),
+    },
+    { onConflict: "casino_slug" },
+  );
+
+  const tiles = extractTiles(html, source_page_url);
+  const tilesFound = tiles.length;
+
+  const task = (async () => {
+    const r = await processTiles(
+      casino_slug,
+      casino_name,
+      source_page_url,
+      tiles,
+    );
+    console.log(
+      `[ingest_html] ${casino_slug} done — tiles=${tilesFound} stored=${r.stored} failed=${r.failed}`,
+    );
+  })();
+
+  try {
+    // @ts-ignore
+    EdgeRuntime?.waitUntil?.(task);
+  } catch {
+    // noop
+  }
+
+  return json({
+    ok: true,
+    casino_slug,
+    tiles_found: tilesFound,
+    message: tilesFound === 0
+      ? "Nenhum tile detectado no HTML. Role a página até o fim antes de copiar para carregar os tiles lazy."
+      : `${tilesFound} tiles detectados. Processando em background.`,
   });
 }
 
@@ -591,6 +657,8 @@ Deno.serve(async (req) => {
     switch (action) {
       case "scrape_casino":
         return await actionScrapeCasino(payload);
+      case "ingest_html":
+        return await actionIngestHtml(payload);
       case "status":
         return await actionStatus(payload);
       case "merge_to_library":

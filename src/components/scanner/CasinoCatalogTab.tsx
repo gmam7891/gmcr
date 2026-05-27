@@ -15,6 +15,8 @@ import {
   Sparkles,
   Plus,
   ImageIcon,
+  ClipboardPaste,
+  Upload,
 } from "lucide-react";
 
 interface Casino {
@@ -60,6 +62,9 @@ export function CasinoCatalogTab() {
   const qc = useQueryClient();
   const [selectedSlug, setSelectedSlug] = useState<string>("bullsbet");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showPasteForm, setShowPasteForm] = useState(false);
+  const [pasteHtml, setPasteHtml] = useState("");
+  const [pasteSourceUrl, setPasteSourceUrl] = useState("");
   const [newCasino, setNewCasino] = useState({
     casino_slug: "",
     casino_name: "",
@@ -128,6 +133,40 @@ export function CasinoCatalogTab() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const ingestMut = useMutation({
+    mutationFn: (args: { casino: Casino; html: string; sourceUrl: string }) =>
+      call<{ tiles_found: number; message: string }>({
+        action: "ingest_html",
+        casino_slug: args.casino.casino_slug,
+        casino_name: args.casino.casino_name,
+        html: args.html,
+        source_page_url: args.sourceUrl || undefined,
+      }),
+    onSuccess: (data) => {
+      toast.success(data.message || `${data.tiles_found} tiles detectados`);
+      setShowPasteForm(false);
+      setPasteHtml("");
+      setPasteSourceUrl("");
+      qc.invalidateQueries({ queryKey: ["casino-catalog-status"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    casino: Casino,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 12 * 1024 * 1024) {
+      toast.error("Arquivo muito grande (máx 12MB)");
+      return;
+    }
+    const text = await file.text();
+    ingestMut.mutate({ casino, html: text, sourceUrl: pasteSourceUrl });
+    e.target.value = "";
+  };
 
   const casinos = casinosQuery.data?.casinos ?? [];
   const selected = casinos.find((c) => c.casino_slug === selectedSlug);
@@ -260,6 +299,14 @@ export function CasinoCatalogTab() {
                 </Button>
                 <Button
                   size="sm"
+                  variant="secondary"
+                  onClick={() => setShowPasteForm((v) => !v)}
+                >
+                  <ClipboardPaste className="h-3.5 w-3.5 mr-1" />
+                  Colar HTML
+                </Button>
+                <Button
+                  size="sm"
                   variant="outline"
                   onClick={() => mergeMut.mutate(selected.casino_slug)}
                   disabled={mergeMut.isPending || (status?.pending ?? 0) === 0}
@@ -306,6 +353,75 @@ export function CasinoCatalogTab() {
               />
             </div>
           </Card>
+
+          {showPasteForm && (
+            <Card className="p-4 space-y-3 border-primary/40">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <ClipboardPaste className="h-4 w-4 text-primary" />
+                  Importar via HTML colado
+                </h4>
+                <p className="text-[10px] text-muted-foreground">
+                  Funciona com páginas logadas · sem custo de scraping
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Abra o lobby da casa, role até o fim para carregar todos os
+                tiles, clique com botão direito → <strong>Inspecionar</strong> →
+                selecione o <code>{"<html>"}</code> → <strong>Copy → Copy outerHTML</strong>.
+                Cole abaixo. Aceita também upload de um <code>.html</code> salvo
+                (Ctrl+S → "Página completa").
+              </p>
+              <Input
+                placeholder="URL de origem (opcional, para rastreabilidade)"
+                value={pasteSourceUrl}
+                onChange={(e) => setPasteSourceUrl(e.target.value)}
+                className="text-xs font-mono"
+              />
+              <Textarea
+                placeholder="Cole aqui o HTML da página do lobby…"
+                value={pasteHtml}
+                onChange={(e) => setPasteHtml(e.target.value)}
+                rows={8}
+                className="text-[10px] font-mono"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    ingestMut.mutate({
+                      casino: selected,
+                      html: pasteHtml,
+                      sourceUrl: pasteSourceUrl,
+                    })
+                  }
+                  disabled={ingestMut.isPending || pasteHtml.trim().length < 100}
+                >
+                  {ingestMut.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  Processar HTML
+                </Button>
+                <label className="inline-flex">
+                  <input
+                    type="file"
+                    accept=".html,.htm,text/html"
+                    className="hidden"
+                    onChange={(e) => handleFileUpload(e, selected)}
+                  />
+                  <span className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded border border-border bg-secondary/50 hover:bg-secondary cursor-pointer">
+                    <Upload className="h-3.5 w-3.5" />
+                    Enviar arquivo .html
+                  </span>
+                </label>
+                <span className="text-[10px] text-muted-foreground">
+                  {pasteHtml.length.toLocaleString()} caracteres · máx 12MB
+                </span>
+              </div>
+            </Card>
+          )}
 
           {/* Samples grid */}
           <Card className="p-4 space-y-3">
