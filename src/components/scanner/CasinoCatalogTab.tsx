@@ -201,6 +201,15 @@ export function CasinoCatalogTab() {
   const selected = casinos.find((c) => c.casino_slug === selectedSlug);
   const status = statusQuery.data;
 
+  useEffect(() => {
+    if (!selectedSlug && casinos.length > 0) {
+      setSelectedSlug(casinos[0].casino_slug);
+    }
+    if (selectedSlug && casinos.length > 0 && !selected) {
+      setSelectedSlug(casinos[0].casino_slug);
+    }
+  }, [casinos, selectedSlug, selected]);
+
   return (
     <div className="space-y-4">
       {/* Header + site selector */}
