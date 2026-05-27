@@ -62,6 +62,9 @@ export function CasinoCatalogTab() {
   const qc = useQueryClient();
   const [selectedSlug, setSelectedSlug] = useState<string>("bullsbet");
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showPasteForm, setShowPasteForm] = useState(false);
+  const [pasteHtml, setPasteHtml] = useState("");
+  const [pasteSourceUrl, setPasteSourceUrl] = useState("");
   const [newCasino, setNewCasino] = useState({
     casino_slug: "",
     casino_name: "",
