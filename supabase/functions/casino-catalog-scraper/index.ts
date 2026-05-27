@@ -242,7 +242,12 @@ function extractTiles(html: string, baseUrl: string): TileCandidate[] {
       get("src") || get("data-src") || get("data-lazy-src") ||
       get("data-original");
     if (!srcRaw) continue;
-    if (!/\.(jpe?g|png|webp|avif)(\?|#|$)/i.test(srcRaw)) continue;
+    // Accept either explicit image extensions OR known CDN patterns without
+    // extensions (Cloudflare Images: imagedelivery.net/<hash>/<variant>,
+    // Imgix, Cloudinary, etc.)
+    const hasExt = /\.(jpe?g|png|webp|avif)(\?|#|$)/i.test(srcRaw);
+    const isImageCdn = /(imagedelivery\.net|imgix\.net|cloudinary\.com|res\.cloudinary|akamaized\.net\/.*\/(thumb|tile|game)|cdn\..*\/(games?|thumbs?|tiles?)\/)/i.test(srcRaw);
+    if (!hasExt && !isImageCdn) continue;
     if (/icon|logo|sprite|placeholder|loader|avatar/i.test(srcRaw)) continue;
 
     const src = absolutize(srcRaw, baseUrl);
