@@ -299,6 +299,14 @@ export function CasinoCatalogTab() {
                 </Button>
                 <Button
                   size="sm"
+                  variant="secondary"
+                  onClick={() => setShowPasteForm((v) => !v)}
+                >
+                  <ClipboardPaste className="h-3.5 w-3.5 mr-1" />
+                  Colar HTML
+                </Button>
+                <Button
+                  size="sm"
                   variant="outline"
                   onClick={() => mergeMut.mutate(selected.casino_slug)}
                   disabled={mergeMut.isPending || (status?.pending ?? 0) === 0}
