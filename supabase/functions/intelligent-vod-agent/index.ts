@@ -607,7 +607,7 @@ async function finalizeSolo(runId: string, vodId: string, streamerLogin: string)
   if (raw && raw.length > 0) {
     type R = { id: string; game_library_id: string | null; game_name: string; provider_name: string | null; start_seconds: number; confidence: number };
     const arr = raw as R[];
-    const GAP = 120;
+    const GAP = 60; // fecha sessão após 60s sem ver o jogo (volta ao lobby / troca / sai)
     const groups: Array<{ game_library_id: string; game_name: string; provider_name: string | null; start: number; end: number; sum: number; n: number; ids: string[] }> = [];
     for (const d of arr) {
       if (!d.game_library_id) continue;
