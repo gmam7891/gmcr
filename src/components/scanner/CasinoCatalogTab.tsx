@@ -134,6 +134,40 @@ export function CasinoCatalogTab() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const ingestMut = useMutation({
+    mutationFn: (args: { casino: Casino; html: string; sourceUrl: string }) =>
+      call<{ tiles_found: number; message: string }>({
+        action: "ingest_html",
+        casino_slug: args.casino.casino_slug,
+        casino_name: args.casino.casino_name,
+        html: args.html,
+        source_page_url: args.sourceUrl || undefined,
+      }),
+    onSuccess: (data) => {
+      toast.success(data.message || `${data.tiles_found} tiles detectados`);
+      setShowPasteForm(false);
+      setPasteHtml("");
+      setPasteSourceUrl("");
+      qc.invalidateQueries({ queryKey: ["casino-catalog-status"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    casino: Casino,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 12 * 1024 * 1024) {
+      toast.error("Arquivo muito grande (máx 12MB)");
+      return;
+    }
+    const text = await file.text();
+    ingestMut.mutate({ casino, html: text, sourceUrl: pasteSourceUrl });
+    e.target.value = "";
+  };
+
   const casinos = casinosQuery.data?.casinos ?? [];
   const selected = casinos.find((c) => c.casino_slug === selectedSlug);
   const status = statusQuery.data;
