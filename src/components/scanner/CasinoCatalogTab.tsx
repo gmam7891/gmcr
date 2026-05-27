@@ -354,6 +354,19 @@ export function CasinoCatalogTab() {
                   Sincronizar com biblioteca
                 </Button>
                 <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => trainMut.mutate()}
+                  disabled={trainMut.isPending}
+                  title="Treina o agente IA com as thumbs novas (gera keywords + marcadores visuais)"
+                >
+                  {trainMut.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Brain className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  Treinar agente
+                <Button
                   size="icon"
                   variant="ghost"
                   onClick={() =>
