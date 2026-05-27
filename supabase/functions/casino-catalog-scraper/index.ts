@@ -593,8 +593,10 @@ async function actionMergeToLibrary(payload: any) {
             game_name: r.game_name_raw,
             provider_name: r.provider_name ?? "Unknown",
             provider_slug: slugify(r.provider_name ?? "unknown"),
-            source_url: r.source_page_url,
-            training_status: "pending",
+            source_url: r.thumbnail_url || r.source_page_url,
+            // Marcamos como 'trained' pra que o agente já possa aprender o perfil
+            // a partir da thumbnail (key art do provedor). Origem (casino_slug) é só metadado.
+            training_status: "trained",
             thumbnail_phash: r.phash,
             thumbnails: [{
               casino: casino_slug,
@@ -602,7 +604,7 @@ async function actionMergeToLibrary(payload: any) {
               phash_hex: r.metadata?.phash_hex ?? null,
               captured_at: new Date().toISOString(),
             }],
-            metadata: { origin: "casino_catalog", casino: casino_slug },
+            metadata: { origin: "casino_catalog", source_site: casino_slug },
           })
           .select("id")
           .single();
