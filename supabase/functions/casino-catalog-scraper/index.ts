@@ -657,6 +657,8 @@ Deno.serve(async (req) => {
     switch (action) {
       case "scrape_casino":
         return await actionScrapeCasino(payload);
+      case "ingest_html":
+        return await actionIngestHtml(payload);
       case "status":
         return await actionStatus(payload);
       case "merge_to_library":
