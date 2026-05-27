@@ -203,14 +203,16 @@ export function CasinoCatalogTab() {
 
   return (
     <div className="space-y-4">
-      {/* Header + casino selector */}
+      {/* Header + site selector */}
       <Card className="p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Building2 className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-semibold">Catálogos de Cassinos</h3>
+            <h3 className="text-sm font-semibold">
+              Catálogo de Thumbnails (qualquer site)
+            </h3>
             <Badge variant="outline" className="text-[10px]">
-              Piloto
+              Genérico
             </Badge>
           </div>
           <Button
@@ -218,15 +220,19 @@ export function CasinoCatalogTab() {
             variant="outline"
             onClick={() => setShowAddForm((v) => !v)}
           >
-            <Plus className="h-3.5 w-3.5 mr-1" /> Nova casa
+            <Plus className="h-3.5 w-3.5 mr-1" /> Nova origem
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Raspa as miniaturas oficiais dos jogos no lobby de uma casa,
-          calcula <code className="text-[10px]">pHash</code> de cada tile e
-          alimenta a Biblioteca Visual. Depois disso, o Modo Solo identifica
-          jogos no VOD por correspondência visual determinística.
+          Importa as miniaturas oficiais dos jogos (vindas do lobby de qualquer
+          casa — as imagens são do provedor, então servem cross-site), calcula{" "}
+          <code className="text-[10px]">pHash</code> e alimenta a Biblioteca
+          Visual. O agente IA usa essas thumbs pra reconhecer o jogo no VOD a
+          partir do momento em que o streamer entra no gameplay e fecha a
+          sessão após 60s sem ver o jogo (volta pro lobby, troca ou sai).
         </p>
+
+
 
         {showAddForm && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-border">
