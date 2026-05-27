@@ -61,7 +61,7 @@ const STORAGE_BASE = `${
 
 export function CasinoCatalogTab() {
   const qc = useQueryClient();
-  const [selectedSlug, setSelectedSlug] = useState<string>("bullsbet");
+  const [selectedSlug, setSelectedSlug] = useState<string>("");
   const [showAddForm, setShowAddForm] = useState(false);
   const [showPasteForm, setShowPasteForm] = useState(false);
   const [pasteHtml, setPasteHtml] = useState("");
