@@ -17,6 +17,7 @@ import {
   ImageIcon,
   ClipboardPaste,
   Upload,
+  Brain,
 } from "lucide-react";
 
 interface Casino {
@@ -153,6 +154,34 @@ export function CasinoCatalogTab() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Treina o agente IA com as novas entradas do catálogo (gera keywords + markers
+  // a partir da thumbnail/nome). Roda em lotes até esgotar pendentes.
+  const trainMut = useMutation({
+    mutationFn: async () => {
+      let processed = 0;
+      let succeeded = 0;
+      for (let i = 0; i < 25; i++) {
+        const { data, error } = await supabase.functions.invoke(
+          "intelligent-vod-agent",
+          { body: { action: "learn_all_pending", limit: 4 } },
+        );
+        if (error) throw new Error(error.message);
+        if (data?.error) throw new Error(data.error);
+        processed += data?.processed ?? 0;
+        succeeded += data?.succeeded ?? 0;
+        if (!data?.has_more) break;
+      }
+      return { processed, succeeded };
+    },
+    onSuccess: (data) => {
+      toast.success(
+        `Agente treinado: ${data.succeeded}/${data.processed} perfis novos`,
+      );
+      qc.invalidateQueries({ queryKey: ["casino-catalog-status"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     casino: Casino,
@@ -174,14 +203,16 @@ export function CasinoCatalogTab() {
 
   return (
     <div className="space-y-4">
-      {/* Header + casino selector */}
+      {/* Header + site selector */}
       <Card className="p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Building2 className="h-4 w-4 text-primary" />
-            <h3 className="text-sm font-semibold">Catálogos de Cassinos</h3>
+            <h3 className="text-sm font-semibold">
+              Catálogo de Thumbnails (qualquer site)
+            </h3>
             <Badge variant="outline" className="text-[10px]">
-              Piloto
+              Genérico
             </Badge>
           </div>
           <Button
@@ -189,15 +220,19 @@ export function CasinoCatalogTab() {
             variant="outline"
             onClick={() => setShowAddForm((v) => !v)}
           >
-            <Plus className="h-3.5 w-3.5 mr-1" /> Nova casa
+            <Plus className="h-3.5 w-3.5 mr-1" /> Nova origem
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Raspa as miniaturas oficiais dos jogos no lobby de uma casa,
-          calcula <code className="text-[10px]">pHash</code> de cada tile e
-          alimenta a Biblioteca Visual. Depois disso, o Modo Solo identifica
-          jogos no VOD por correspondência visual determinística.
+          Importa as miniaturas oficiais dos jogos (vindas do lobby de qualquer
+          casa — as imagens são do provedor, então servem cross-site), calcula{" "}
+          <code className="text-[10px]">pHash</code> e alimenta a Biblioteca
+          Visual. O agente IA usa essas thumbs pra reconhecer o jogo no VOD a
+          partir do momento em que o streamer entra no gameplay e fecha a
+          sessão após 60s sem ver o jogo (volta pro lobby, troca ou sai).
         </p>
+
+
 
         {showAddForm && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-border">
@@ -317,6 +352,20 @@ export function CasinoCatalogTab() {
                     <Sparkles className="h-3.5 w-3.5 mr-1" />
                   )}
                   Sincronizar com biblioteca
+                </Button>
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => trainMut.mutate()}
+                  disabled={trainMut.isPending}
+                  title="Treina o agente IA com as thumbs novas (gera keywords + marcadores visuais)"
+                >
+                  {trainMut.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Brain className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  Treinar agente
                 </Button>
                 <Button
                   size="icon"
