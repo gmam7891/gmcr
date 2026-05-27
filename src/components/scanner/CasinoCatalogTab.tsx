@@ -354,6 +354,75 @@ export function CasinoCatalogTab() {
             </div>
           </Card>
 
+          {showPasteForm && (
+            <Card className="p-4 space-y-3 border-primary/40">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <ClipboardPaste className="h-4 w-4 text-primary" />
+                  Importar via HTML colado
+                </h4>
+                <p className="text-[10px] text-muted-foreground">
+                  Funciona com páginas logadas · sem custo de scraping
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Abra o lobby da casa, role até o fim para carregar todos os
+                tiles, clique com botão direito → <strong>Inspecionar</strong> →
+                selecione o <code>{"<html>"}</code> → <strong>Copy → Copy outerHTML</strong>.
+                Cole abaixo. Aceita também upload de um <code>.html</code> salvo
+                (Ctrl+S → "Página completa").
+              </p>
+              <Input
+                placeholder="URL de origem (opcional, para rastreabilidade)"
+                value={pasteSourceUrl}
+                onChange={(e) => setPasteSourceUrl(e.target.value)}
+                className="text-xs font-mono"
+              />
+              <Textarea
+                placeholder="Cole aqui o HTML da página do lobby…"
+                value={pasteHtml}
+                onChange={(e) => setPasteHtml(e.target.value)}
+                rows={8}
+                className="text-[10px] font-mono"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    ingestMut.mutate({
+                      casino: selected,
+                      html: pasteHtml,
+                      sourceUrl: pasteSourceUrl,
+                    })
+                  }
+                  disabled={ingestMut.isPending || pasteHtml.trim().length < 100}
+                >
+                  {ingestMut.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  Processar HTML
+                </Button>
+                <label className="inline-flex">
+                  <input
+                    type="file"
+                    accept=".html,.htm,text/html"
+                    className="hidden"
+                    onChange={(e) => handleFileUpload(e, selected)}
+                  />
+                  <span className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded border border-border bg-secondary/50 hover:bg-secondary cursor-pointer">
+                    <Upload className="h-3.5 w-3.5" />
+                    Enviar arquivo .html
+                  </span>
+                </label>
+                <span className="text-[10px] text-muted-foreground">
+                  {pasteHtml.length.toLocaleString()} caracteres · máx 12MB
+                </span>
+              </div>
+            </Card>
+          )}
+
           {/* Samples grid */}
           <Card className="p-4 space-y-3">
             <h4 className="text-sm font-semibold flex items-center gap-2">
