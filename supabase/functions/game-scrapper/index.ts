@@ -88,8 +88,10 @@ serve(async (req) => {
       const { source_url, provider_slug, game_name_hint } = payload;
       if (!source_url || !provider_slug) throw new Error("source_url and provider_slug required");
 
-      const profile = PROVIDER_PROFILES[provider_slug];
-      if (!profile) throw new Error(`Unknown provider: ${provider_slug}`);
+      const profile = PROVIDER_PROFILES[provider_slug] ?? {
+        focus: `Generic slot game from provider "${provider_slug}". Identify visual identity, HUD layout, paytable, and provider logo from screenshots.`,
+        demoSites: [],
+      };
 
       // Update status to processing
       const existingCheck = game_name_hint
