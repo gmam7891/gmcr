@@ -168,6 +168,61 @@ export function GameLibraryTab() {
     }
   };
 
+  const handleRetrain = async (entry: LibraryEntry) => {
+    if (!retrainUrl.trim()) {
+      toast.error("Cole a URL do jogo");
+      return;
+    }
+    setRetrainBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("game-scrapper", {
+        body: {
+          action: "scrape_and_train",
+          source_url: retrainUrl.trim(),
+          provider_slug: entry.provider_slug,
+          game_name_hint: entry.game_name,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`🔄 ${entry.game_name} — Reaprendido!`);
+      setRetrainId(null);
+      setRetrainUrl("");
+      fetchLibrary();
+    } catch (e: any) {
+      toast.error(e.message || "Falha ao retreinar");
+    }
+    setRetrainBusy(false);
+  };
+
+  const handleExportExcel = () => {
+    if (filteredLibrary.length === 0) {
+      toast.error("Nenhum jogo para exportar");
+      return;
+    }
+    const rows = filteredLibrary.map(e => ({
+      "Jogo": e.game_name,
+      "Provedora": e.provider_name,
+      "Status": STATUS_CONFIG[e.training_status]?.label || e.training_status,
+      "URL Fonte": e.source_url || "",
+      "Keywords": (e.visual_dna?.detection_keywords || []).join(", "),
+      "Traços Visuais": (e.visual_dna?.unique_visual_traits || []).join(" | "),
+      "Agente Identificações": e.agent_times_identified || 0,
+      "Agente Correções": e.agent_times_corrected || 0,
+      "Confiança Média (%)": ((Number(e.agent_average_confidence) || 0) * 100).toFixed(1),
+      "Aprendido Em": e.agent_learned_at || "",
+      "Criado Em": e.created_at,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    const sheetName = filterProvider === "all" ? "Biblioteca" : (providerOptions.find(([s]) => s === filterProvider)?.[1] || "Biblioteca");
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+    const date = new Date().toISOString().slice(0, 10);
+    const fname = `biblioteca-jogos${filterProvider !== "all" ? `-${filterProvider}` : ""}-${date}.xlsx`;
+    XLSX.writeFile(wb, fname);
+    toast.success(`Exportado: ${rows.length} jogos`);
+  };
+
   const trainedCount = library.filter(e => e.training_status === "trained").length;
   const processingCount = library.filter(e => e.training_status === "processing").length;
   const pendingCount = library.filter(e => e.training_status === "pending" || e.training_status === "failed").length;
