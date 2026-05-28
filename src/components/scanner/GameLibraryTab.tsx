@@ -9,12 +9,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Loader2, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, Clock, Zap,
-  ChevronDown, ChevronUp, Upload, PlayCircle, Camera, Brain,
+  ChevronDown, ChevronUp, Upload, PlayCircle, Camera, Brain, FileSpreadsheet, RefreshCw,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { BulkImportTab } from "./BulkImportTab";
 import { ScreenshotTrainingTab } from "./ScreenshotTrainingTab";
 import { learnGame } from "@/lib/intelligent-agent-api";
+import * as XLSX from "xlsx";
 
 interface VisualDNA {
   detected_game_name?: string;
@@ -85,6 +86,9 @@ export function GameLibraryTab() {
   const [batchResults, setBatchResults] = useState({ trained: 0, failed: 0 });
   const [learningId, setLearningId] = useState<string | null>(null);
   const [filterProvider, setFilterProvider] = useState<string>("all");
+  const [retrainId, setRetrainId] = useState<string | null>(null);
+  const [retrainUrl, setRetrainUrl] = useState("");
+  const [retrainBusy, setRetrainBusy] = useState(false);
 
   const providerOptions = Array.from(
     new Map(library.map(e => [e.provider_slug, e.provider_name])).entries()
@@ -162,6 +166,61 @@ export function GameLibraryTab() {
     } catch (e: any) {
       toast.error(e.message);
     }
+  };
+
+  const handleRetrain = async (entry: LibraryEntry) => {
+    if (!retrainUrl.trim()) {
+      toast.error("Cole a URL do jogo");
+      return;
+    }
+    setRetrainBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("game-scrapper", {
+        body: {
+          action: "scrape_and_train",
+          source_url: retrainUrl.trim(),
+          provider_slug: entry.provider_slug,
+          game_name_hint: entry.game_name,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`🔄 ${entry.game_name} — Reaprendido!`);
+      setRetrainId(null);
+      setRetrainUrl("");
+      fetchLibrary();
+    } catch (e: any) {
+      toast.error(e.message || "Falha ao retreinar");
+    }
+    setRetrainBusy(false);
+  };
+
+  const handleExportExcel = () => {
+    if (filteredLibrary.length === 0) {
+      toast.error("Nenhum jogo para exportar");
+      return;
+    }
+    const rows = filteredLibrary.map(e => ({
+      "Jogo": e.game_name,
+      "Provedora": e.provider_name,
+      "Status": STATUS_CONFIG[e.training_status]?.label || e.training_status,
+      "URL Fonte": e.source_url || "",
+      "Keywords": (e.visual_dna?.detection_keywords || []).join(", "),
+      "Traços Visuais": (e.visual_dna?.unique_visual_traits || []).join(" | "),
+      "Agente Identificações": e.agent_times_identified || 0,
+      "Agente Correções": e.agent_times_corrected || 0,
+      "Confiança Média (%)": ((Number(e.agent_average_confidence) || 0) * 100).toFixed(1),
+      "Aprendido Em": e.agent_learned_at || "",
+      "Criado Em": e.created_at,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    const sheetName = filterProvider === "all" ? "Biblioteca" : (providerOptions.find(([s]) => s === filterProvider)?.[1] || "Biblioteca");
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+    const date = new Date().toISOString().slice(0, 10);
+    const fname = `biblioteca-jogos${filterProvider !== "all" ? `-${filterProvider}` : ""}-${date}.xlsx`;
+    XLSX.writeFile(wb, fname);
+    toast.success(`Exportado: ${rows.length} jogos`);
   };
 
   const trainedCount = library.filter(e => e.training_status === "trained").length;
@@ -365,6 +424,10 @@ export function GameLibraryTab() {
                 Limpar
               </Button>
             )}
+            <Button size="sm" variant="outline" onClick={handleExportExcel} className="h-8 px-2 text-xs gap-1.5">
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              Exportar Excel
+            </Button>
           </div>
         </div>
 
@@ -526,6 +589,45 @@ export function GameLibraryTab() {
                             {entry.agent_keywords.length > 12 && (
                               <Badge variant="outline" className="text-[9px]">+{entry.agent_keywords.length - 12}</Badge>
                             )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Retreinar */}
+                      <div className="border-t border-border pt-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                            <RefreshCw className="h-3 w-3 text-primary" /> Retreinar Jogo
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-[10px]"
+                            onClick={() => {
+                              if (retrainId === entry.id) {
+                                setRetrainId(null);
+                                setRetrainUrl("");
+                              } else {
+                                setRetrainId(entry.id);
+                                setRetrainUrl(entry.source_url || "");
+                              }
+                            }}
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            {retrainId === entry.id ? "Cancelar" : "Retreinar"}
+                          </Button>
+                        </div>
+                        {retrainId === entry.id && (
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Cole a URL atualizada do jogo"
+                              value={retrainUrl}
+                              onChange={e => setRetrainUrl(e.target.value)}
+                              className="h-8 text-xs"
+                            />
+                            <Button size="sm" className="h-8" disabled={retrainBusy || !retrainUrl.trim()} onClick={() => handleRetrain(entry)}>
+                              {retrainBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Treinar"}
+                            </Button>
                           </div>
                         )}
                       </div>
