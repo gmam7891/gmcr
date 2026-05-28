@@ -593,6 +593,45 @@ export function GameLibraryTab() {
                         )}
                       </div>
 
+                      {/* Retreinar */}
+                      <div className="border-t border-border pt-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                            <RefreshCw className="h-3 w-3 text-primary" /> Retreinar Jogo
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-[10px]"
+                            onClick={() => {
+                              if (retrainId === entry.id) {
+                                setRetrainId(null);
+                                setRetrainUrl("");
+                              } else {
+                                setRetrainId(entry.id);
+                                setRetrainUrl(entry.source_url || "");
+                              }
+                            }}
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            {retrainId === entry.id ? "Cancelar" : "Retreinar"}
+                          </Button>
+                        </div>
+                        {retrainId === entry.id && (
+                          <div className="flex gap-2">
+                            <Input
+                              placeholder="Cole a URL atualizada do jogo"
+                              value={retrainUrl}
+                              onChange={e => setRetrainUrl(e.target.value)}
+                              className="h-8 text-xs"
+                            />
+                            <Button size="sm" className="h-8" disabled={retrainBusy || !retrainUrl.trim()} onClick={() => handleRetrain(entry)}>
+                              {retrainBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Treinar"}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Actions */}
                       <div className="flex justify-end">
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(entry.id)}>
