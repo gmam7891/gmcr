@@ -86,6 +86,9 @@ export function GameLibraryTab() {
   const [batchResults, setBatchResults] = useState({ trained: 0, failed: 0 });
   const [learningId, setLearningId] = useState<string | null>(null);
   const [filterProvider, setFilterProvider] = useState<string>("all");
+  const [retrainId, setRetrainId] = useState<string | null>(null);
+  const [retrainUrl, setRetrainUrl] = useState("");
+  const [retrainBusy, setRetrainBusy] = useState(false);
 
   const providerOptions = Array.from(
     new Map(library.map(e => [e.provider_slug, e.provider_name])).entries()
