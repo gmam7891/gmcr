@@ -424,6 +424,10 @@ export function GameLibraryTab() {
                 Limpar
               </Button>
             )}
+            <Button size="sm" variant="outline" onClick={handleExportExcel} className="h-8 px-2 text-xs gap-1.5">
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              Exportar Excel
+            </Button>
           </div>
         </div>
 
