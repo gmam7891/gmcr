@@ -499,12 +499,60 @@ export function GameLibraryTab() {
                 Limpar
               </Button>
             )}
+            <Button size="sm" variant="outline" onClick={handleScanDuplicates} disabled={dupScanning} className="h-8 px-2 text-xs gap-1.5">
+              {dupScanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
+              Buscar Duplicidades
+            </Button>
             <Button size="sm" variant="outline" onClick={handleExportExcel} className="h-8 px-2 text-xs gap-1.5">
               <FileSpreadsheet className="h-3.5 w-3.5" />
               Exportar Excel
             </Button>
           </div>
         </div>
+
+        {dupShown && (
+          <div className="border border-border rounded-lg p-3 bg-secondary/20 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Copy className="h-3.5 w-3.5 text-primary" />
+                Possíveis Duplicidades ({dupPairs.length})
+              </p>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => { setDupShown(false); setDupPairs([]); }}>
+                <X className="h-3 w-3 mr-1" /> Fechar
+              </Button>
+            </div>
+            {dupPairs.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">Nenhuma duplicidade detectada com base no nome (similaridade ≥ 78%). O usuário decide o que apagar.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                {dupPairs.map((p, idx) => (
+                  <div key={idx} className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-2 py-1.5 rounded border border-border bg-background/50">
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <div className="min-w-0">
+                        <p className="text-xs text-foreground truncate">{p.a.game_name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{p.a.provider_name}</p>
+                      </div>
+                      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-destructive hover:text-destructive" onClick={() => handleDeleteFromDup(p.a.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <Badge variant="secondary" className="text-[9px] font-mono">{(p.score * 100).toFixed(0)}%</Badge>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <div className="min-w-0">
+                        <p className="text-xs text-foreground truncate">{p.b.game_name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{p.b.provider_name}</p>
+                      </div>
+                      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-destructive hover:text-destructive" onClick={() => handleDeleteFromDup(p.b.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
 
         {loading ? (
           <div className="flex justify-center py-8">
