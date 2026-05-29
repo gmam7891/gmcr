@@ -18,6 +18,7 @@ import {
   ClipboardPaste,
   Upload,
   Brain,
+  X,
 } from "lucide-react";
 
 interface Casino {
@@ -134,6 +135,18 @@ export function CasinoCatalogTab() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const deleteMut = useMutation({
+    mutationFn: (slug: string) =>
+      call({ action: "delete_casino", casino_slug: slug }),
+    onSuccess: (_d, slug) => {
+      toast.success("Origem removida");
+      if (selectedSlug === slug) setSelectedSlug("");
+      qc.invalidateQueries({ queryKey: ["casino-catalogs"] });
+      qc.invalidateQueries({ queryKey: ["casino-catalog-status"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
 
   const ingestMut = useMutation({
     mutationFn: (args: { casino: Casino; html: string; sourceUrl: string }) =>
@@ -295,19 +308,54 @@ export function CasinoCatalogTab() {
               Nenhuma casa cadastrada. Use "Nova casa" para começar.
             </p>
           ) : (
-            casinos.map((c) => (
-              <button
-                key={c.casino_slug}
-                onClick={() => setSelectedSlug(c.casino_slug)}
-                className={`text-[11px] font-mono uppercase tracking-wider px-3 py-1.5 rounded border transition-colors ${
-                  selectedSlug === c.casino_slug
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-secondary/50 text-muted-foreground border-border hover:text-foreground"
-                }`}
-              >
-                {c.casino_name}
-              </button>
-            ))
+            casinos.map((c) => {
+              const active = selectedSlug === c.casino_slug;
+              return (
+                <div
+                  key={c.casino_slug}
+                  className={`inline-flex items-stretch rounded border overflow-hidden transition-colors ${
+                    active
+                      ? "border-primary"
+                      : "border-border hover:border-foreground/40"
+                  }`}
+                >
+                  <button
+                    onClick={() => setSelectedSlug(c.casino_slug)}
+                    className={`text-[11px] font-mono uppercase tracking-wider px-3 py-1.5 transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-secondary/50 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {c.casino_name}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (deleteMut.isPending) return;
+                      if (
+                        confirm(
+                          `Remover "${c.casino_name}" e todas as thumbnails importadas dessa origem? Esta ação não pode ser desfeita.`,
+                        )
+                      ) {
+                        deleteMut.mutate(c.casino_slug);
+                      }
+                    }}
+                    title="Remover origem"
+                    className={`px-1.5 flex items-center justify-center border-l transition-colors ${
+                      active
+                        ? "border-primary-foreground/30 bg-primary text-primary-foreground hover:bg-destructive hover:text-destructive-foreground"
+                        : "border-border bg-secondary/50 text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
+                    }`}
+                  >
+                    {deleteMut.isPending && deleteMut.variables === c.casino_slug ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <X className="h-3 w-3" />
+                    )}
+                  </button>
+                </div>
+              );
+            })
           )}
         </div>
       </Card>
