@@ -18,6 +18,7 @@ import {
   ClipboardPaste,
   Upload,
   Brain,
+  X,
 } from "lucide-react";
 
 interface Casino {
