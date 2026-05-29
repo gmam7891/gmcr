@@ -135,6 +135,18 @@ export function CasinoCatalogTab() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const deleteMut = useMutation({
+    mutationFn: (slug: string) =>
+      call({ action: "delete_casino", casino_slug: slug }),
+    onSuccess: (_d, slug) => {
+      toast.success("Origem removida");
+      if (selectedSlug === slug) setSelectedSlug("");
+      qc.invalidateQueries({ queryKey: ["casino-catalogs"] });
+      qc.invalidateQueries({ queryKey: ["casino-catalog-status"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
 
   const ingestMut = useMutation({
     mutationFn: (args: { casino: Casino; html: string; sourceUrl: string }) =>
