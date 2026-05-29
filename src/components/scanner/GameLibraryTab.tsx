@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import {
   Loader2, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, Clock, Zap,
   ChevronDown, ChevronUp, Upload, PlayCircle, Camera, Brain, FileSpreadsheet, RefreshCw,
+  Copy, X,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { BulkImportTab } from "./BulkImportTab";
@@ -89,6 +90,9 @@ export function GameLibraryTab() {
   const [retrainId, setRetrainId] = useState<string | null>(null);
   const [retrainUrl, setRetrainUrl] = useState("");
   const [retrainBusy, setRetrainBusy] = useState(false);
+  const [dupScanning, setDupScanning] = useState(false);
+  const [dupPairs, setDupPairs] = useState<Array<{ a: LibraryEntry; b: LibraryEntry; score: number }>>([]);
+  const [dupShown, setDupShown] = useState(false);
 
   const providerOptions = Array.from(
     new Map(library.map(e => [e.provider_slug, e.provider_name])).entries()
@@ -222,6 +226,77 @@ export function GameLibraryTab() {
     XLSX.writeFile(wb, fname);
     toast.success(`Exportado: ${rows.length} jogos`);
   };
+
+  // ─── Duplicate detection ───
+  const normalizeName = (s: string) =>
+    (s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/['"`’]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+
+  const bigrams = (s: string) => {
+    const t = s.replace(/\s+/g, "");
+    const out = new Set<string>();
+    for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2));
+    return out;
+  };
+
+  const diceCoeff = (a: string, b: string) => {
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const A = bigrams(a), B = bigrams(b);
+    if (A.size === 0 || B.size === 0) return 0;
+    let inter = 0;
+    A.forEach(x => { if (B.has(x)) inter++; });
+    return (2 * inter) / (A.size + B.size);
+  };
+
+  const handleScanDuplicates = () => {
+    setDupScanning(true);
+    setDupShown(true);
+    try {
+      const pairs: Array<{ a: LibraryEntry; b: LibraryEntry; score: number }> = [];
+      const items = filteredLibrary.map(e => ({ entry: e, norm: normalizeName(e.game_name) }));
+      const THRESHOLD = 0.78;
+      for (let i = 0; i < items.length; i++) {
+        for (let j = i + 1; j < items.length; j++) {
+          const a = items[i], b = items[j];
+          if (!a.norm || !b.norm) continue;
+          let score = diceCoeff(a.norm, b.norm);
+          // boost if one is substring of the other (e.g. "Sweet Bonanza" vs "Sweet Bonanza 1000")
+          if (score < 1 && (a.norm.includes(b.norm) || b.norm.includes(a.norm))) {
+            score = Math.max(score, 0.9);
+          }
+          if (score >= THRESHOLD) pairs.push({ a: a.entry, b: b.entry, score });
+        }
+      }
+      pairs.sort((x, y) => y.score - x.score);
+      setDupPairs(pairs);
+      toast.success(pairs.length === 0 ? "Nenhuma duplicidade encontrada" : `${pairs.length} possíveis duplicidades`);
+    } finally {
+      setDupScanning(false);
+    }
+  };
+
+  const handleDeleteFromDup = async (id: string) => {
+    if (!confirm("Remover este jogo da biblioteca?")) return;
+    try {
+      const { error } = await supabase.functions.invoke("game-scrapper", {
+        body: { action: "delete_entry", id },
+      });
+      if (error) throw error;
+      toast.success("Removido");
+      setDupPairs(prev => prev.filter(p => p.a.id !== id && p.b.id !== id));
+      fetchLibrary();
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+
 
   const trainedCount = library.filter(e => e.training_status === "trained").length;
   const processingCount = library.filter(e => e.training_status === "processing").length;
@@ -424,12 +499,60 @@ export function GameLibraryTab() {
                 Limpar
               </Button>
             )}
+            <Button size="sm" variant="outline" onClick={handleScanDuplicates} disabled={dupScanning} className="h-8 px-2 text-xs gap-1.5">
+              {dupScanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
+              Buscar Duplicidades
+            </Button>
             <Button size="sm" variant="outline" onClick={handleExportExcel} className="h-8 px-2 text-xs gap-1.5">
               <FileSpreadsheet className="h-3.5 w-3.5" />
               Exportar Excel
             </Button>
           </div>
         </div>
+
+        {dupShown && (
+          <div className="border border-border rounded-lg p-3 bg-secondary/20 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Copy className="h-3.5 w-3.5 text-primary" />
+                Possíveis Duplicidades ({dupPairs.length})
+              </p>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px]" onClick={() => { setDupShown(false); setDupPairs([]); }}>
+                <X className="h-3 w-3 mr-1" /> Fechar
+              </Button>
+            </div>
+            {dupPairs.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground">Nenhuma duplicidade detectada com base no nome (similaridade ≥ 78%). O usuário decide o que apagar.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-96 overflow-y-auto">
+                {dupPairs.map((p, idx) => (
+                  <div key={idx} className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-2 py-1.5 rounded border border-border bg-background/50">
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <div className="min-w-0">
+                        <p className="text-xs text-foreground truncate">{p.a.game_name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{p.a.provider_name}</p>
+                      </div>
+                      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-destructive hover:text-destructive" onClick={() => handleDeleteFromDup(p.a.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <Badge variant="secondary" className="text-[9px] font-mono">{(p.score * 100).toFixed(0)}%</Badge>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <div className="min-w-0">
+                        <p className="text-xs text-foreground truncate">{p.b.game_name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{p.b.provider_name}</p>
+                      </div>
+                      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-destructive hover:text-destructive" onClick={() => handleDeleteFromDup(p.b.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
 
         {loading ? (
           <div className="flex justify-center py-8">
