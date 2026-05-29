@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import {
   Loader2, BookOpen, Trash2, ExternalLink, CheckCircle2, XCircle, Clock, Zap,
   ChevronDown, ChevronUp, Upload, PlayCircle, Camera, Brain, FileSpreadsheet, RefreshCw,
+  Copy, X,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { BulkImportTab } from "./BulkImportTab";
