@@ -654,6 +654,22 @@ async function actionUpsertCasino(payload: any) {
   return json({ ok: true });
 }
 
+async function actionDeleteCasino(payload: any) {
+  const casino_slug = String(payload.casino_slug || "").trim();
+  if (!casino_slug) return json({ error: "casino_slug required" }, 400);
+  const { error: e1 } = await sb
+    .from("casino_catalog_thumbnails")
+    .delete()
+    .eq("casino_slug", casino_slug);
+  if (e1) return json({ error: e1.message }, 500);
+  const { error: e2 } = await sb
+    .from("casino_catalogs")
+    .delete()
+    .eq("casino_slug", casino_slug);
+  if (e2) return json({ error: e2.message }, 500);
+  return json({ ok: true });
+}
+
 // ─── HTTP entry ────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -674,6 +690,8 @@ Deno.serve(async (req) => {
         return await actionListCasinos();
       case "upsert_casino":
         return await actionUpsertCasino(payload);
+      case "delete_casino":
+        return await actionDeleteCasino(payload);
       default:
         return json({ error: `unknown action: ${action}` }, 400);
     }
