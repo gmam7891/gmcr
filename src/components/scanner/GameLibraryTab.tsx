@@ -90,6 +90,9 @@ export function GameLibraryTab() {
   const [retrainId, setRetrainId] = useState<string | null>(null);
   const [retrainUrl, setRetrainUrl] = useState("");
   const [retrainBusy, setRetrainBusy] = useState(false);
+  const [dupScanning, setDupScanning] = useState(false);
+  const [dupPairs, setDupPairs] = useState<Array<{ a: LibraryEntry; b: LibraryEntry; score: number }>>([]);
+  const [dupShown, setDupShown] = useState(false);
 
   const providerOptions = Array.from(
     new Map(library.map(e => [e.provider_slug, e.provider_name])).entries()
