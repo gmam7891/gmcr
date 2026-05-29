@@ -227,6 +227,77 @@ export function GameLibraryTab() {
     toast.success(`Exportado: ${rows.length} jogos`);
   };
 
+  // ─── Duplicate detection ───
+  const normalizeName = (s: string) =>
+    (s || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/['"`’]/g, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+
+  const bigrams = (s: string) => {
+    const t = s.replace(/\s+/g, "");
+    const out = new Set<string>();
+    for (let i = 0; i < t.length - 1; i++) out.add(t.slice(i, i + 2));
+    return out;
+  };
+
+  const diceCoeff = (a: string, b: string) => {
+    if (!a || !b) return 0;
+    if (a === b) return 1;
+    const A = bigrams(a), B = bigrams(b);
+    if (A.size === 0 || B.size === 0) return 0;
+    let inter = 0;
+    A.forEach(x => { if (B.has(x)) inter++; });
+    return (2 * inter) / (A.size + B.size);
+  };
+
+  const handleScanDuplicates = () => {
+    setDupScanning(true);
+    setDupShown(true);
+    try {
+      const pairs: Array<{ a: LibraryEntry; b: LibraryEntry; score: number }> = [];
+      const items = filteredLibrary.map(e => ({ entry: e, norm: normalizeName(e.game_name) }));
+      const THRESHOLD = 0.78;
+      for (let i = 0; i < items.length; i++) {
+        for (let j = i + 1; j < items.length; j++) {
+          const a = items[i], b = items[j];
+          if (!a.norm || !b.norm) continue;
+          let score = diceCoeff(a.norm, b.norm);
+          // boost if one is substring of the other (e.g. "Sweet Bonanza" vs "Sweet Bonanza 1000")
+          if (score < 1 && (a.norm.includes(b.norm) || b.norm.includes(a.norm))) {
+            score = Math.max(score, 0.9);
+          }
+          if (score >= THRESHOLD) pairs.push({ a: a.entry, b: b.entry, score });
+        }
+      }
+      pairs.sort((x, y) => y.score - x.score);
+      setDupPairs(pairs);
+      toast.success(pairs.length === 0 ? "Nenhuma duplicidade encontrada" : `${pairs.length} possíveis duplicidades`);
+    } finally {
+      setDupScanning(false);
+    }
+  };
+
+  const handleDeleteFromDup = async (id: string) => {
+    if (!confirm("Remover este jogo da biblioteca?")) return;
+    try {
+      const { error } = await supabase.functions.invoke("game-scrapper", {
+        body: { action: "delete_entry", id },
+      });
+      if (error) throw error;
+      toast.success("Removido");
+      setDupPairs(prev => prev.filter(p => p.a.id !== id && p.b.id !== id));
+      fetchLibrary();
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
+
+
   const trainedCount = library.filter(e => e.training_status === "trained").length;
   const processingCount = library.filter(e => e.training_status === "processing").length;
   const pendingCount = library.filter(e => e.training_status === "pending" || e.training_status === "failed").length;
