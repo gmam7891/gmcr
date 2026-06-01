@@ -1,6 +1,11 @@
 // Intelligent VOD Agent — learns game profiles + provides second-opinion VOD analysis
 // + SOLO MODE: independent storyboard + Vision pipeline (no reuse of pipeline data)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import {
+  bytesToPgHex,
+  computeTilePHash,
+  decodeImage,
+} from "../_shared/phash.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -255,14 +260,28 @@ async function fetchStoryboardPlan(vodId: string) {
   return { mosaics, interval, total_tiles: count, quality };
 }
 
-async function fetchAsBase64(url: string): Promise<string> {
+async function fetchMosaicBytes(url: string): Promise<Uint8Array> {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`storyboard fetch ${r.status}`);
   const ab = await r.arrayBuffer();
-  const bytes = new Uint8Array(ab);
+  return new Uint8Array(ab);
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
   let bin = "";
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return btoa(bin);
+}
+
+// pipeline_configs lookup helper, with sane defaults.
+async function getNumericConfig(key: string, fallback: number): Promise<number> {
+  const { data } = await sb
+    .from("pipeline_configs")
+    .select("config_value")
+    .eq("config_key", key)
+    .maybeSingle();
+  const v = Number(data?.config_value);
+  return Number.isFinite(v) && v >= 0 ? v : fallback;
 }
 
 function buildSoloPrompt(profiles: Array<{ game_name: string; provider_name: string | null; agent_keywords: string[]; agent_visual_markers: string[] }>) {
@@ -479,14 +498,25 @@ async function soloResume(runId: string) {
 
   const logRows: Array<Record<string, unknown>> = [];
 
+  // pHash fast-path config — read once per chunk, not per tile.
+  const phashEnabled = (await getNumericConfig("solo_phash_enabled", 1)) > 0;
+  const phashMaxDistance = await getNumericConfig("solo_phash_max_distance", 10);
+
   for (let i = cursor; i < end; i++) {
     const m = mosaics[i];
     try {
-      const b64 = await fetchAsBase64(m.url);
+      const mosaicBytes = await fetchMosaicBytes(m.url);
+      const b64 = bytesToBase64(mosaicBytes);
+      // Decode once — used by ALL tiles in this mosaic for pHash cropping.
+      // Skip decoding when the fast-path is off (or tile_w/tile_h missing,
+      // which happens on very old storyboards).
+      const canPhash = phashEnabled && m.tile_w && m.tile_h;
+      const decodedMosaic = canPhash ? await decodeImage(mosaicBytes) : null;
       const out = await callVisionOnMosaic(prompt, b64, m.cols, m.rows, m.tiles.length);
       const tilesByKey = new Map<string, { ts: number }>();
       for (const t of m.tiles) tilesByKey.set(`${t.row}-${t.col}`, { ts: t.ts });
       let hallucinated = 0, reviewSkipped = 0, lowConf = 0, nonGameplay = 0;
+      let phashPromoted = 0, phashOverrode = 0;
       for (const tile of out.tiles || []) {
         const key = `${tile.row}-${tile.col}`;
         const ref = tilesByKey.get(key);
@@ -508,12 +538,100 @@ async function soloResume(runId: string) {
           raw_response: tile as unknown as Record<string, unknown>,
         };
 
-        // Lobby/other nunca produzem game_name — descarte defensivo
+        // Lobby/other nunca produzem game_name — descarte defensivo.
+        // pHash NÃO é aplicado aqui porque o tile contém vários jogos.
         if (tile.screen_state === "lobby" || tile.screen_state === "other") {
           if (tile.game_name) nonGameplay++;
           logRows.push({ ...logBase, outcome: "non_gameplay" });
           continue;
         }
+
+        // ── pHash fast-path ──────────────────────────────────────────────
+        // Para tiles em gameplay/loading, recorta o tile do mosaico e
+        // consulta find_game_by_phash. Match forte (distance ≤ threshold)
+        // sobrescreve o Gemini — phash é determinístico, modelo não é.
+        let phashMatch: {
+          library_id: string;
+          game_name: string;
+          provider_name: string | null;
+          distance: number;
+        } | null = null;
+        if (decodedMosaic) {
+          try {
+            const tilePhash = computeTilePHash(
+              decodedMosaic,
+              tile.col,
+              tile.row,
+              m.tile_w,
+              m.tile_h,
+            );
+            if (tilePhash) {
+              const { data: hits } = await sb.rpc("find_game_by_phash", {
+                query_phash: bytesToPgHex(tilePhash),
+                max_distance: phashMaxDistance,
+              });
+              type PhashHit = {
+                game_library_id: string | null;
+                game_name: string;
+                provider_name: string | null;
+                distance: number;
+                source: string;
+                casino_slug: string | null;
+              };
+              const top = ((hits ?? []) as PhashHit[]).find((h) => h.game_library_id);
+              if (top) {
+                phashMatch = {
+                  library_id: top.game_library_id,
+                  game_name: top.game_name,
+                  provider_name: top.provider_name ?? null,
+                  distance: top.distance,
+                };
+              }
+            }
+          } catch (e) {
+            // pHash é best-effort — cai pra Gemini se decode/RPC falhar.
+            console.warn(`tile pHash failed @ mosaic=${i} ${tile.row},${tile.col}:`, e);
+          }
+        }
+
+        if (phashMatch) {
+          // Confidence determinístico: ~1.0 quando distance=0, decai linear
+          // até o threshold. Acima do threshold já não cai aqui.
+          const phashConf = Math.max(
+            0.92,
+            Math.min(1.0, 1.0 - (phashMatch.distance / (phashMaxDistance * 2))),
+          );
+          const isOverride = !!tile.game_name &&
+            tile.game_name.toLowerCase() !== phashMatch.game_name.toLowerCase();
+          if (isOverride) phashOverrode++;
+          else phashPromoted++;
+          logRows.push({
+            ...logBase,
+            outcome: isOverride ? "phash_override" : "promoted_by_phash",
+            matched_game_library_id: phashMatch.library_id,
+            raw_response: {
+              ...(logBase.raw_response as Record<string, unknown>),
+              phash_distance: phashMatch.distance,
+              phash_matched_name: phashMatch.game_name,
+            },
+          });
+          detRows.push({
+            vod_id: run.vod_id,
+            streamer_login: run.streamer_login,
+            game_library_id: phashMatch.library_id,
+            game_name: phashMatch.game_name,
+            provider_name: phashMatch.provider_name,
+            start_seconds: ref.ts,
+            end_seconds: ref.ts,
+            duration_seconds: 30,
+            confidence: phashConf,
+            keyword_confidence: 0,
+            visual_confidence: phashConf,
+            agrees_with_pipeline: null,
+          });
+          continue;
+        }
+
         if (!tile.game_name) {
           logRows.push({ ...logBase, outcome: "no_game" });
           continue;
@@ -556,8 +674,12 @@ async function soloResume(runId: string) {
           agrees_with_pipeline: null,
         });
       }
-      if (hallucinated || reviewSkipped || lowConf || nonGameplay) {
-        console.log(`solo mosaic ${i}: hallucinated=${hallucinated} review=${reviewSkipped} low=${lowConf} nonGameplay=${nonGameplay}`);
+      if (hallucinated || reviewSkipped || lowConf || nonGameplay || phashPromoted || phashOverrode) {
+        console.log(
+          `solo mosaic ${i}: hallucinated=${hallucinated} review=${reviewSkipped} ` +
+          `low=${lowConf} nonGameplay=${nonGameplay} ` +
+          `phashPromoted=${phashPromoted} phashOverrode=${phashOverrode}`,
+        );
       }
 
       processedTiles += m.tiles.length;
@@ -607,7 +729,9 @@ async function finalizeSolo(runId: string, vodId: string, streamerLogin: string)
   if (raw && raw.length > 0) {
     type R = { id: string; game_library_id: string | null; game_name: string; provider_name: string | null; start_seconds: number; confidence: number };
     const arr = raw as R[];
-    const GAP = 60; // fecha sessão após 60s sem ver o jogo (volta ao lobby / troca / sai)
+    // Configurável via pipeline_configs.solo_block_gap_seconds (default 60).
+    // Fecha sessão após N segundos sem ver o jogo (volta ao lobby / troca / sai).
+    const GAP = await getNumericConfig("solo_block_gap_seconds", 60);
     const groups: Array<{ game_library_id: string; game_name: string; provider_name: string | null; start: number; end: number; sum: number; n: number; ids: string[] }> = [];
     for (const d of arr) {
       if (!d.game_library_id) continue;
