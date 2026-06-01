@@ -372,7 +372,7 @@ export type Database = {
           last_seen_at: string
           metadata: Json
           phash: string | null
-          provider_name: string | null
+          provider_name: string
           source_page_url: string | null
           status: string
           thumbnail_source_url: string | null
@@ -391,7 +391,7 @@ export type Database = {
           last_seen_at?: string
           metadata?: Json
           phash?: string | null
-          provider_name?: string | null
+          provider_name?: string
           source_page_url?: string | null
           status?: string
           thumbnail_source_url?: string | null
@@ -410,7 +410,7 @@ export type Database = {
           last_seen_at?: string
           metadata?: Json
           phash?: string | null
-          provider_name?: string | null
+          provider_name?: string
           source_page_url?: string | null
           status?: string
           thumbnail_source_url?: string | null

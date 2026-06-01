@@ -4,44 +4,48 @@
 // game_visual_library.
 //
 // Actions:
-//   - scrape_casino  { casino_slug, casino_name?, urls[] }
-//   - status         { casino_slug }
-//   - merge_to_library { casino_slug }
+//   - scrape_casino     { casino_slug, casino_name?, urls[] }
+//   - ingest_html       { casino_slug, casino_name?, html, source_page_url? }
+//   - status            { casino_slug }
+//   - merge_to_library  { casino_slug }
 //   - list_casinos
-//   - upsert_casino  { casino_slug, casino_name, urls[], is_active? }
+//   - upsert_casino     { casino_slug, casino_name, urls[], is_active? }
+//   - delete_casino     { casino_slug }
+//
+// All actions require an authenticated admin user — the function relies on the
+// shared `authenticate`/`requireAdmin` helpers used by scanner-write et al.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import {
+  authenticate,
+  corsHeaders,
+  jsonResponse as json,
+  requireAdmin,
+} from "../_shared/scanner-actions.ts";
+import {
+  bytesToHex,
+  bytesToPgHex,
+  computePHashFromBytes,
+} from "../_shared/phash.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const FIRECRAWL_API_KEY = Deno.env.get("FIRECRAWL_API_KEY");
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
+// Service-role client for the actual data work (storage uploads, batched
+// upserts). The user identity / admin gate is enforced before any of this
+// runs — see the Deno.serve handler.
 const sb = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { persistSession: false },
 });
 
 // ─── Utils ────────────────────────────────────────────────────────────
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
 function normalizeName(s: string): string {
   return s
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .replace(/\s+/g, " ");
@@ -51,99 +55,10 @@ function slugify(s: string): string {
   return normalizeName(s).replace(/\s+/g, "-");
 }
 
-// ─── pHash (DCT 8x8) in pure TS ───────────────────────────────────────
-// Reduces image to 32x32 grayscale, runs 2D DCT, keeps the top-left 8x8
-// low-frequency block, compares each coefficient to the median, outputs
-// 64-bit hash. Industry-standard pHash.
-
-async function decodeImageToGrayscale32(
-  bytes: Uint8Array,
-): Promise<Float64Array | null> {
-  try {
-    // Deno has no native image decoder; use ImageScript via esm.sh
-    const { Image } = await import("https://esm.sh/imagescript@1.2.17");
-    const img = await Image.decode(bytes);
-    const resized = img.resize(32, 32);
-    const gray = new Float64Array(32 * 32);
-    for (let y = 0; y < 32; y++) {
-      for (let x = 0; x < 32; x++) {
-        const pixel = resized.getPixelAt(x + 1, y + 1); // 1-indexed
-        const r = (pixel >> 24) & 0xff;
-        const g = (pixel >> 16) & 0xff;
-        const b = (pixel >> 8) & 0xff;
-        gray[y * 32 + x] = 0.299 * r + 0.587 * g + 0.114 * b;
-      }
-    }
-    return gray;
-  } catch (e) {
-    console.error("decodeImageToGrayscale32 failed:", e);
-    return null;
-  }
-}
-
-function dct1d(input: Float64Array, N: number): Float64Array {
-  const out = new Float64Array(N);
-  const factor = Math.PI / N;
-  for (let k = 0; k < N; k++) {
-    let sum = 0;
-    for (let n = 0; n < N; n++) {
-      sum += input[n] * Math.cos((n + 0.5) * k * factor);
-    }
-    out[k] = sum;
-  }
-  return out;
-}
-
-function dct2d(matrix: Float64Array, N: number): Float64Array {
-  const tmp = new Float64Array(N * N);
-  const row = new Float64Array(N);
-  // rows
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) row[x] = matrix[y * N + x];
-    const r = dct1d(row, N);
-    for (let x = 0; x < N; x++) tmp[y * N + x] = r[x];
-  }
-  // cols
-  const out = new Float64Array(N * N);
-  const col = new Float64Array(N);
-  for (let x = 0; x < N; x++) {
-    for (let y = 0; y < N; y++) col[y] = tmp[y * N + x];
-    const c = dct1d(col, N);
-    for (let y = 0; y < N; y++) out[y * N + x] = c[y];
-  }
-  return out;
-}
-
-async function computePHash(bytes: Uint8Array): Promise<Uint8Array | null> {
-  const gray = await decodeImageToGrayscale32(bytes);
-  if (!gray) return null;
-  const dct = dct2d(gray, 32);
-  // top-left 8x8, skip DC (0,0)
-  const coefs: number[] = [];
-  for (let y = 0; y < 8; y++) {
-    for (let x = 0; x < 8; x++) {
-      coefs.push(dct[y * 32 + x]);
-    }
-  }
-  // median excluding DC
-  const sorted = [...coefs.slice(1)].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)];
-  const bits: number[] = coefs.map((c) => (c > median ? 1 : 0));
-  // pack 64 bits into 8 bytes
-  const out = new Uint8Array(8);
-  for (let i = 0; i < 64; i++) {
-    if (bits[i]) out[i >> 3] |= 1 << (7 - (i & 7));
-  }
-  return out;
-}
-
-function bytesToHex(b: Uint8Array): string {
-  return Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
-}
-
-// supabase-js passes bytea as `\x...` hex string in postgrest
-function bytesToPgHex(b: Uint8Array): string {
-  return "\\x" + bytesToHex(b);
+// Escapes the PostgREST LIKE/ILIKE wildcards so a game name like "100% Lucky"
+// is matched literally instead of treating `%` as a wildcard.
+function escapeIlike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => "\\" + c);
 }
 
 // ─── Firecrawl ─────────────────────────────────────────────────────────
@@ -172,14 +87,10 @@ async function firecrawlScrape(url: string): Promise<string | null> {
 }
 
 // ─── Tile extraction ───────────────────────────────────────────────────
-// Extracts {game_name, provider?, thumbnail_url} tuples from HTML.
-// Generic extractor: finds <img> tags whose src looks like a game tile
-// (CDN image, jpg/png/webp) and pulls name from alt/title/data attrs or
-// nearby text. Works for most casino lobbies including BullsBet.
 
 interface TileCandidate {
   game_name: string;
-  provider: string | null;
+  provider: string;
   thumbnail_url: string;
 }
 
@@ -202,7 +113,7 @@ function absolutize(url: string, base: string): string {
   }
 }
 
-function inferProvider(name: string, src: string): string | null {
+function inferProvider(name: string, src: string): string {
   const hay = (name + " " + src).toLowerCase();
   const map: Array<[RegExp, string]> = [
     [/pragmatic/i, "Pragmatic Play"],
@@ -220,13 +131,12 @@ function inferProvider(name: string, src: string): string | null {
   for (const [re, label] of map) {
     if (re.test(hay)) return label;
   }
-  return null;
+  return "";
 }
 
 function extractTiles(html: string, baseUrl: string): TileCandidate[] {
   const tiles: TileCandidate[] = [];
   const seen = new Set<string>();
-  // Match all <img ...> tags
   const imgRe = /<img\b[^>]*>/gi;
   const attrRe = (name: string) =>
     new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"|\\b${name}\\s*=\\s*'([^']*)'`, "i");
@@ -242,9 +152,6 @@ function extractTiles(html: string, baseUrl: string): TileCandidate[] {
       get("src") || get("data-src") || get("data-lazy-src") ||
       get("data-original");
     if (!srcRaw) continue;
-    // Accept either explicit image extensions OR known CDN patterns without
-    // extensions (Cloudflare Images: imagedelivery.net/<hash>/<variant>,
-    // Imgix, Cloudinary, etc.)
     const hasExt = /\.(jpe?g|png|webp|avif)(\?|#|$)/i.test(srcRaw);
     const isImageCdn = /(imagedelivery\.net|imgix\.net|cloudinary\.com|res\.cloudinary|akamaized\.net\/.*\/(thumb|tile|game)|cdn\..*\/(games?|thumbs?|tiles?)\/)/i.test(srcRaw);
     if (!hasExt && !isImageCdn) continue;
@@ -256,7 +163,6 @@ function extractTiles(html: string, baseUrl: string): TileCandidate[] {
     const alt = get("alt") || get("title") || get("aria-label") || "";
     const name = alt.trim();
     if (!name || name.length < 2 || name.length > 80) continue;
-    // Skip generic UI labels
     if (/^(banner|background|cover|menu|search|close)$/i.test(name)) continue;
 
     seen.add(src);
@@ -276,7 +182,7 @@ async function downloadAndStore(
   casinoSlug: string,
   gameSlug: string,
 ): Promise<
-  { storagePath: string; phashBytes: Uint8Array | null; bytes: Uint8Array } | null
+  { storagePath: string; phashBytes: Uint8Array | null } | null
 > {
   try {
     const res = await fetch(thumbUrl, {
@@ -304,8 +210,8 @@ async function downloadAndStore(
       console.error("storage upload error", error);
       return null;
     }
-    const phashBytes = await computePHash(bytes);
-    return { storagePath: path, phashBytes, bytes };
+    const phashBytes = await computePHashFromBytes(bytes);
+    return { storagePath: path, phashBytes };
   } catch (e) {
     console.error("downloadAndStore failed", thumbUrl, e);
     return null;
@@ -314,62 +220,119 @@ async function downloadAndStore(
 
 // ─── Actions ───────────────────────────────────────────────────────────
 
+// Idempotent tile persistence. The previous implementation upserted with
+// `status: "pending"` hard-coded, which on re-scrape silently reset rows that
+// were already matched / new_pending_dna back to pending, causing
+// merge_to_library to push duplicate entries into game_visual_library.thumbnails.
+// Strategy: read which (casino, normalized_name, provider) combos already
+// exist, UPDATE only the volatile fields on those, INSERT the rest.
 async function processTiles(
   casino_slug: string,
   casino_name: string,
   pageUrl: string,
   tiles: TileCandidate[],
-): Promise<{ stored: number; failed: number }> {
+): Promise<{ stored: number; failed: number; refreshed: number }> {
   let stored = 0;
   let failed = 0;
+  let refreshed = 0;
+
+  // Download + hash everything first (network-bound, parallelizable).
+  type Prepared = {
+    tile: TileCandidate;
+    normalized: string;
+    storagePath: string;
+    phashHex: string | null;
+    phashPg: string | null;
+  };
+  const prepared: Prepared[] = [];
   for (const tile of tiles) {
-    try {
-      const normalized = normalizeName(tile.game_name);
-      if (!normalized) continue;
-      const gameSlug = slugify(tile.game_name);
-      const result = await downloadAndStore(
-        tile.thumbnail_url,
-        casino_slug,
-        gameSlug,
-      );
-      if (!result) {
-        failed++;
-        continue;
-      }
-      const row = {
-        casino_slug,
-        casino_name,
-        game_name_raw: tile.game_name,
-        game_name_normalized: normalized,
-        provider_name: tile.provider,
-        thumbnail_url: result.storagePath,
-        thumbnail_source_url: tile.thumbnail_url,
-        source_page_url: pageUrl,
-        phash: result.phashBytes ? bytesToPgHex(result.phashBytes) : null,
-        status: "pending",
-        last_seen_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        metadata: {
-          phash_hex: result.phashBytes ? bytesToHex(result.phashBytes) : null,
-        },
-      };
+    const normalized = normalizeName(tile.game_name);
+    if (!normalized) continue;
+    const gameSlug = slugify(tile.game_name);
+    const r = await downloadAndStore(tile.thumbnail_url, casino_slug, gameSlug);
+    if (!r) {
+      failed++;
+      continue;
+    }
+    prepared.push({
+      tile,
+      normalized,
+      storagePath: r.storagePath,
+      phashHex: r.phashBytes ? bytesToHex(r.phashBytes) : null,
+      phashPg: r.phashBytes ? bytesToPgHex(r.phashBytes) : null,
+    });
+  }
+
+  if (prepared.length === 0) return { stored, failed, refreshed };
+
+  // Look up which combos already exist so we can split inserts from updates.
+  const normalizedNames = prepared.map((p) => p.normalized);
+  const { data: existingRows } = await sb
+    .from("casino_catalog_thumbnails")
+    .select("id, game_name_normalized, provider_name")
+    .eq("casino_slug", casino_slug)
+    .in("game_name_normalized", normalizedNames);
+
+  const existingKey = (n: string, p: string) => `${n} ${p}`;
+  const existing = new Map<string, string>();
+  for (const row of existingRows ?? []) {
+    existing.set(
+      existingKey(row.game_name_normalized, row.provider_name ?? ""),
+      row.id,
+    );
+  }
+
+  const now = new Date().toISOString();
+  const inserts: Record<string, unknown>[] = [];
+
+  for (const p of prepared) {
+    const provider = p.tile.provider ?? "";
+    const id = existing.get(existingKey(p.normalized, provider));
+    const base = {
+      casino_slug,
+      casino_name,
+      game_name_raw: p.tile.game_name,
+      game_name_normalized: p.normalized,
+      provider_name: provider,
+      thumbnail_url: p.storagePath,
+      thumbnail_source_url: p.tile.thumbnail_url,
+      source_page_url: pageUrl,
+      phash: p.phashPg,
+      last_seen_at: now,
+      updated_at: now,
+      metadata: { phash_hex: p.phashHex },
+    };
+    if (id) {
+      // Existing row: refresh URL/phash/last_seen, but DO NOT touch
+      // `status` or `game_library_id` — those belong to the merge step.
       const { error } = await sb
         .from("casino_catalog_thumbnails")
-        .upsert(row, {
-          onConflict: "casino_slug,game_name_normalized,provider_name",
-        });
+        .update(base)
+        .eq("id", id);
       if (error) {
-        console.error("upsert error", error, row.game_name_raw);
+        console.error("update error", error, p.tile.game_name);
         failed++;
       } else {
-        stored++;
+        refreshed++;
       }
-    } catch (e) {
-      console.error("tile error", e);
-      failed++;
+    } else {
+      inserts.push({ ...base, status: "pending" });
     }
   }
-  return { stored, failed };
+
+  if (inserts.length > 0) {
+    const { error } = await sb
+      .from("casino_catalog_thumbnails")
+      .insert(inserts);
+    if (error) {
+      console.error("bulk insert error", error);
+      failed += inserts.length;
+    } else {
+      stored += inserts.length;
+    }
+  }
+
+  return { stored, failed, refreshed };
 }
 
 async function actionScrapeCasino(payload: any) {
@@ -395,6 +358,7 @@ async function actionScrapeCasino(payload: any) {
   const task = (async () => {
     let totalTiles = 0;
     let stored = 0;
+    let refreshed = 0;
     let failed = 0;
     for (const pageUrl of urls) {
       try {
@@ -407,6 +371,7 @@ async function actionScrapeCasino(payload: any) {
         totalTiles += tiles.length;
         const r = await processTiles(casino_slug, casino_name, pageUrl, tiles);
         stored += r.stored;
+        refreshed += r.refreshed;
         failed += r.failed;
       } catch (e) {
         console.error("page error", pageUrl, e);
@@ -414,7 +379,7 @@ async function actionScrapeCasino(payload: any) {
       }
     }
     console.log(
-      `[scrape_casino] ${casino_slug} done — tiles=${totalTiles} stored=${stored} failed=${failed}`,
+      `[scrape_casino] ${casino_slug} done — tiles=${totalTiles} stored=${stored} refreshed=${refreshed} failed=${failed}`,
     );
   })();
 
@@ -469,7 +434,7 @@ async function actionIngestHtml(payload: any) {
       tiles,
     );
     console.log(
-      `[ingest_html] ${casino_slug} done — tiles=${tilesFound} stored=${r.stored} failed=${r.failed}`,
+      `[ingest_html] ${casino_slug} done — tiles=${tilesFound} stored=${r.stored} refreshed=${r.refreshed} failed=${r.failed}`,
     );
   })();
 
@@ -546,36 +511,78 @@ async function actionMergeToLibrary(payload: any) {
     .in("status", ["pending"]);
   if (error) return json({ error: error.message }, 500);
 
+  // pHash fallback config — distance ≤ N counts as a confident match.
+  const { data: cfg } = await sb
+    .from("pipeline_configs")
+    .select("config_key, config_value")
+    .eq("config_key", "solo_phash_max_distance")
+    .maybeSingle();
+  const phashMaxDistance = Number(cfg?.config_value ?? 10);
+
   let matched = 0;
+  let matchedByPhash = 0;
   let created = 0;
   let failed = 0;
 
   for (const r of rows ?? []) {
     try {
-      // Try exact match by normalized name (and provider when present)
-      const q = sb
+      const escapedName = escapeIlike(r.game_name_raw);
+      const { data: candidates } = await sb
         .from("game_visual_library")
         .select("id, game_name, provider_name, thumbnails, thumbnail_phash")
-        .ilike("game_name", r.game_name_raw);
-      const { data: candidates } = await q;
+        .ilike("game_name", escapedName);
+
       let matchedRow = (candidates ?? []).find((c) =>
         normalizeName(c.game_name) === r.game_name_normalized &&
         (!r.provider_name || !c.provider_name ||
           normalizeName(c.provider_name) === normalizeName(r.provider_name))
       );
+      let matchSource: "name" | "phash" = "name";
+
+      // Name match failed — try perceptual hash before creating a new entry.
+      // This catches the cross-casino case where the same game has slightly
+      // different names ("Gates of Olympus" vs "Gates of Olympus 1000") but
+      // identical key art.
+      if (!matchedRow && r.phash) {
+        const { data: phashHits } = await sb.rpc("find_game_by_phash", {
+          query_phash: r.phash,
+          max_distance: phashMaxDistance,
+        });
+        const top = (phashHits ?? []).find(
+          (h: any) => h.source === "library" && h.game_library_id,
+        );
+        if (top) {
+          const { data: row } = await sb
+            .from("game_visual_library")
+            .select("id, game_name, provider_name, thumbnails, thumbnail_phash")
+            .eq("id", top.game_library_id)
+            .maybeSingle();
+          if (row) {
+            matchedRow = row;
+            matchSource = "phash";
+            matchedByPhash++;
+          }
+        }
+      }
 
       if (matchedRow) {
         const thumbs = Array.isArray(matchedRow.thumbnails)
           ? matchedRow.thumbnails
           : [];
-        thumbs.push({
-          casino: casino_slug,
-          storage_path: r.thumbnail_url,
-          phash_hex: r.metadata?.phash_hex ?? null,
-          captured_at: new Date().toISOString(),
-        });
+        // Dedup by storage_path so re-runs don't accumulate identical entries
+        // (this was happening even when the row was previously "matched").
+        if (!thumbs.some((t: any) => t?.storage_path === r.thumbnail_url)) {
+          thumbs.push({
+            casino: casino_slug,
+            storage_path: r.thumbnail_url,
+            phash_hex: r.metadata?.phash_hex ?? null,
+            captured_at: new Date().toISOString(),
+            match_source: matchSource,
+          });
+        }
         await sb.from("game_visual_library").update({
           thumbnails: thumbs,
+          // Seed phash on first match so subsequent VOD queries have it.
           thumbnail_phash: matchedRow.thumbnail_phash ?? r.phash,
           updated_at: new Date().toISOString(),
         }).eq("id", matchedRow.id);
@@ -586,16 +593,16 @@ async function actionMergeToLibrary(payload: any) {
         }).eq("id", r.id);
         matched++;
       } else {
-        // Create new library entry as pending DNA
         const { data: ins, error: insErr } = await sb
           .from("game_visual_library")
           .insert({
             game_name: r.game_name_raw,
-            provider_name: r.provider_name ?? "Unknown",
-            provider_slug: slugify(r.provider_name ?? "unknown"),
+            provider_name: r.provider_name || "Unknown",
+            provider_slug: slugify(r.provider_name || "unknown"),
             source_url: r.thumbnail_url || r.source_page_url,
-            // Marcamos como 'trained' pra que o agente já possa aprender o perfil
-            // a partir da thumbnail (key art do provedor). Origem (casino_slug) é só metadado.
+            // Já marca como "trained" pra que o agente possa aprender o
+            // perfil a partir da thumbnail (key art do provedor). Origem
+            // (casino_slug) é só metadado.
             training_status: "trained",
             thumbnail_phash: r.phash,
             thumbnails: [{
@@ -603,6 +610,7 @@ async function actionMergeToLibrary(payload: any) {
               storage_path: r.thumbnail_url,
               phash_hex: r.metadata?.phash_hex ?? null,
               captured_at: new Date().toISOString(),
+              match_source: "new",
             }],
             metadata: { origin: "casino_catalog", source_site: casino_slug },
           })
@@ -626,7 +634,14 @@ async function actionMergeToLibrary(payload: any) {
     }
   }
 
-  return json({ ok: true, processed: rows?.length ?? 0, matched, created, failed });
+  return json({
+    ok: true,
+    processed: rows?.length ?? 0,
+    matched,
+    matched_by_phash: matchedByPhash,
+    created,
+    failed,
+  });
 }
 
 async function actionListCasinos() {
@@ -674,6 +689,14 @@ async function actionDeleteCasino(payload: any) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Admin gate — consistent with scanner-write / game-scrapper. Without this,
+  // anyone with the anon key (shipped in the frontend bundle) could call
+  // delete_casino or hammer scrape_casino against arbitrary URLs.
+  const authResult = await authenticate(req);
+  if (authResult instanceof Response) return authResult;
+  const adminCheck = await requireAdmin(authResult.supabase, authResult.userId);
+  if (adminCheck) return adminCheck;
+
   try {
     const payload = await req.json();
     const action = String(payload.action || "");

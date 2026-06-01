@@ -44,3 +44,7 @@ verify_jwt = false
 
 [functions.intelligent-vod-agent]
 verify_jwt = false
+
+[functions.casino-catalog-scraper]
+verify_jwt = false
+
