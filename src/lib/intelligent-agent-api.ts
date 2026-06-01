@@ -20,6 +20,40 @@ export const getVodAnalyses = (vodId: string) =>
 
 export const getAgentDashboard = () => call({ action: "get_dashboard" });
 
+export interface DetectionStats {
+  total: number;
+  non_gameplay: number;
+  no_game: number;
+  hallucinated: number;
+  low_confidence: number;
+  review_skipped: number;
+  promoted: number;
+  promoted_by_phash: number;
+  phash_override: number;
+  phash_fired: number;
+  total_detections: number;
+  gameplay_tiles: number;
+  gemini_named: number;
+  override_rate: number;
+  phash_detection_share: number;
+  hallucination_rate: number;
+}
+
+export interface DetectionStatsResponse {
+  run: {
+    id?: string;
+    vod_id?: string;
+    streamer_login?: string;
+    status?: string;
+    created_at?: string;
+  } | null;
+  scope: "run" | "all";
+  stats: DetectionStats;
+}
+
+export const getDetectionStats = (runId?: string): Promise<DetectionStatsResponse> =>
+  call({ action: "get_detection_stats", ...(runId ? { run_id: runId } : {}) });
+
 export const soloStart = (vodId: string, streamerLogin: string) =>
   call({ action: "solo_start", vod_id: vodId, streamer_login: streamerLogin });
 

@@ -805,6 +805,32 @@ async function getDashboard() {
   };
 }
 
+// ─── Detection stats (pHash vs Gemini) ──────────────────────────────
+// Aggregates agent_detection_log into the headline metrics: how often the
+// deterministic pHash fast-path fired, how often it overrode Gemini, and the
+// model's hallucination rate. Scoped to a run (defaults to the latest one).
+async function getDetectionStats(runId?: string) {
+  let run: Record<string, unknown> | null = null;
+  if (runId) {
+    const { data } = await sb.from("agent_runs").select("*").eq("id", runId).maybeSingle();
+    run = data;
+  } else {
+    const { data } = await sb
+      .from("agent_runs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    run = data;
+  }
+  const effectiveRunId = (run?.id as string | undefined) ?? runId ?? null;
+  const { data: stats, error } = await sb.rpc("agent_detection_stats", {
+    p_run_id: effectiveRunId,
+  });
+  if (error) throw error;
+  return { run, scope: effectiveRunId ? "run" : "all", stats: stats ?? {} };
+}
+
 // ─── HTTP handler ────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -840,6 +866,8 @@ Deno.serve(async (req) => {
         return json(await submitFeedback(body));
       case "get_dashboard":
         return json(await getDashboard());
+      case "get_detection_stats":
+        return json(await getDetectionStats(body.run_id));
       default:
         return json({ error: `Unknown action: ${action}` }, 400);
     }

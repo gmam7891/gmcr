@@ -1578,6 +1578,10 @@ export type Database = {
       }
     }
     Functions: {
+      agent_detection_stats: {
+        Args: { p_run_id?: string }
+        Returns: Json
+      }
       find_game_by_phash: {
         Args: { max_distance?: number; query_phash: string }
         Returns: {
@@ -1597,6 +1601,10 @@ export type Database = {
         Returns: boolean
       }
       phash_hamming: { Args: { a: string; b: string }; Returns: number }
+      prune_agent_detection_log: {
+        Args: { retain_days?: number }
+        Returns: number
+      }
     }
     Enums: {
       app_role: "admin" | "user"

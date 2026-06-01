@@ -3,18 +3,29 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, Brain, TrendingUp, AlertTriangle, PlayCircle, RefreshCw } from "lucide-react";
-import { getAgentDashboard, learnAllPending } from "@/lib/intelligent-agent-api";
+import { Loader2, Brain, TrendingUp, AlertTriangle, PlayCircle, RefreshCw, Fingerprint } from "lucide-react";
+import {
+  getAgentDashboard,
+  getDetectionStats,
+  learnAllPending,
+  type DetectionStatsResponse,
+} from "@/lib/intelligent-agent-api";
 
 export function IntelAgentTab() {
   const [data, setData] = useState<any>(null);
+  const [detStats, setDetStats] = useState<DetectionStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [training, setTraining] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      setData(await getAgentDashboard());
+      const [dash, stats] = await Promise.all([
+        getAgentDashboard(),
+        getDetectionStats().catch(() => null), // log pode estar vazio antes do 1º run
+      ]);
+      setData(dash);
+      setDetStats(stats);
     } catch (e: any) {
       toast.error(e.message);
     }
@@ -89,6 +100,9 @@ export function IntelAgentTab() {
         </Card>
       </div>
 
+      {/* pHash vs Gemini */}
+      <DetectionStatsCard data={detStats} />
+
       {/* Top games */}
       <Card className="p-5 space-y-3">
         <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -139,5 +153,125 @@ export function IntelAgentTab() {
         )}
       </Card>
     </div>
+  );
+}
+
+function pct(v: number | undefined): string {
+  return `${((v ?? 0) * 100).toFixed(1)}%`;
+}
+
+function DetectionStatsCard({ data }: { data: DetectionStatsResponse | null }) {
+  const s = data?.stats;
+  return (
+    <Card className="p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Fingerprint className="h-4 w-4 text-primary" /> pHash vs Gemini
+        </h3>
+        {data?.run?.vod_id && (
+          <span className="text-[10px] font-mono text-muted-foreground">
+            {data.scope === "run" ? "último run" : "global"} · VOD {data.run.vod_id}
+            {data.run.status ? ` · ${data.run.status}` : ""}
+          </span>
+        )}
+      </div>
+
+      {!s || s.total === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Sem registros de detecção ainda. Rode o Modo Solo em um VOD para
+          medir quanto o caminho determinístico (pHash) resolve sozinho.
+        </p>
+      ) : (
+        <>
+          {/* Headline rates */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <DetMetric
+              label="Detecções por pHash"
+              value={pct(s.phash_detection_share)}
+              hint={`${s.phash_fired} de ${s.total_detections}`}
+              accent="text-primary"
+            />
+            <DetMetric
+              label="Override do pHash"
+              value={pct(s.override_rate)}
+              hint={`${s.phash_override} discordâncias`}
+              accent={s.override_rate > 0.15 ? "text-amber-500" : "text-foreground"}
+            />
+            <DetMetric
+              label="Alucinação Gemini"
+              value={pct(s.hallucination_rate)}
+              hint={`${s.hallucinated} fora da lib`}
+              accent={s.hallucination_rate > 0.1 ? "text-destructive" : "text-foreground"}
+            />
+            <DetMetric
+              label="Tiles de gameplay"
+              value={String(s.gameplay_tiles)}
+              hint={`${s.total} no total`}
+            />
+          </div>
+
+          {/* Outcome breakdown */}
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            <OutcomeChip label="promovido (pHash)" n={s.promoted_by_phash} tone="primary" />
+            <OutcomeChip label="override (pHash)" n={s.phash_override} tone="amber" />
+            <OutcomeChip label="promovido (Gemini)" n={s.promoted} tone="default" />
+            <OutcomeChip label="revisão" n={s.review_skipped} tone="muted" />
+            <OutcomeChip label="baixa conf." n={s.low_confidence} tone="muted" />
+            <OutcomeChip label="alucinado" n={s.hallucinated} tone="destructive" />
+            <OutcomeChip label="sem jogo" n={s.no_game} tone="muted" />
+            <OutcomeChip label="lobby/other" n={s.non_gameplay} tone="muted" />
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function DetMetric({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  accent?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-secondary/30 p-3">
+      <p className="text-[9px] uppercase tracking-widest text-muted-foreground font-mono">
+        {label}
+      </p>
+      <p className={`text-xl font-bold ${accent ?? "text-foreground"}`}>{value}</p>
+      {hint && <p className="text-[9px] font-mono text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+function OutcomeChip({
+  label,
+  n,
+  tone,
+}: {
+  label: string;
+  n: number;
+  tone: "primary" | "amber" | "destructive" | "default" | "muted";
+}) {
+  const toneCls =
+    tone === "primary"
+      ? "border-primary/40 text-primary"
+      : tone === "amber"
+      ? "border-amber-500/40 text-amber-500"
+      : tone === "destructive"
+      ? "border-destructive/40 text-destructive"
+      : "border-border text-muted-foreground";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono ${toneCls}`}
+    >
+      {label}
+      <span className="font-bold">{n}</span>
+    </span>
   );
 }
