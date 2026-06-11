@@ -1,10 +1,14 @@
+// Instagram profile scraping via RapidAPI (instagram-scraper-api2)
+// Migrated from Apify — keeps the exact same response shape used by the frontend.
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const APIFY_API_KEY = Deno.env.get("APIFY_API_KEY") || Deno.env.get("APIFY_API_TOKEN") || "";
+const RAPIDAPI_KEY = Deno.env.get("RAPIDAPI_KEY") || "";
+const RAPIDAPI_HOST = "instagram-scraper-api2.p.rapidapi.com";
 
 function calculateMedian(arr: number[]): number {
   if (arr.length === 0) return 0;
@@ -19,22 +23,21 @@ function filterOutliers(data: number[]): number[] {
   const q1 = calculateMedian(sorted.slice(0, Math.floor(sorted.length / 2)));
   const q3 = calculateMedian(sorted.slice(Math.ceil(sorted.length / 2)));
   const iqr = q3 - q1;
-  const lowerBound = q1 - 1.5 * iqr;
-  const upperBound = q3 + 1.5 * iqr;
-  return data.filter((x) => x >= lowerBound && x <= upperBound);
+  return data.filter((x) => x >= q1 - 1.5 * iqr && x <= q3 + 1.5 * iqr);
 }
 
-async function callApify(actorId: string, input: Record<string, unknown>, timeoutSec = 120): Promise<any> {
-  if (!APIFY_API_KEY) throw new Error("APIFY_API_KEY not configured in Lovable Cloud secrets");
-  const url = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_KEY}&timeout=${timeoutSec}`;
+async function rapidGet(path: string, username: string): Promise<any> {
+  if (!RAPIDAPI_KEY) throw new Error("RAPIDAPI_KEY not configured");
+  const url = `https://${RAPIDAPI_HOST}${path}?username_or_id_or_url=${encodeURIComponent(username)}`;
   const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    headers: {
+      "X-RapidAPI-Key": RAPIDAPI_KEY,
+      "X-RapidAPI-Host": RAPIDAPI_HOST,
+    },
   });
   if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(`Apify ${actorId} failed [${res.status}]: ${errText.slice(0, 300)}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`RapidAPI ${path} [${res.status}]: ${text.slice(0, 300)}`);
   }
   return await res.json();
 }
@@ -54,61 +57,57 @@ Deno.serve(async (req) => {
 
     const cleanUsername = username.replace(/^@/, "").trim().toLowerCase();
     if (!/^[a-z0-9._]{1,30}$/.test(cleanUsername)) {
-      return new Response(JSON.stringify({ error: "username inválido (apenas letras, números, ponto e underscore)" }), {
+      return new Response(JSON.stringify({ error: "username inválido" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    console.log(`[Instagram] starting analysis for: ${cleanUsername}`);
+    console.log(`[Instagram/RapidAPI] starting for: ${cleanUsername}`);
 
-    let posts: any[] = [];
-    let profileData: any = {};
-
+    // 1) Profile info
+    let profileRaw: any = null;
     try {
-      posts = await callApify("apify~instagram-post-scraper", {
-        usernames: [cleanUsername],
-        resultsLimit: 40,
-      });
-      console.log(`[Instagram] posts received: ${posts?.length ?? 0}`);
+      profileRaw = await rapidGet("/v1/info", cleanUsername);
     } catch (e: any) {
-      console.error(`[Instagram] post-scraper failed:`, e.message);
-      // continue with empty posts (profile-only fallback)
+      console.error("[Instagram/RapidAPI] profile fetch failed:", e.message);
     }
 
+    const profile = profileRaw?.data || profileRaw || {};
+    const followers =
+      profile.follower_count ?? profile.followers_count ?? profile.edge_followed_by?.count ?? 0;
+
+    if (!profile.username && !followers) {
+      return new Response(
+        JSON.stringify({
+          error: `Não foi possível obter dados do perfil @${cleanUsername}. Pode estar privado, banido, ou cota do RapidAPI esgotada.`,
+        }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // 2) Recent posts
+    let postsRaw: any = null;
     try {
-      const profileItems = await callApify("apify~instagram-profile-scraper", {
-        usernames: [cleanUsername],
-      });
-      profileData = profileItems?.[0] || {};
-      console.log(`[Instagram] profile received: followers=${profileData.followersCount}`);
+      postsRaw = await rapidGet("/v1.2/posts", cleanUsername);
     } catch (e: any) {
-      console.error(`[Instagram] profile-scraper failed:`, e.message);
+      console.error("[Instagram/RapidAPI] posts fetch failed:", e.message);
     }
 
-    if ((!posts || posts.length === 0) && !profileData.username) {
-      return new Response(JSON.stringify({
-        error: `Apify não retornou dados para @${cleanUsername}. Possíveis causas: perfil privado, banido, ou créditos Apify esgotados.`,
-      }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const posts: any[] =
+      postsRaw?.data?.items ?? postsRaw?.items ?? postsRaw?.data ?? [];
 
-    const followers = profileData.followersCount || 0;
     const engagements: number[] = [];
     const views: number[] = [];
-
     for (const p of posts) {
-      const likes = p.likesCount || 0;
-      const comments = p.commentsCount || 0;
-      const v = p.videoViewCount || p.videoPlayCount || 0;
+      const likes = p.like_count ?? p.likesCount ?? 0;
+      const comments = p.comment_count ?? p.commentsCount ?? 0;
+      const v = p.play_count ?? p.video_view_count ?? p.view_count ?? 0;
       engagements.push(likes + comments);
       if (v > 0) views.push(v);
     }
 
-    const filteredEngagements = filterOutliers(engagements);
-    const medianEngagement = calculateMedian(filteredEngagements);
+    const medianEngagement = calculateMedian(filterOutliers(engagements));
     const medianViews = calculateMedian(filterOutliers(views));
     const engagementRate = followers > 0 ? (medianEngagement / followers) * 100 : 0;
 
@@ -118,23 +117,27 @@ Deno.serve(async (req) => {
     else storiesEstimate = Math.round(followers * 0.05);
 
     const result = {
-      username: profileData.username || cleanUsername,
-      fullName: profileData.fullName || "",
-      biography: profileData.biography || "",
-      profilePicUrl: profileData.profilePicUrl || profileData.profilePicUrlHD || "",
+      username: profile.username || cleanUsername,
+      fullName: profile.full_name || profile.fullName || "",
+      biography: profile.biography || "",
+      profilePicUrl:
+        profile.profile_pic_url_hd || profile.profile_pic_url || profile.profilePicUrl || "",
       followers,
-      postsCount: profileData.postsCount || posts.length,
-      isVerified: profileData.verified || false,
+      postsCount: profile.media_count ?? profile.postsCount ?? posts.length,
+      isVerified: profile.is_verified ?? profile.verified ?? false,
       medianViews: Math.round(medianViews),
+      avgReelsViews: Math.round(medianViews),
       engagementRate: Math.round(engagementRate * 100) / 100,
+      reelsEngagementRate: Math.round(engagementRate * 100) / 100,
+      storiesEngagementRate: Math.round(engagementRate * 0.6 * 100) / 100,
       storiesViewEstimate: storiesEstimate,
       estimatedCtr: Math.round(Math.min(engagementRate * 0.3, 5) * 10) / 10,
       sampleSize: posts.length,
       latestPosts: posts.slice(0, 6).map((p: any) => ({
-        likes: p.likesCount,
-        comments: p.commentsCount,
-        views: p.videoViewCount || p.videoPlayCount || 0,
-        type: p.mediaType,
+        likes: p.like_count ?? 0,
+        comments: p.comment_count ?? 0,
+        views: p.play_count ?? p.video_view_count ?? 0,
+        type: p.media_type ?? p.product_type ?? "post",
       })),
     };
 
@@ -142,7 +145,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error: any) {
-    console.error("[Instagram] fatal error:", error);
+    console.error("[Instagram/RapidAPI] fatal:", error);
     return new Response(JSON.stringify({ error: error?.message || "Unknown error" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
