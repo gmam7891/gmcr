@@ -55,6 +55,14 @@ const App = () => (
                     }
                   />
                   <Route
+                    path="/admin/orgs"
+                    element={
+                      <AdminRoute>
+                        <OrgsAdmin />
+                      </AdminRoute>
+                    }
+                  />
+                  <Route
                     path="/scanner"
                     element={
                       <ScannerFiltersProvider>
