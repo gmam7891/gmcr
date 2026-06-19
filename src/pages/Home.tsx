@@ -53,6 +53,7 @@ const Home = () => {
             {t("lang.switch")}
           </Button>
           <ThemeToggle />
+          <OrgSwitcher />
           {userAccess?.expires_at && (
             <span className="text-[10px] text-muted-foreground font-mono">
               {t("app.access_until")} {new Date(userAccess.expires_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}
