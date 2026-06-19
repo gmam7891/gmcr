@@ -590,6 +590,7 @@ export type Database = {
           location_declared: string | null
           location_inferred: string | null
           match_score: number | null
+          org_id: string | null
           platform: string
           posts_last_30d: number | null
           profile_url: string | null
@@ -614,6 +615,7 @@ export type Database = {
           location_declared?: string | null
           location_inferred?: string | null
           match_score?: number | null
+          org_id?: string | null
           platform?: string
           posts_last_30d?: number | null
           profile_url?: string | null
@@ -638,6 +640,7 @@ export type Database = {
           location_declared?: string | null
           location_inferred?: string | null
           match_score?: number | null
+          org_id?: string | null
           platform?: string
           posts_last_30d?: number | null
           profile_url?: string | null
@@ -645,7 +648,15 @@ export type Database = {
           search_keywords?: string[] | null
           username?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "discovery_prospects_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       exposure_blocks: {
         Row: {
@@ -962,6 +973,7 @@ export type Database = {
           id: string
           is_active: boolean
           login: string
+          org_id: string | null
           twitch_id: string | null
         }
         Insert: {
@@ -971,6 +983,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           login: string
+          org_id?: string | null
           twitch_id?: string | null
         }
         Update: {
@@ -980,7 +993,75 @@ export type Database = {
           id?: string
           is_active?: boolean
           login?: string
+          org_id?: string | null
           twitch_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monitored_streamers_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organization_members: {
+        Row: {
+          created_at: string
+          id: string
+          org_id: string
+          role: Database["public"]["Enums"]["org_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          org_id: string
+          role?: Database["public"]["Enums"]["org_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          org_id?: string
+          role?: Database["public"]["Enums"]["org_role"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      organizations: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          owner_user_id: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          owner_user_id: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          owner_user_id?: string
+          slug?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -1101,23 +1182,34 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          current_org_id: string | null
           display_name: string | null
           email: string | null
           id: string
         }
         Insert: {
           created_at?: string
+          current_org_id?: string | null
           display_name?: string | null
           email?: string | null
           id: string
         }
         Update: {
           created_at?: string
+          current_org_id?: string | null
           display_name?: string | null
           email?: string | null
           id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_current_org_id_fkey"
+            columns: ["current_org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       provider_aliases: {
         Row: {
@@ -1448,6 +1540,7 @@ export type Database = {
           id: string
           last_checkpoint_at: string | null
           model_version: string | null
+          org_id: string | null
           partial_reason: string | null
           pending_audit_segments: Json | null
           platform: string
@@ -1490,6 +1583,7 @@ export type Database = {
           id?: string
           last_checkpoint_at?: string | null
           model_version?: string | null
+          org_id?: string | null
           partial_reason?: string | null
           pending_audit_segments?: Json | null
           platform?: string
@@ -1532,6 +1626,7 @@ export type Database = {
           id?: string
           last_checkpoint_at?: string | null
           model_version?: string | null
+          org_id?: string | null
           partial_reason?: string | null
           pending_audit_segments?: Json | null
           platform?: string
@@ -1558,7 +1653,15 @@ export type Database = {
           vod_duration_seconds?: number | null
           vod_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "vod_audits_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -1589,9 +1692,27 @@ export type Database = {
           source: string
         }[]
       }
+      get_user_org_ids: {
+        Args: { _user_id: string }
+        Returns: {
+          org_id: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      is_org_member: {
+        Args: { _org_id: string; _user_id: string }
+        Returns: boolean
+      }
+      is_org_role: {
+        Args: {
+          _org_id: string
+          _role: Database["public"]["Enums"]["org_role"]
           _user_id: string
         }
         Returns: boolean
@@ -1608,6 +1729,7 @@ export type Database = {
         | "chat_ingest"
         | "reconciliation"
         | "reprocess"
+      org_role: "owner" | "admin" | "member"
       training_status: "pending" | "processing" | "trained" | "failed"
       vod_status:
         | "queued"
@@ -1754,6 +1876,7 @@ export const Constants = {
         "reconciliation",
         "reprocess",
       ],
+      org_role: ["owner", "admin", "member"],
       training_status: ["pending", "processing", "trained", "failed"],
       vod_status: [
         "queued",

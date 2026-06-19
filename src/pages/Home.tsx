@@ -4,6 +4,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Shield, LogOut, ArrowRight, BarChart3, Instagram, Tv, Youtube, Monitor, Zap, Search, Video, Target, Globe, ScanLine } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 import type { TranslationKey } from "@/lib/translations";
 
 interface ModuleConfig {
@@ -52,6 +53,7 @@ const Home = () => {
             {t("lang.switch")}
           </Button>
           <ThemeToggle />
+          <OrgSwitcher />
           {userAccess?.expires_at && (
             <span className="text-[10px] text-muted-foreground font-mono">
               {t("app.access_until")} {new Date(userAccess.expires_at).toLocaleDateString(language === "pt" ? "pt-BR" : "en-US")}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
@@ -9,12 +9,23 @@ interface UserAccess {
   package_name: string | null;
 }
 
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  role: "owner" | "admin" | "member";
+}
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   isAdmin: boolean;
   userAccess: UserAccess | null;
   loading: boolean;
+  orgs: Organization[];
+  currentOrg: Organization | null;
+  switchOrg: (orgId: string) => Promise<void>;
+  refreshOrgs: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshAccess: () => Promise<void>;
@@ -28,9 +39,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [userAccess, setUserAccess] = useState<UserAccess | null>(null);
   const [loading, setLoading] = useState(true);
+  const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [currentOrg, setCurrentOrg] = useState<Organization | null>(null);
+
+  const fetchOrgs = useCallback(async (userId: string) => {
+    const { data: memberships } = await supabase
+      .from("organization_members")
+      .select("role, org_id, organizations!inner(id, name, slug)")
+      .eq("user_id", userId);
+
+    const list: Organization[] = (memberships || []).map((m: any) => ({
+      id: m.organizations.id,
+      name: m.organizations.name,
+      slug: m.organizations.slug,
+      role: m.role,
+    }));
+    setOrgs(list);
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("current_org_id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    const activeId = (profile as any)?.current_org_id;
+    const active = list.find((o) => o.id === activeId) || list[0] || null;
+    setCurrentOrg(active);
+
+    if (active && active.id !== activeId) {
+      await supabase.from("profiles").update({ current_org_id: active.id } as any).eq("id", userId);
+    }
+  }, []);
+
+  const switchOrg = useCallback(async (orgId: string) => {
+    if (!user) return;
+    const target = orgs.find((o) => o.id === orgId);
+    if (!target) return;
+    setCurrentOrg(target);
+    await supabase.from("profiles").update({ current_org_id: orgId } as any).eq("id", user.id);
+  }, [user, orgs]);
+
+  const refreshOrgs = useCallback(async () => {
+    if (user) await fetchOrgs(user.id);
+  }, [user, fetchOrgs]);
 
   const fetchAccess = async (userId: string) => {
-    // Check admin role
     const { data: roleData } = await supabase
       .from("user_roles")
       .select("role")
@@ -41,7 +94,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsAdmin(!!roleData);
 
     if (roleData) {
-      // Admin has full access
       setUserAccess({
         allowed_tabs: [
           "simulator", "monitor", "authenticity", "instagram", "twitch",
@@ -50,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           "scanner_providers", "scanner_chat", "scanner_vod_quality",
           "scanner_queue", "scanner_audit", "scanner_review",
           "scanner_quality", "scanner_ai_lab", "scanner_results",
+          "analyst", "planner",
         ],
         expires_at: null,
         is_active: true,
@@ -58,7 +111,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Check user access
     const { data: accessData } = await supabase
       .from("user_access")
       .select("*, access_packages(name, allowed_tabs)")
@@ -102,12 +154,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          fetchAccess(session.user.id)
-            .catch((e) => console.error("fetchAccess error:", e))
+          Promise.all([fetchAccess(session.user.id), fetchOrgs(session.user.id)])
+            .catch((e) => console.error("auth fetch error:", e))
             .finally(() => { if (mounted) setLoading(false); });
         } else {
           setIsAdmin(false);
           setUserAccess(null);
+          setOrgs([]);
+          setCurrentOrg(null);
           setLoading(false);
         }
       }
@@ -117,7 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [fetchOrgs]);
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -130,10 +184,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setIsAdmin(false);
     setUserAccess(null);
+    setOrgs([]);
+    setCurrentOrg(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, isAdmin, userAccess, loading, signIn, signOut, refreshAccess }}>
+    <AuthContext.Provider value={{
+      user, session, isAdmin, userAccess, loading,
+      orgs, currentOrg, switchOrg, refreshOrgs,
+      signIn, signOut, refreshAccess,
+    }}>
       {children}
     </AuthContext.Provider>
   );
