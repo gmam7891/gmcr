@@ -1378,6 +1378,41 @@ export type Database = {
         }
         Relationships: []
       }
+      reports: {
+        Row: {
+          created_at: string
+          data: Json | null
+          id: string
+          org_id: string
+          summary_text: string | null
+          week_start: string
+        }
+        Insert: {
+          created_at?: string
+          data?: Json | null
+          id?: string
+          org_id: string
+          summary_text?: string | null
+          week_start: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json | null
+          id?: string
+          org_id?: string
+          summary_text?: string | null
+          week_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reports_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       stream_snapshots: {
         Row: {
           ai_confidence: number | null
@@ -1446,6 +1481,13 @@ export type Database = {
           vod_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "stream_snapshots_streamer_login_fkey"
+            columns: ["streamer_login"]
+            isOneToOne: false
+            referencedRelation: "analyst_v_monitored_streamers"
+            referencedColumns: ["login"]
+          },
           {
             foreignKeyName: "stream_snapshots_streamer_login_fkey"
             columns: ["streamer_login"]
@@ -1665,6 +1707,390 @@ export type Database = {
       }
     }
     Views: {
+      analyst_v_detections: {
+        Row: {
+          confidence: number | null
+          created_at: string | null
+          detected_at: string | null
+          exposure_seconds: number | null
+          game_id: string | null
+          game_name: string | null
+          id: string | null
+          offset_seconds: number | null
+          platform: string | null
+          provider_id: string | null
+          provider_name: string | null
+          source_id: string | null
+          source_type: string | null
+          streamer_login: string | null
+          viewer_count: number | null
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string | null
+          detected_at?: string | null
+          exposure_seconds?: number | null
+          game_id?: string | null
+          game_name?: string | null
+          id?: string | null
+          offset_seconds?: number | null
+          platform?: string | null
+          provider_id?: string | null
+          provider_name?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          streamer_login?: string | null
+          viewer_count?: number | null
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string | null
+          detected_at?: string | null
+          exposure_seconds?: number | null
+          game_id?: string | null
+          game_name?: string | null
+          id?: string | null
+          offset_seconds?: number | null
+          platform?: string | null
+          provider_id?: string | null
+          provider_name?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          streamer_login?: string | null
+          viewer_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "detections_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "detections_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      analyst_v_discovery_prospects: {
+        Row: {
+          avg_views: number | null
+          bio: string | null
+          briefing_id: string | null
+          briefing_text: string | null
+          created_at: string | null
+          display_name: string | null
+          follower_following_ratio: number | null
+          followers: number | null
+          has_casino_content: boolean | null
+          id: string | null
+          is_spam: boolean | null
+          lives_last_30d: number | null
+          location_declared: string | null
+          location_inferred: string | null
+          match_score: number | null
+          org_id: string | null
+          platform: string | null
+          posts_last_30d: number | null
+          search_keywords: string[] | null
+          username: string | null
+        }
+        Insert: {
+          avg_views?: number | null
+          bio?: string | null
+          briefing_id?: string | null
+          briefing_text?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          follower_following_ratio?: number | null
+          followers?: number | null
+          has_casino_content?: boolean | null
+          id?: string | null
+          is_spam?: boolean | null
+          lives_last_30d?: number | null
+          location_declared?: string | null
+          location_inferred?: string | null
+          match_score?: number | null
+          org_id?: string | null
+          platform?: string | null
+          posts_last_30d?: number | null
+          search_keywords?: string[] | null
+          username?: string | null
+        }
+        Update: {
+          avg_views?: number | null
+          bio?: string | null
+          briefing_id?: string | null
+          briefing_text?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          follower_following_ratio?: number | null
+          followers?: number | null
+          has_casino_content?: boolean | null
+          id?: string | null
+          is_spam?: boolean | null
+          lives_last_30d?: number | null
+          location_declared?: string | null
+          location_inferred?: string | null
+          match_score?: number | null
+          org_id?: string | null
+          platform?: string | null
+          posts_last_30d?: number | null
+          search_keywords?: string[] | null
+          username?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "discovery_prospects_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      analyst_v_exposure_blocks: {
+        Row: {
+          avg_viewers: number | null
+          block_status: string | null
+          confidence_avg: number | null
+          created_at: string | null
+          duration_seconds: number | null
+          end_at: string | null
+          game_id: string | null
+          id: string | null
+          is_reconciled: boolean | null
+          peak_viewers: number | null
+          platform: string | null
+          provider_id: string | null
+          source_id: string | null
+          source_type: string | null
+          start_at: string | null
+          streamer_login: string | null
+          viewer_minutes: number | null
+        }
+        Insert: {
+          avg_viewers?: number | null
+          block_status?: string | null
+          confidence_avg?: number | null
+          created_at?: string | null
+          duration_seconds?: number | null
+          end_at?: string | null
+          game_id?: string | null
+          id?: string | null
+          is_reconciled?: boolean | null
+          peak_viewers?: number | null
+          platform?: string | null
+          provider_id?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          start_at?: string | null
+          streamer_login?: string | null
+          viewer_minutes?: number | null
+        }
+        Update: {
+          avg_viewers?: number | null
+          block_status?: string | null
+          confidence_avg?: number | null
+          created_at?: string | null
+          duration_seconds?: number | null
+          end_at?: string | null
+          game_id?: string | null
+          id?: string | null
+          is_reconciled?: boolean | null
+          peak_viewers?: number | null
+          platform?: string | null
+          provider_id?: string | null
+          source_id?: string | null
+          source_type?: string | null
+          start_at?: string | null
+          streamer_login?: string | null
+          viewer_minutes?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "exposure_blocks_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "exposure_blocks_provider_id_fkey"
+            columns: ["provider_id"]
+            isOneToOne: false
+            referencedRelation: "providers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      analyst_v_gameplay_blocks: {
+        Row: {
+          end_seconds: number | null
+          game_id: string | null
+          game_name: string | null
+          id: string | null
+          platform: string | null
+          provider_id: string | null
+          provider_name: string | null
+          source_type: string | null
+          start_seconds: number | null
+          streamer_login: string | null
+          vod_id: string | null
+        }
+        Insert: {
+          end_seconds?: number | null
+          game_id?: string | null
+          game_name?: string | null
+          id?: string | null
+          platform?: string | null
+          provider_id?: string | null
+          provider_name?: string | null
+          source_type?: string | null
+          start_seconds?: number | null
+          streamer_login?: string | null
+          vod_id?: string | null
+        }
+        Update: {
+          end_seconds?: number | null
+          game_id?: string | null
+          game_name?: string | null
+          id?: string | null
+          platform?: string | null
+          provider_id?: string | null
+          provider_name?: string | null
+          source_type?: string | null
+          start_seconds?: number | null
+          streamer_login?: string | null
+          vod_id?: string | null
+        }
+        Relationships: []
+      }
+      analyst_v_monitored_streamers: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          display_name: string | null
+          id: string | null
+          is_active: boolean | null
+          login: string | null
+          org_id: string | null
+          twitch_id: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          login?: string | null
+          org_id?: string | null
+          twitch_id?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string | null
+          id?: string | null
+          is_active?: boolean | null
+          login?: string | null
+          org_id?: string | null
+          twitch_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monitored_streamers_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      analyst_v_vod_audits: {
+        Row: {
+          completed_at: string | null
+          confidence_score: number | null
+          confirmed_blocks: number | null
+          coverage_percent: number | null
+          created_at: string | null
+          discarded_blocks: number | null
+          expected_frames: number | null
+          failed_frames: number | null
+          id: string | null
+          org_id: string | null
+          platform: string | null
+          processed_duration_seconds: number | null
+          processed_frames: number | null
+          progress_games_found: number | null
+          status: Database["public"]["Enums"]["vod_status"] | null
+          streamer_login: string | null
+          suspect_blocks: number | null
+          updated_at: string | null
+          vod_created_at: string | null
+          vod_duration_seconds: number | null
+          vod_id: string | null
+        }
+        Insert: {
+          completed_at?: string | null
+          confidence_score?: number | null
+          confirmed_blocks?: number | null
+          coverage_percent?: number | null
+          created_at?: string | null
+          discarded_blocks?: number | null
+          expected_frames?: number | null
+          failed_frames?: number | null
+          id?: string | null
+          org_id?: string | null
+          platform?: string | null
+          processed_duration_seconds?: number | null
+          processed_frames?: number | null
+          progress_games_found?: number | null
+          status?: Database["public"]["Enums"]["vod_status"] | null
+          streamer_login?: string | null
+          suspect_blocks?: number | null
+          updated_at?: string | null
+          vod_created_at?: string | null
+          vod_duration_seconds?: number | null
+          vod_id?: string | null
+        }
+        Update: {
+          completed_at?: string | null
+          confidence_score?: number | null
+          confirmed_blocks?: number | null
+          coverage_percent?: number | null
+          created_at?: string | null
+          discarded_blocks?: number | null
+          expected_frames?: number | null
+          failed_frames?: number | null
+          id?: string | null
+          org_id?: string | null
+          platform?: string | null
+          processed_duration_seconds?: number | null
+          processed_frames?: number | null
+          progress_games_found?: number | null
+          status?: Database["public"]["Enums"]["vod_status"] | null
+          streamer_login?: string | null
+          suspect_blocks?: number | null
+          updated_at?: string | null
+          vod_created_at?: string | null
+          vod_duration_seconds?: number | null
+          vod_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vod_audits_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       provider_real_time: {
         Row: {
           avg_confidence: number | null
@@ -1681,6 +2107,10 @@ export type Database = {
       }
     }
     Functions: {
+      analyst_run_query: {
+        Args: { _org_id: string; _sql: string }
+        Returns: Json
+      }
       find_game_by_phash: {
         Args: { max_distance?: number; query_phash: string }
         Returns: {
