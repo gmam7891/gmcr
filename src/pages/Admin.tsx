@@ -211,9 +211,14 @@ export default function Admin() {
           <Shield className="h-5 w-5 text-primary" />
           <h1 className="text-base font-semibold text-foreground">{t("admin.title")}</h1>
         </div>
-        <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
-          {t("admin.subtitle")}
-        </span>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => navigate("/admin/orgs")}>
+            Organizações
+          </Button>
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-mono">
+            {t("admin.subtitle")}
+          </span>
+        </div>
       </header>
 
       <main className="p-6 space-y-8 max-w-5xl mx-auto">
