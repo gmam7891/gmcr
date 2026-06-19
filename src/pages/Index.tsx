@@ -10,6 +10,8 @@ import { VodTab } from "@/components/tabs/VodTab";
 import { SimulatorTab } from "@/components/tabs/SimulatorTab";
 import { MonitorTab } from "@/components/tabs/MonitorTab";
 import { AuthenticityTab } from "@/components/tabs/AuthenticityTab";
+import { AnalystTab } from "@/components/tabs/AnalystTab";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
