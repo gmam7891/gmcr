@@ -10,6 +10,8 @@ import { VodTab } from "@/components/tabs/VodTab";
 import { SimulatorTab } from "@/components/tabs/SimulatorTab";
 import { MonitorTab } from "@/components/tabs/MonitorTab";
 import { AuthenticityTab } from "@/components/tabs/AuthenticityTab";
+import { AnalystTab } from "@/components/tabs/AnalystTab";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,7 @@ const Index = () => {
   const [searchParams] = useSearchParams();
 
   const TAB_CONFIG: TabConfig[] = [
+    { id: "analyst", label: "Analista", icon: "✨", component: AnalystTab },
     { id: "scanner", label: t("mod.scanner.title"), icon: "🎰", component: null, route: "/scanner" },
     { id: "icp", label: t("mod.icp.title"), icon: "📊", component: IcpTab },
     { id: "discovery", label: t("mod.discovery.title"), icon: "🔎", component: DiscoveryTab },
@@ -78,6 +81,7 @@ const Index = () => {
           <h1 className="text-sm sm:text-base font-semibold tracking-tight text-foreground cursor-pointer hover:opacity-80 transition-opacity truncate" onClick={() => navigate("/")}>{t("app.name")}</h1>
         </div>
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <div className="hidden md:block"><OrgSwitcher /></div>
           <ThemeToggle />
           {userAccess?.expires_at && (
             <span className="text-[10px] text-muted-foreground font-mono hidden md:inline">
