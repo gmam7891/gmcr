@@ -81,6 +81,7 @@ const Index = () => {
           <h1 className="text-sm sm:text-base font-semibold tracking-tight text-foreground cursor-pointer hover:opacity-80 transition-opacity truncate" onClick={() => navigate("/")}>{t("app.name")}</h1>
         </div>
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <div className="hidden md:block"><OrgSwitcher /></div>
           <ThemeToggle />
           {userAccess?.expires_at && (
             <span className="text-[10px] text-muted-foreground font-mono hidden md:inline">
