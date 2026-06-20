@@ -259,6 +259,5 @@ export function AnalystTab() {
         )}
       </Card>
     </div>
-    </div>
   );
 }
