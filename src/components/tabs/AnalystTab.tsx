@@ -226,6 +226,39 @@ export function AnalystTab() {
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </Button>
       </div>
+
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-primary" />
+            <div>
+              <div className="font-medium text-sm">Relatórios executivos semanais</div>
+              <div className="text-xs text-muted-foreground">Gerados automaticamente toda terça às 09:00 UTC.</div>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={generateReport} disabled={generatingReport || !currentOrg}>
+            {generatingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+            Gerar agora
+          </Button>
+        </div>
+        {reports.length === 0 ? (
+          <div className="text-xs text-muted-foreground">Nenhum relatório ainda. Clique em "Gerar agora" para criar o primeiro.</div>
+        ) : (
+          <Accordion type="single" collapsible>
+            {reports.map((r) => (
+              <AccordionItem key={r.id} value={r.id}>
+                <AccordionTrigger className="text-sm">
+                  Semana de {r.week_start} · gerado {new Date(r.created_at).toLocaleDateString("pt-BR")}
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="text-sm whitespace-pre-wrap">{r.summary_text || "(vazio)"}</div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        )}
+      </Card>
+    </div>
     </div>
   );
 }
