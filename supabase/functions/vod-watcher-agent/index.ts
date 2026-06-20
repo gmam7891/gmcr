@@ -285,6 +285,19 @@ const SAVE_TILES_TOOL = {
               provider_name: { type: ["string", "null"] },
               casino_brand: { type: ["string", "null"] },
               is_unknown_game: { type: "boolean" },
+              out_of_library: { type: "boolean" },
+              alternatives: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    game_name: { type: ["string", "null"] },
+                    confidence: { type: "number" },
+                  },
+                  required: ["game_name", "confidence"],
+                  additionalProperties: false,
+                },
+              },
               confidence: { type: "number" },
               evidence: { type: ["string", "null"] },
             },
