@@ -41,6 +41,12 @@ const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const MOSAICS_PER_CHUNK = 8;          // process up to 8 storyboard mosaics per HTTP chunk (was 4 — too thin for medium variant)
 const CHECKPOINT_FRAMES = 50;         // persist progress every N frames within a chunk
 const MAX_RETRIES = 3;                // exponential backoff retries for AI / Twitch
+// ── Two-pass detection tuning ────────────────────────────────────────────────
+const CONF_THRESHOLD = 70;            // 0-100, calibrated. Pass-2 below this → abstain.
+const PASS1_SAMPLE_EVERY = 5;         // pass-1 scans 1 of every N mosaics (~20% triage)
+const SHORTLIST_MIN_HITS = 2;         // a game needs ≥N hits in pass-1 to enter the shortlist
+const SHORTLIST_HIGH_CONF = 0.7;      // OR one detection ≥ this confidence
+const SHORTLIST_TOP_K = 8;            // safety net: always keep the top-K most-counted games
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
@@ -186,6 +192,78 @@ function buildMosaicPrompt(libraryContext: string): string {
   return MOSAIC_PROMPT_BASE + libraryContext;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PASS-2 (narrowed) prompt — applied after pass-1 builds a per-VOD shortlist.
+// Implements the calibrated abstention/out_of_library/alternatives template:
+// the model may only choose from CANDIDATE LIST (the shortlist), must abstain
+// when below CONF_THRESHOLD, and must flag clearly-casino-but-not-in-list
+// frames as out_of_library instead of guessing the nearest candidate.
+// ─────────────────────────────────────────────────────────────────────────────
+const MOSAIC_PROMPT_NARROWED_BASE = `Você identifica QUAL jogo de cassino, se algum, aparece em cada tile do storyboard de VOD da Twitch.
+Você é PRECISO e CONSERVADOR: uma identificação ERRADA é pior do que NENHUMA identificação.
+
+A IMAGEM é um STORYBOARD: grid de THUMBNAILS (tiles). Receberá GRID_COLS, GRID_ROWS, TILE_COUNT e o TIMESTAMP de cada tile.
+Ordem: linha por linha, esquerda → direita, cima → baixo.
+
+A categoria/capítulo da Twitch é APENAS contexto auxiliar. Não use como prova; identifique pelo visual do tile.
+
+CANDIDATE LIST (somente estes jogos podem ser escolhidos para CADA tile — abaixo) representa a shortlist desta VOD, derivada de uma triagem prévia no próprio vídeo.
+
+═══════════════════════════════════════════════════════════════
+REGRAS DURAS (HARD RULES)
+═══════════════════════════════════════════════════════════════
+1. Para cada tile, escolha SOMENTE um jogo da CANDIDATE LIST. Nunca devolva nome de jogo que não esteja na lista.
+2. Se o tile mostra um jogo de cassino que CLARAMENTE não está na lista: game_name=null, out_of_library=true. NÃO nomeie e NÃO chute o mais próximo.
+3. Se o tile não é gameplay ativo (lobby, seleção de jogo, bonus/feature buy, loading/transição, overlay de promo, facecam ou just-chatting, conteúdo não-cassino) defina screen_state corretamente e game_name=null.
+4. Nunca infira o jogo apenas pela casa/operadora ou pelo logo da provedora. Eles identificam o SITE ou o ESTÚDIO, não o JOGO.
+5. Em dúvida, ABSTENHA: game_name=null. Não preencha para preencher.
+
+═══════════════════════════════════════════════════════════════
+COMO IDENTIFICAR (observe primeiro, depois case)
+═══════════════════════════════════════════════════════════════
+A. Procure o TÍTULO do jogo na tela — sinal mais forte. Se legível, case com um candidato.
+B. Sem título legível, leia a estrutura visual: layout dos rolos/grid (5x3, 6x5, cluster), posição de painéis/botões, conjunto de símbolos, paleta dominante, qualquer UI de bônus/feature.
+C. Compare com as palavras-chave/marcadores de cada candidato (formato Nome|Provedora|kw1,kw2,...).
+D. CANDIDATOS CONFUNDÍVEIS: se dois candidatos plausíveis encaixam (sequel, re-skin, mesma engine), NÃO decida pela "cara". Encontre um discriminador (título específico, símbolo único, UI de bônus única). Compromete-se SÓ se um discriminador é visível; do contrário, abstenha e liste os mais próximos em "alternatives".
+
+═══════════════════════════════════════════════════════════════
+CONFIANÇA (devolva 0.0–1.0, calibrada como segue)
+═══════════════════════════════════════════════════════════════
+- 0.90–1.00: título legível bate com candidato, OU DNA único e inequívoco.
+- 0.70–0.89: HUD + símbolos batem fortemente com UM candidato; sem título, sem candidato concorrente.
+- 0.40–0.69: bate parcial (só layout ou só paleta) OU candidato concorrente não descartado.
+- < 0.40: fraco/ambíguo.
+Se a confiança for menor que ${CONF_THRESHOLD / 100}, game_name=null e explique em "evidence".
+
+═══════════════════════════════════════════════════════════════
+SAÍDA
+═══════════════════════════════════════════════════════════════
+Chame a função save_tiles com um array "tiles". Para cada tile:
+- row, col: índices do tile no grid.
+- screen_state: "gameplay" | "loading" | "lobby" | "other".
+- game_name: nome EXATO da CANDIDATE LIST, ou null.
+- provider_name: provedora do candidato escolhido, ou null.
+- casino_brand: operadora/site visível (overlay), ou null. Nunca usada para escolher o jogo.
+- out_of_library: true SÓ quando o tile claramente mostra cassino jogado mas não está nos candidatos. Caso contrário false.
+- alternatives: array vazio se sem dúvida; senão até 3 itens {game_name, confidence} com os candidatos confundíveis.
+- confidence: 0.0–1.0 conforme régua acima.
+- evidence: 1 frase curta em pt-BR — o que viu e por que casou, ou por que se absteve.
+- is_unknown_game: deixe false (campo legado).
+
+REGRAS ABSOLUTAS:
+- Para gameplay/loading, só preencha game_name se ele está na CANDIDATE LIST e a confiança ≥ ${CONF_THRESHOLD / 100}.
+- Em lobby/other: SEMPRE game_name=null e out_of_library=false.
+- Nunca invente nomes fora da lista. Para cassino fora da lista: out_of_library=true e game_name=null.
+
+═══════════════════════════════════════════════════════════════
+CANDIDATE LIST (somente estes podem aparecer em game_name):
+═══════════════════════════════════════════════════════════════
+`;
+
+function buildNarrowedMosaicPrompt(shortlistContext: string): string {
+  return MOSAIC_PROMPT_NARROWED_BASE + (shortlistContext || "(lista vazia — devolva sempre game_name=null e out_of_library=true em qualquer cassino)");
+}
+
 // Tool schema for structured tile classification. Forces Gemini to return
 // well-formed JSON via function calling instead of free-form text parsing.
 const SAVE_TILES_TOOL = {
@@ -207,6 +285,19 @@ const SAVE_TILES_TOOL = {
               provider_name: { type: ["string", "null"] },
               casino_brand: { type: ["string", "null"] },
               is_unknown_game: { type: "boolean" },
+              out_of_library: { type: "boolean" },
+              alternatives: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    game_name: { type: ["string", "null"] },
+                    confidence: { type: "number" },
+                  },
+                  required: ["game_name", "confidence"],
+                  additionalProperties: false,
+                },
+              },
               confidence: { type: "number" },
               evidence: { type: ["string", "null"] },
             },
@@ -244,6 +335,25 @@ function normalizeProviderName(name: string | null | undefined): string {
   };
   return aliases[normalized.toLowerCase()] || normalized;
 }
+
+// Build the per-VOD shortlist from pass-1 counters.
+// Rule: keep games with ≥ SHORTLIST_MIN_HITS hits OR at least one detection
+// with confidence ≥ SHORTLIST_HIGH_CONF; always also keep the top-K by hits
+// as a safety net so a noisy pass-1 still produces a usable list.
+function finalizeShortlist(
+  counts: Record<string, { hits: number; maxConf: number }>,
+): string[] {
+  const entries = Object.entries(counts || {});
+  if (entries.length === 0) return [];
+  const passes = entries.filter(
+    ([, v]) => v.hits >= SHORTLIST_MIN_HITS || v.maxConf >= SHORTLIST_HIGH_CONF,
+  );
+  const byHits = [...entries].sort((a, b) => b[1].hits - a[1].hits);
+  const topK = byHits.slice(0, SHORTLIST_TOP_K).map(([k]) => k);
+  const merged = new Set<string>([...passes.map(([k]) => k), ...topK]);
+  return Array.from(merged);
+}
+
 
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -738,6 +848,26 @@ Deno.serve(async (req) => {
     const endIdx = Math.min(startIdx + MOSAICS_PER_CHUNK, plan.mosaics.length);
 
     if (startIdx >= plan.mosaics.length) {
+      // Pass-1 just finished? Build shortlist, reset cursor, kick pass-2.
+      if (!plan.pass1_done) {
+        const finalized = finalizeShortlist(plan.shortlist_counts || {});
+        plan.shortlist = finalized;
+        plan.pass1_done = true;
+        plan.processed_mosaic = 0;
+        await sb.from("vod_audits").update({
+          progress_message: `Triagem (pass-1) concluída. Shortlist: ${finalized.length} jogos. Iniciando análise final...`,
+          last_checkpoint_at: new Date().toISOString(),
+          pending_audit_segments: { plan, flagged } as any,
+        }).eq("id", audit_id);
+        console.log(`[Watcher ${audit_id}] Pass-1 done. shortlist=${JSON.stringify(finalized)}`);
+        if (finalized.length === 0) {
+          // Nothing found → finalize empty audit, no point running pass-2.
+          await finalizeAudit(sb, audit, flagged);
+          return jsonResponse({ status: "completed", reason: "empty_shortlist" });
+        }
+        selfInvokeResume(audit_id);
+        return jsonResponse({ status: "pass1_done", shortlist: finalized });
+      }
       await finalizeAudit(sb, audit, flagged);
       return jsonResponse({ status: "completed" });
     }
@@ -856,6 +986,43 @@ ${nameOnlyContext}`
     }
 
 
+    // ── Two-pass orchestration state (lives on the plan blob) ─────────────
+    const pass1Done = !!plan.pass1_done;
+    const shortlistArr: string[] = Array.isArray(plan.shortlist) ? plan.shortlist : [];
+    plan.shortlist_counts = plan.shortlist_counts || {};
+    const shortlistCounts: Record<string, { hits: number; maxConf: number }> = plan.shortlist_counts;
+
+    // Pass-2 index = subset of libraryIndex restricted to the shortlist.
+    const shortlistIndex = new Map<string, { name: string; provider: string; confidenceThreshold: number | null }>();
+    let narrowedPrompt = "";
+    if (pass1Done) {
+      for (const name of shortlistArr) {
+        const entry = libraryIndex.get(gameMatchKey(name));
+        if (entry) shortlistIndex.set(gameMatchKey(name), entry);
+      }
+      const shortlistContext = gameLibrary
+        .filter((g) => shortlistIndex.has(gameMatchKey(g.name)))
+        .map((g) => {
+          const hints = [...g.keywords.slice(0, 4), ...g.visualMarkers.slice(0, 3)].filter(Boolean);
+          return hints.length ? `${g.name}|${g.provider}|${hints.join(",")}` : `${g.name}|${g.provider}`;
+        })
+        .join("\n");
+      narrowedPrompt = buildNarrowedMosaicPrompt(shortlistContext);
+      console.log(
+        `[Watcher ${audit.id}] Pass-2 ACTIVE — shortlist=${shortlistArr.length}, ` +
+        `narrowed_prompt=${narrowedPrompt.length} chars`,
+      );
+    } else {
+      console.log(
+        `[Watcher ${audit.id}] Pass-1 TRIAGE (1 of every ${PASS1_SAMPLE_EVERY} mosaics) — ` +
+        `${Object.keys(shortlistCounts).length} candidate games so far`,
+      );
+    }
+
+    // Counters for observability of pass-2 abstentions.
+    let outOfLibraryCount = 0;
+    let belowThresholdCount = 0;
+
     // Helper to persist a checkpoint (so a timeout mid-chunk doesn't lose state)
     const checkpoint = async (currentMosaic: number, label: string) => {
       plan.processed_mosaic = currentMosaic;
@@ -869,6 +1036,11 @@ ${nameOnlyContext}`
     for (let mIdx = startIdx; mIdx < endIdx; mIdx++) {
       const mosaic = plan.mosaics[mIdx];
       if (!mosaic?.url || !Array.isArray(mosaic.tiles)) continue;
+
+      // ── PASS-1 (triage): only scan a sampled subset of mosaics, no DB writes.
+      if (!pass1Done) {
+        if (mIdx % PASS1_SAMPLE_EVERY !== 0) continue;
+      }
 
       const firstTs = mosaic.tiles[0]?.ts ?? 0;
       const lastTs = mosaic.tiles[mosaic.tiles.length - 1]?.ts ?? firstTs;
@@ -888,8 +1060,9 @@ Categoria Twitch auxiliar: ${chapterCategory}.
 Timestamps por tile: ${tileLabel}.
 Use a categoria Twitch apenas como contexto secundário; identifique cassino somente quando houver evidência visual no tile.`;
 
+      const activePrompt = pass1Done ? narrowedPrompt : mosaicPrompt;
       const ai = await callAI([
-        { role: "system", content: mosaicPrompt },
+        { role: "system", content: activePrompt },
         { role: "user", content: [
           { type: "text", text: userText },
           { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
@@ -911,7 +1084,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       const isCasinoChapter = casinoHints.some((k) => chapterCategory.toLowerCase().includes(k));
       if (isCasinoChapter && detections.length === 0) {
         const retry = await callAI([
-          { role: "system", content: mosaicPrompt + "\n\nESTE MOSAICO COBRE PERÍODO CONFIRMADO COMO CASSINO. Identifique TODOS os tiles que tenham slot/cassino visível, mesmo se a thumb for baixa resolução." },
+          { role: "system", content: activePrompt + "\n\nESTE MOSAICO COBRE PERÍODO CONFIRMADO COMO CASSINO. Identifique TODOS os tiles que tenham slot/cassino visível, mesmo se a thumb for baixa resolução." },
           { role: "user", content: [
             { type: "text", text: userText },
             { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
@@ -938,6 +1111,24 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         }
       }
 
+      // ── PASS-1: accumulate game counts, NO DB writes, then skip to next mosaic.
+      if (!pass1Done) {
+        for (const det of detections) {
+          if (!det?.game_name) continue;
+          const state = String(det.screen_state || "").toLowerCase();
+          if (state !== "gameplay" && state !== "loading") continue;
+          const key = gameMatchKey(String(det.game_name));
+          const matched = libraryIndex.get(key);
+          if (!matched) continue; // ignore hallucinations during triage
+          const conf = Math.max(0, Math.min(1, Number(det.confidence) || 0));
+          const entry = shortlistCounts[matched.name] || { hits: 0, maxConf: 0 };
+          entry.hits += 1;
+          if (conf > entry.maxConf) entry.maxConf = conf;
+          shortlistCounts[matched.name] = entry;
+        }
+        continue;
+      }
+
       // ── SSoT: write detections into stream_snapshots ──────────────────────
       const snapshotRows: any[] = [];
       const rawEvidenceRows: any[] = [];
@@ -960,32 +1151,33 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           ? rawScreenState
           : "other";
 
-        // ── Validação contra game_visual_library (anti-alucinação) ──────────
-        // Confidence floor: each trained game can have its own threshold
-        // (agent_confidence_threshold), set during training by the
-        // intelligent-vod-agent solo pipeline. Falls back to 0.5 for games
-        // that don't have a calibrated threshold yet.
-        const DEFAULT_LIBRARY_MATCH_FLOOR = 0.5;
-        const UNKNOWN_GAME_CONF_FLOOR = 0.55;
+        // ── Validação contra SHORTLIST (pass-2, anti-alucinação) ───────────
+        // Source of truth in pass-2 = shortlistIndex (≤ K games from pass-1).
+        // The narrowed prompt also exposes out_of_library + CONF_THRESHOLD.
+        const DEFAULT_LIBRARY_MATCH_FLOOR = Math.max(0.5, CONF_THRESHOLD / 100);
         const isUnknownGame = !!det.is_unknown_game;
+        const outOfLibrary = !!det.out_of_library;
         let validatedGameName: string | null = null;
         let validatedProvider: string | null = null;
         let libraryMatched = false;
 
-        if (det.game_name && (screenState === "gameplay" || screenState === "loading")) {
+        if (outOfLibrary) outOfLibraryCount++;
+
+        if (det.game_name && (screenState === "gameplay" || screenState === "loading") && !outOfLibrary) {
           const rawGame = String(det.game_name).trim();
-          const match = libraryIndex.get(gameMatchKey(rawGame));
+          const match = shortlistIndex.get(gameMatchKey(rawGame));
           const effectiveFloor = match?.confidenceThreshold ?? DEFAULT_LIBRARY_MATCH_FLOOR;
 
           if (match && conf >= effectiveFloor) {
-            // Match canônico na biblioteca COM confiança suficiente
+            // Match dentro da shortlist E acima do threshold calibrado
             validatedGameName = match.name;
             validatedProvider = match.provider;
             libraryMatched = true;
           } else if (match) {
-            // Está na biblioteca mas confiança baixa → provavelmente chute
+            // Está na shortlist mas abaixo do threshold → absteve
+            belowThresholdCount++;
             console.warn(
-              `[Watcher ${audit.id}] Discarding low-confidence library guess: "${rawGame}" ` +
+              `[Watcher ${audit.id}] Pass-2 abstention (below threshold): "${rawGame}" ` +
               `(conf=${conf.toFixed(2)} < ${effectiveFloor}). evidence="${det.evidence || ""}"`,
             );
             rejectedRows.push({
@@ -996,21 +1188,15 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
               proposed_game: rawGame,
               proposed_provider: match.provider,
               confidence: conf,
-              reason: "low_confidence_library_match",
+              reason: "below_conf_threshold",
               evidence: det.evidence || null,
-              raw_payload: { screen_state: screenState, det },
+              raw_payload: { screen_state: screenState, det, alternatives: det.alternatives || [] },
             });
-          } else if (isUnknownGame && conf >= UNKNOWN_GAME_CONF_FLOOR) {
-            // Fora da biblioteca, mas Gemini admitiu — aceita com flag
-            validatedGameName = rawGame.slice(0, 80);
-            validatedProvider = det.provider_name
-              ? normalizeProviderName(String(det.provider_name).trim().slice(0, 50))
-              : null;
           } else {
-            // Tentou retornar jogo fora da biblioteca SEM admitir incerteza → alucinação
+            // Modelo retornou nome fora da shortlist sem marcar out_of_library
             console.warn(
-              `[Watcher ${audit.id}] Discarding hallucinated game: "${rawGame}" ` +
-              `(not in library, is_unknown_game=${isUnknownGame}, conf=${conf.toFixed(2)})`,
+              `[Watcher ${audit.id}] Pass-2 dropped name outside shortlist: "${rawGame}" ` +
+              `(conf=${conf.toFixed(2)}, alternatives=${(det.alternatives || []).length})`,
             );
             rejectedRows.push({
               vod_id: audit.vod_id,
@@ -1020,9 +1206,9 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
               proposed_game: rawGame,
               proposed_provider: det.provider_name || null,
               confidence: conf,
-              reason: isUnknownGame ? "unknown_game_low_confidence" : "hallucinated_outside_library",
+              reason: "outside_shortlist",
               evidence: det.evidence || null,
-              raw_payload: { screen_state: screenState, det },
+              raw_payload: { screen_state: screenState, det, alternatives: det.alternatives || [] },
             });
           }
         }
@@ -1045,6 +1231,8 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           evidence: det.evidence || null,
           is_unknown_game: isUnknownGame,
           library_matched: libraryMatched,
+          out_of_library: outOfLibrary,
+          alternatives: Array.isArray(det.alternatives) ? det.alternatives.slice(0, 3) : [],
         };
 
 
@@ -1174,23 +1362,32 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
 
     // Update progress + plan (final state for this chunk)
     plan.processed_mosaic = endIdx;
+    plan.shortlist_counts = shortlistCounts;
     const processedFrames = endIdx * (plan.mosaics[0]?.cols || 5) * (plan.mosaics[0]?.rows || 10);
     const cappedProcessed = Math.min(processedFrames, audit.expected_frames || processedFrames);
     const currentMin = Math.round(((endIdx / plan.mosaics.length) * (audit.vod_duration_seconds || 0)) / 60);
 
-    const { data: gamesCount } = await sb
-      .from("stream_snapshots")
-      .select("game_detected")
-      .eq("vod_id", audit.vod_id)
-      .eq("source", "storyboard")
-      .not("game_detected", "is", null);
-    const uniqueGames = new Set((gamesCount || []).map((r: any) => r.game_detected)).size;
+    let progressMessage: string;
+    let uniqueGames = 0;
+    if (!pass1Done) {
+      const distinct = Object.keys(shortlistCounts).length;
+      progressMessage = `Triagem (pass-1) ${endIdx}/${plan.mosaics.length} mosaicos | ${distinct} candidatos`;
+    } else {
+      const { data: gamesCount } = await sb
+        .from("stream_snapshots")
+        .select("game_detected")
+        .eq("vod_id", audit.vod_id)
+        .eq("source", "storyboard")
+        .not("game_detected", "is", null);
+      uniqueGames = new Set((gamesCount || []).map((r: any) => r.game_detected)).size;
+      progressMessage = `Análise final (pass-2) ${endIdx}/${plan.mosaics.length} | ${uniqueGames} jogos (+${totalDetectionsThisChunk} frames, out_of_lib=${outOfLibraryCount}, below_thr=${belowThresholdCount})`;
+    }
 
     await sb.from("vod_audits").update({
       progress_phase: "analyzing",
       progress_current_minute: currentMin,
       progress_games_found: uniqueGames,
-      progress_message: `Agente assistindo... mosaico ${endIdx}/${plan.mosaics.length} | ${uniqueGames} jogos detectados (+${totalDetectionsThisChunk} frames)`,
+      progress_message: progressMessage,
       processed_frames: cappedProcessed,
       last_checkpoint_at: new Date().toISOString(),
       pending_audit_segments: { plan, flagged } as any,
@@ -1200,9 +1397,30 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       selfInvokeResume(audit_id);
       return jsonResponse({
         status: "chunk_done",
+        pass: pass1Done ? 2 : 1,
         processed_mosaic: endIdx,
         total_mosaics: plan.mosaics.length,
       });
+    }
+
+    // End of mosaics for this pass. If pass-1, transition to pass-2.
+    if (!pass1Done) {
+      const finalized = finalizeShortlist(shortlistCounts);
+      plan.shortlist = finalized;
+      plan.pass1_done = true;
+      plan.processed_mosaic = 0;
+      await sb.from("vod_audits").update({
+        progress_message: `Triagem (pass-1) concluída. Shortlist: ${finalized.length} jogos. Iniciando análise final...`,
+        last_checkpoint_at: new Date().toISOString(),
+        pending_audit_segments: { plan, flagged } as any,
+      }).eq("id", audit_id);
+      console.log(`[Watcher ${audit_id}] Pass-1 done. shortlist=${JSON.stringify(finalized)}`);
+      if (finalized.length === 0) {
+        await finalizeAudit(sb, audit, flagged);
+        return jsonResponse({ status: "completed", reason: "empty_shortlist" });
+      }
+      selfInvokeResume(audit_id);
+      return jsonResponse({ status: "pass1_done", shortlist: finalized });
     }
 
     await finalizeAudit(sb, audit, flagged);
