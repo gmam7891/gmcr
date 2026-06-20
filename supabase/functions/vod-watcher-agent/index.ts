@@ -1018,6 +1018,11 @@ ${nameOnlyContext}`
       const mosaic = plan.mosaics[mIdx];
       if (!mosaic?.url || !Array.isArray(mosaic.tiles)) continue;
 
+      // ── PASS-1 (triage): only scan a sampled subset of mosaics, no DB writes.
+      if (!pass1Done) {
+        if (mIdx % PASS1_SAMPLE_EVERY !== 0) continue;
+      }
+
       const firstTs = mosaic.tiles[0]?.ts ?? 0;
       const lastTs = mosaic.tiles[mosaic.tiles.length - 1]?.ts ?? firstTs;
       const chapterAt = (plan.chapters || []).find((ch: any) =>
