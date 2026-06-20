@@ -192,6 +192,78 @@ function buildMosaicPrompt(libraryContext: string): string {
   return MOSAIC_PROMPT_BASE + libraryContext;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PASS-2 (narrowed) prompt — applied after pass-1 builds a per-VOD shortlist.
+// Implements the calibrated abstention/out_of_library/alternatives template:
+// the model may only choose from CANDIDATE LIST (the shortlist), must abstain
+// when below CONF_THRESHOLD, and must flag clearly-casino-but-not-in-list
+// frames as out_of_library instead of guessing the nearest candidate.
+// ─────────────────────────────────────────────────────────────────────────────
+const MOSAIC_PROMPT_NARROWED_BASE = `Você identifica QUAL jogo de cassino, se algum, aparece em cada tile do storyboard de VOD da Twitch.
+Você é PRECISO e CONSERVADOR: uma identificação ERRADA é pior do que NENHUMA identificação.
+
+A IMAGEM é um STORYBOARD: grid de THUMBNAILS (tiles). Receberá GRID_COLS, GRID_ROWS, TILE_COUNT e o TIMESTAMP de cada tile.
+Ordem: linha por linha, esquerda → direita, cima → baixo.
+
+A categoria/capítulo da Twitch é APENAS contexto auxiliar. Não use como prova; identifique pelo visual do tile.
+
+CANDIDATE LIST (somente estes jogos podem ser escolhidos para CADA tile — abaixo) representa a shortlist desta VOD, derivada de uma triagem prévia no próprio vídeo.
+
+═══════════════════════════════════════════════════════════════
+REGRAS DURAS (HARD RULES)
+═══════════════════════════════════════════════════════════════
+1. Para cada tile, escolha SOMENTE um jogo da CANDIDATE LIST. Nunca devolva nome de jogo que não esteja na lista.
+2. Se o tile mostra um jogo de cassino que CLARAMENTE não está na lista: game_name=null, out_of_library=true. NÃO nomeie e NÃO chute o mais próximo.
+3. Se o tile não é gameplay ativo (lobby, seleção de jogo, bonus/feature buy, loading/transição, overlay de promo, facecam ou just-chatting, conteúdo não-cassino) defina screen_state corretamente e game_name=null.
+4. Nunca infira o jogo apenas pela casa/operadora ou pelo logo da provedora. Eles identificam o SITE ou o ESTÚDIO, não o JOGO.
+5. Em dúvida, ABSTENHA: game_name=null. Não preencha para preencher.
+
+═══════════════════════════════════════════════════════════════
+COMO IDENTIFICAR (observe primeiro, depois case)
+═══════════════════════════════════════════════════════════════
+A. Procure o TÍTULO do jogo na tela — sinal mais forte. Se legível, case com um candidato.
+B. Sem título legível, leia a estrutura visual: layout dos rolos/grid (5x3, 6x5, cluster), posição de painéis/botões, conjunto de símbolos, paleta dominante, qualquer UI de bônus/feature.
+C. Compare com as palavras-chave/marcadores de cada candidato (formato Nome|Provedora|kw1,kw2,...).
+D. CANDIDATOS CONFUNDÍVEIS: se dois candidatos plausíveis encaixam (sequel, re-skin, mesma engine), NÃO decida pela "cara". Encontre um discriminador (título específico, símbolo único, UI de bônus única). Compromete-se SÓ se um discriminador é visível; do contrário, abstenha e liste os mais próximos em "alternatives".
+
+═══════════════════════════════════════════════════════════════
+CONFIANÇA (devolva 0.0–1.0, calibrada como segue)
+═══════════════════════════════════════════════════════════════
+- 0.90–1.00: título legível bate com candidato, OU DNA único e inequívoco.
+- 0.70–0.89: HUD + símbolos batem fortemente com UM candidato; sem título, sem candidato concorrente.
+- 0.40–0.69: bate parcial (só layout ou só paleta) OU candidato concorrente não descartado.
+- < 0.40: fraco/ambíguo.
+Se a confiança for menor que ${CONF_THRESHOLD / 100}, game_name=null e explique em "evidence".
+
+═══════════════════════════════════════════════════════════════
+SAÍDA
+═══════════════════════════════════════════════════════════════
+Chame a função save_tiles com um array "tiles". Para cada tile:
+- row, col: índices do tile no grid.
+- screen_state: "gameplay" | "loading" | "lobby" | "other".
+- game_name: nome EXATO da CANDIDATE LIST, ou null.
+- provider_name: provedora do candidato escolhido, ou null.
+- casino_brand: operadora/site visível (overlay), ou null. Nunca usada para escolher o jogo.
+- out_of_library: true SÓ quando o tile claramente mostra cassino jogado mas não está nos candidatos. Caso contrário false.
+- alternatives: array vazio se sem dúvida; senão até 3 itens {game_name, confidence} com os candidatos confundíveis.
+- confidence: 0.0–1.0 conforme régua acima.
+- evidence: 1 frase curta em pt-BR — o que viu e por que casou, ou por que se absteve.
+- is_unknown_game: deixe false (campo legado).
+
+REGRAS ABSOLUTAS:
+- Para gameplay/loading, só preencha game_name se ele está na CANDIDATE LIST e a confiança ≥ ${CONF_THRESHOLD / 100}.
+- Em lobby/other: SEMPRE game_name=null e out_of_library=false.
+- Nunca invente nomes fora da lista. Para cassino fora da lista: out_of_library=true e game_name=null.
+
+═══════════════════════════════════════════════════════════════
+CANDIDATE LIST (somente estes podem aparecer em game_name):
+═══════════════════════════════════════════════════════════════
+`;
+
+function buildNarrowedMosaicPrompt(shortlistContext: string): string {
+  return MOSAIC_PROMPT_NARROWED_BASE + (shortlistContext || "(lista vazia — devolva sempre game_name=null e out_of_library=true em qualquer cassino)");
+}
+
 // Tool schema for structured tile classification. Forces Gemini to return
 // well-formed JSON via function calling instead of free-form text parsing.
 const SAVE_TILES_TOOL = {
