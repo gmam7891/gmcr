@@ -1092,6 +1092,24 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
         }
       }
 
+      // ── PASS-1: accumulate game counts, NO DB writes, then skip to next mosaic.
+      if (!pass1Done) {
+        for (const det of detections) {
+          if (!det?.game_name) continue;
+          const state = String(det.screen_state || "").toLowerCase();
+          if (state !== "gameplay" && state !== "loading") continue;
+          const key = gameMatchKey(String(det.game_name));
+          const matched = libraryIndex.get(key);
+          if (!matched) continue; // ignore hallucinations during triage
+          const conf = Math.max(0, Math.min(1, Number(det.confidence) || 0));
+          const entry = shortlistCounts[matched.name] || { hits: 0, maxConf: 0 };
+          entry.hits += 1;
+          if (conf > entry.maxConf) entry.maxConf = conf;
+          shortlistCounts[matched.name] = entry;
+        }
+        continue;
+      }
+
       // ── SSoT: write detections into stream_snapshots ──────────────────────
       const snapshotRows: any[] = [];
       const rawEvidenceRows: any[] = [];
