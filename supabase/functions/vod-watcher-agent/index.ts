@@ -336,6 +336,25 @@ function normalizeProviderName(name: string | null | undefined): string {
   return aliases[normalized.toLowerCase()] || normalized;
 }
 
+// Build the per-VOD shortlist from pass-1 counters.
+// Rule: keep games with ≥ SHORTLIST_MIN_HITS hits OR at least one detection
+// with confidence ≥ SHORTLIST_HIGH_CONF; always also keep the top-K by hits
+// as a safety net so a noisy pass-1 still produces a usable list.
+function finalizeShortlist(
+  counts: Record<string, { hits: number; maxConf: number }>,
+): string[] {
+  const entries = Object.entries(counts || {});
+  if (entries.length === 0) return [];
+  const passes = entries.filter(
+    ([, v]) => v.hits >= SHORTLIST_MIN_HITS || v.maxConf >= SHORTLIST_HIGH_CONF,
+  );
+  const byHits = [...entries].sort((a, b) => b[1].hits - a[1].hits);
+  const topK = byHits.slice(0, SHORTLIST_TOP_K).map(([k]) => k);
+  const merged = new Set<string>([...passes.map(([k]) => k), ...topK]);
+  return Array.from(merged);
+}
+
+
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
