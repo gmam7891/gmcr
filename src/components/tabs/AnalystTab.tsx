@@ -7,8 +7,15 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Send, Sparkles, AlertTriangle, BarChart3 } from "lucide-react";
+import { Loader2, Send, Sparkles, AlertTriangle, BarChart3, FileText, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+
+interface ReportRow {
+  id: string;
+  week_start: string;
+  summary_text: string | null;
+  created_at: string;
+}
 
 interface ChatTurn {
   question: string;
