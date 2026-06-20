@@ -967,6 +967,43 @@ ${nameOnlyContext}`
     }
 
 
+    // ── Two-pass orchestration state (lives on the plan blob) ─────────────
+    const pass1Done = !!plan.pass1_done;
+    const shortlistArr: string[] = Array.isArray(plan.shortlist) ? plan.shortlist : [];
+    plan.shortlist_counts = plan.shortlist_counts || {};
+    const shortlistCounts: Record<string, { hits: number; maxConf: number }> = plan.shortlist_counts;
+
+    // Pass-2 index = subset of libraryIndex restricted to the shortlist.
+    const shortlistIndex = new Map<string, { name: string; provider: string; confidenceThreshold: number | null }>();
+    let narrowedPrompt = "";
+    if (pass1Done) {
+      for (const name of shortlistArr) {
+        const entry = libraryIndex.get(gameMatchKey(name));
+        if (entry) shortlistIndex.set(gameMatchKey(name), entry);
+      }
+      const shortlistContext = gameLibrary
+        .filter((g) => shortlistIndex.has(gameMatchKey(g.name)))
+        .map((g) => {
+          const hints = [...g.keywords.slice(0, 4), ...g.visualMarkers.slice(0, 3)].filter(Boolean);
+          return hints.length ? `${g.name}|${g.provider}|${hints.join(",")}` : `${g.name}|${g.provider}`;
+        })
+        .join("\n");
+      narrowedPrompt = buildNarrowedMosaicPrompt(shortlistContext);
+      console.log(
+        `[Watcher ${audit.id}] Pass-2 ACTIVE — shortlist=${shortlistArr.length}, ` +
+        `narrowed_prompt=${narrowedPrompt.length} chars`,
+      );
+    } else {
+      console.log(
+        `[Watcher ${audit.id}] Pass-1 TRIAGE (1 of every ${PASS1_SAMPLE_EVERY} mosaics) — ` +
+        `${Object.keys(shortlistCounts).length} candidate games so far`,
+      );
+    }
+
+    // Counters for observability of pass-2 abstentions.
+    let outOfLibraryCount = 0;
+    let belowThresholdCount = 0;
+
     // Helper to persist a checkpoint (so a timeout mid-chunk doesn't lose state)
     const checkpoint = async (currentMosaic: number, label: string) => {
       plan.processed_mosaic = currentMosaic;
