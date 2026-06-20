@@ -38,11 +38,46 @@ export function AnalystTab() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [generatingReport, setGeneratingReport] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const loadReports = async () => {
+    if (!currentOrg) return;
+    const { data, error } = await supabase
+      .from("reports")
+      .select("id, week_start, summary_text, created_at")
+      .eq("org_id", currentOrg.id)
+      .order("created_at", { ascending: false })
+      .limit(12);
+    if (!error) setReports((data || []) as ReportRow[]);
+  };
+
+  useEffect(() => {
+    loadReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOrg?.id]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [turns]);
+
+  const generateReport = async () => {
+    if (!currentOrg || generatingReport) return;
+    setGeneratingReport(true);
+    try {
+      const { error } = await supabase.functions.invoke("weekly-report", {
+        body: { org_id: currentOrg.id },
+      });
+      if (error) throw new Error(error.message);
+      toast.success("Relatório gerado");
+      await loadReports();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
 
   const ask = async (question: string) => {
     if (!question.trim() || busy) return;
