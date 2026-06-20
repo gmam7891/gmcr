@@ -359,6 +359,62 @@ export type Database = {
         }
         Relationships: []
       }
+      campaigns: {
+        Row: {
+          budget: number
+          created_at: string
+          created_by: string
+          id: string
+          name: string
+          notes: string | null
+          objective: string | null
+          org_id: string
+          region: string | null
+          results: Json | null
+          target_games: string[]
+          target_providers: string[]
+          updated_at: string
+        }
+        Insert: {
+          budget?: number
+          created_at?: string
+          created_by: string
+          id?: string
+          name: string
+          notes?: string | null
+          objective?: string | null
+          org_id: string
+          region?: string | null
+          results?: Json | null
+          target_games?: string[]
+          target_providers?: string[]
+          updated_at?: string
+        }
+        Update: {
+          budget?: number
+          created_at?: string
+          created_by?: string
+          id?: string
+          name?: string
+          notes?: string | null
+          objective?: string | null
+          org_id?: string
+          region?: string | null
+          results?: Json | null
+          target_games?: string[]
+          target_providers?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       casino_catalog_thumbnails: {
         Row: {
           casino_name: string | null
@@ -1122,6 +1178,42 @@ export type Database = {
           id?: string
           updated_at?: string
           updated_by?: string | null
+        }
+        Relationships: []
+      }
+      pricing_tiers: {
+        Row: {
+          created_at: string
+          id: string
+          max_cost: number
+          max_followers: number | null
+          min_cost: number
+          min_followers: number
+          sort_order: number
+          tier: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          max_cost?: number
+          max_followers?: number | null
+          min_cost?: number
+          min_followers?: number
+          sort_order?: number
+          tier: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          max_cost?: number
+          max_followers?: number | null
+          min_cost?: number
+          min_followers?: number
+          sort_order?: number
+          tier?: string
+          updated_at?: string
         }
         Relationships: []
       }

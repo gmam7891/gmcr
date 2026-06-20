@@ -11,6 +11,7 @@ import { SimulatorTab } from "@/components/tabs/SimulatorTab";
 import { MonitorTab } from "@/components/tabs/MonitorTab";
 import { AuthenticityTab } from "@/components/tabs/AuthenticityTab";
 import { AnalystTab } from "@/components/tabs/AnalystTab";
+import { PlannerTab } from "@/components/tabs/PlannerTab";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -39,6 +40,7 @@ const Index = () => {
 
   const TAB_CONFIG: TabConfig[] = [
     { id: "analyst", label: "Analista", icon: "✨", component: AnalystTab },
+    { id: "planner", label: "Planejador", icon: "🎯", component: PlannerTab },
     { id: "scanner", label: t("mod.scanner.title"), icon: "🎰", component: null, route: "/scanner" },
     { id: "icp", label: t("mod.icp.title"), icon: "📊", component: IcpTab },
     { id: "discovery", label: t("mod.discovery.title"), icon: "🔎", component: DiscoveryTab },
