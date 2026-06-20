@@ -7,8 +7,15 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Send, Sparkles, AlertTriangle, BarChart3 } from "lucide-react";
+import { Loader2, Send, Sparkles, AlertTriangle, BarChart3, FileText, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+
+interface ReportRow {
+  id: string;
+  week_start: string;
+  summary_text: string | null;
+  created_at: string;
+}
 
 interface ChatTurn {
   question: string;
@@ -31,11 +38,46 @@ export function AnalystTab() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [generatingReport, setGeneratingReport] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const loadReports = async () => {
+    if (!currentOrg) return;
+    const { data, error } = await supabase
+      .from("reports")
+      .select("id, week_start, summary_text, created_at")
+      .eq("org_id", currentOrg.id)
+      .order("created_at", { ascending: false })
+      .limit(12);
+    if (!error) setReports((data || []) as ReportRow[]);
+  };
+
+  useEffect(() => {
+    loadReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOrg?.id]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [turns]);
+
+  const generateReport = async () => {
+    if (!currentOrg || generatingReport) return;
+    setGeneratingReport(true);
+    try {
+      const { error } = await supabase.functions.invoke("weekly-report", {
+        body: { org_id: currentOrg.id },
+      });
+      if (error) throw new Error(error.message);
+      toast.success("Relatório gerado");
+      await loadReports();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
 
   const ask = async (question: string) => {
     if (!question.trim() || busy) return;
@@ -184,6 +226,38 @@ export function AnalystTab() {
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
         </Button>
       </div>
+
+      <Card className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-primary" />
+            <div>
+              <div className="font-medium text-sm">Relatórios executivos semanais</div>
+              <div className="text-xs text-muted-foreground">Gerados automaticamente toda terça às 09:00 UTC.</div>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={generateReport} disabled={generatingReport || !currentOrg}>
+            {generatingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+            Gerar agora
+          </Button>
+        </div>
+        {reports.length === 0 ? (
+          <div className="text-xs text-muted-foreground">Nenhum relatório ainda. Clique em "Gerar agora" para criar o primeiro.</div>
+        ) : (
+          <Accordion type="single" collapsible>
+            {reports.map((r) => (
+              <AccordionItem key={r.id} value={r.id}>
+                <AccordionTrigger className="text-sm">
+                  Semana de {r.week_start} · gerado {new Date(r.created_at).toLocaleDateString("pt-BR")}
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="text-sm whitespace-pre-wrap">{r.summary_text || "(vazio)"}</div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        )}
+      </Card>
     </div>
   );
 }
