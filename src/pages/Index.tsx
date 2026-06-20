@@ -40,6 +40,7 @@ const Index = () => {
 
   const TAB_CONFIG: TabConfig[] = [
     { id: "analyst", label: "Analista", icon: "✨", component: AnalystTab },
+    { id: "planner", label: "Planejador", icon: "🎯", component: PlannerTab },
     { id: "scanner", label: t("mod.scanner.title"), icon: "🎰", component: null, route: "/scanner" },
     { id: "icp", label: t("mod.icp.title"), icon: "📊", component: IcpTab },
     { id: "discovery", label: t("mod.discovery.title"), icon: "🔎", component: DiscoveryTab },
