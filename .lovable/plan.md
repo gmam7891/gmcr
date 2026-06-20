@@ -1,138 +1,75 @@
-# Plano: Analista Virtual + Planejador de Campanha (com fundação multi-org)
+## Objetivo
 
-## Visão geral
+Adaptar o `vod-watcher-agent` para aplicar as regras do novo prompt (abstenção forte, `out_of_library`, `alternatives`, confiança calibrada 0–100, candidate list narrowed) **mantendo a arquitetura de mosaico**. A candidate list de cada VOD vem de uma detecção prévia no próprio VOD, não de chapters da Twitch.
 
-Você pediu **multi-org real** + **SQL livre validado**. Isso obriga 3 fases:
-1. **Fundação multi-org** (sem isto, agente vaza dados entre clientes).
-2. **Analista Virtual** (chat + relatório semanal).
-3. **Planejador de Campanha** (matchmaking briefing → influencers).
+## Fluxo novo (duas passadas no mesmo run)
 
-Implementação sequencial, testando cada fase antes da próxima.
+```text
+PASS 1 — Triagem (library inteira)
+  └─ MOSAIC_PROMPT_BASE atual (sem mudanças grandes)
+  └─ Processa ~20% dos mosaicos amostrados ao longo do VOD
+  └─ Resultado: shortlist = {game_name → hits, confidence média}
+       mantém quem aparece em ≥ N tiles OU com confidence ≥ 0.7 ao menos 1x
+       sempre inclui top-K por contagem (K=8) como rede de segurança
 
----
+PASS 2 — Detecção final (candidate list narrowed)
+  └─ NOVO_MOSAIC_PROMPT com as regras do template
+  └─ Processa 100% dos mosaicos com a shortlist como CANDIDATE LIST
+  └─ Tiles fora da shortlist → out_of_library=true, game_name=null
+  └─ Persistência temporal já existente continua aplicada sobre o resultado do Pass 2
+```
 
-## Fase 1 — Fundação multi-org
+A persistência temporal, threshold e timestamp anchoring continuam no agente, exatamente como hoje.
 
-Hoje só existe `profiles`, `user_roles`, `user_access`. Tudo escopado por `user_id`. Para multi-org real precisamos:
+## Mudanças por arquivo
 
-### Migration
-- `organizations` (id, name, slug, created_at, owner_user_id)
-- `organization_members` (org_id, user_id, role: owner/admin/member, created_at) — UNIQUE(org_id, user_id)
-- `current_org_id` em `profiles` (org "ativa" do usuário)
-- Função `get_user_org_ids(uuid)` SECURITY DEFINER (evita recursão RLS)
-- Função `is_org_member(uuid, uuid)` SECURITY DEFINER
-- GRANTs e RLS em ambas tabelas
+### `supabase/functions/vod-watcher-agent/index.ts`
 
-### Decisão pragmática sobre tabelas existentes
-As 28 tabelas atuais (vod_audits, discovery_prospects, stream_snapshots, casino_catalogs, etc.) **não têm `org_id`**. Adicionar coluna + backfill + nova RLS em todas é trabalho enorme e arriscado.
+1. **Constantes novas**
+   - `CONF_THRESHOLD = 70` (0–100; o prompt continua emitindo 0–1, mas o gating do Pass 2 traduz `confidence*100` para a régua nova).
+   - `PASS1_SAMPLE_RATIO = 0.2`, `SHORTLIST_MIN_HITS = 2`, `SHORTLIST_TOP_K = 8`.
 
-**Proposta**: começar com `org_id` **apenas nas tabelas que o Analista/Planejador lê** (vod_audits, discovery_prospects, stream_snapshots, monitored_streamers, agent_analyses) + tabelas novas (reports, campaigns). Backfill: todos os dados existentes vão pra uma org "default" do admin (você). Resto fica como está e a gente migra sob demanda.
+2. **`MOSAIC_PROMPT_BASE` → divide em dois prompts**
+   - `MOSAIC_PROMPT_TRIAGE` = prompt atual (renomeado), usado no Pass 1.
+   - `MOSAIC_PROMPT_NARROWED` = nova versão incorporando as regras do template:
+     - HARD RULES (1–5) reescritas em pt-BR.
+     - Bloco "HOW TO IDENTIFY" (título → estrutura → DNA → confusable).
+     - CONFIDENCE calibrada 0–100 mapeada para a saída 0–1 (>=0.90, 0.70–0.89, 0.40–0.69, <0.40) com a regra "abstém se < CONF_THRESHOLD/100".
+     - Adiciona campos `out_of_library: boolean` e `alternatives: [{game_name, confidence}]` na saída.
+     - Texto da CANDIDATE LIST injetado por `buildNarrowedMosaicPrompt(shortlist)` no formato `nome|provedora|palavras` (mesmo formato compacto de hoje, mas só com a shortlist).
 
-### UI mínima
-- Seletor de org no header (dropdown)
-- Página `/admin` ganha aba "Organizações" pra criar org e convidar membros (admin only)
-- `AuthContext` ganha `currentOrg`, `orgs`, `switchOrg()`
+3. **`SAVE_TILES_TOOL`** — acrescentar duas propriedades opcionais:
+   - `out_of_library: { type: "boolean" }`
+   - `alternatives: { type: "array", items: { type: "object", properties: { game_name: {type:["string","null"]}, confidence: {type:"number"} } } }`
+   Sem quebrar tiles já gravados (campos opcionais, fallback `false`/`[]`).
 
----
+4. **Orquestração no handler do chunk** (`processChunk` / loop principal)
+   - Estado novo no `agent_runs` ou no próprio `audit.meta`: `pass1_done: boolean`, `shortlist: string[]`.
+   - Se `pass1_done = false`: roda Pass 1 sobre mosaicos sampleados (cada N-ésimo, conforme `PASS1_SAMPLE_RATIO`). Não grava detecções finais ainda — só agrega `gameCounter` em memória/checkpoint.
+   - Ao terminar amostragem: monta `shortlist` (regras acima), persiste em `audit.meta.shortlist`, marca `pass1_done=true`.
+   - Pass 2 processa todos os mosaicos com `buildNarrowedMosaicPrompt(shortlist)`. Resultados alimentam o pipeline atual (validação contra `game_visual_library`, persistência temporal, blocos).
+   - Tiles com `out_of_library=true` viram `screen_state="gameplay"`, `game_name=null` e entram em métrica `out_of_library_count` (apenas observabilidade, não geram bloco).
 
-## Fase 2 — Analista Virtual
+5. **Validação anti-alucinação existente (linha ~963)**
+   - No Pass 2, fonte de verdade vira a **shortlist** (não a library inteira). Se o modelo devolver um nome fora da shortlist e `out_of_library=false`, downgrade para `null` + log de warning (mesmo padrão atual).
 
-### Backend: edge function `ai-analyst`
-Recebe `{ question }` + JWT do usuário.
+6. **Logs / observabilidade**
+   - `[Watcher ${id}] Pass 1: amostrou X mosaicos, shortlist=[a,b,c]`
+   - `[Watcher ${id}] Pass 2: Y tiles, Z out_of_library, W abaixo do threshold`
 
-**Fluxo:**
-1. Resolver `org_id` ativa via `profiles.current_org_id` (validar membership).
-2. **Geração SQL**: Gemini (`google/gemini-2.5-flash`) recebe schema-dictionary hardcoded (só as tabelas habilitadas + colunas seguras) + pergunta. Retorna SELECT puro.
-3. **Validação rígida**:
-   - Regex: deve começar com `SELECT` (case-insensitive, após trim)
-   - Blacklist: `INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|GRANT|REVOKE|--|/\*|;.*\S`
-   - Whitelist de tabelas/views permitidas
-   - Força `LIMIT 500` se ausente
-   - **Força `WHERE org_id = '<uuid>'`** injetado no parser (não confia no LLM)
-4. **Execução**: usar role read-only do Postgres via RPC `analyst_run_query(sql text)` SECURITY DEFINER que faz `SET LOCAL ROLE analyst_readonly` antes do EXECUTE.
-5. **Resposta**: Gemini sintetiza resposta em PT-BR com os rows.
-6. Retorna `{ answer, rows, sql }`.
+### Sem mudanças
 
-### Backend: cron `weekly-report`
-- Roda toda segunda 9h (pg_cron + pg_net).
-- Para cada org ativa, roda set fixo de queries (top streamers, top jogos, novos influencers, delta vs semana anterior), Gemini gera resumo executivo.
-- Salva em tabela nova `reports (org_id, week_start, summary_text, data jsonb)`.
+- Schema de `vod_audits`, `detections`, `gameplay_blocks` (campos novos vivem em `audit.meta` JSONB e nos logs).
+- Pipeline de persistência temporal, exposure_blocks e geração de relatório.
+- Frontend (`VodAgentReadPanel`, `AuditReportCard`).
 
-### Frontend: nova aba "Analista"
-- Adicionar `analyst` ao `allowed_tabs` no AuthContext
-- Página com:
-  - Chat (input + histórico de mensagens em estado local; sem persistência por enquanto)
-  - Cada resposta: texto + tabela colapsável dos rows + accordion "ver SQL"
-  - 3 perguntas-sugestão clicáveis
-  - Aba lateral: histórico de relatórios semanais
+## Observações
 
----
+- Custo: Pass 1 adiciona ~20% de chamadas. Pass 2 substitui o prompt atual (mesmo número de chamadas que hoje). Total ≈ +20% Gemini calls por VOD, em troca de candidate list narrowed real.
+- Eval set continua sendo o próximo passo manual fora deste plano — `CONF_THRESHOLD` fica como constante facilmente ajustável no topo do arquivo.
+- Se a shortlist sair vazia (VOD sem cassino claro nas amostras), Pass 2 é pulado e o audit termina com 0 detecções — mesma semântica de "VOD não-cassino" de hoje.
 
-## Fase 3 — Planejador de Campanha
+## Como vou verificar
 
-### Backend: edge function `campaign-matchmaker`
-Input: `{ budget, target_games[], target_providers[], region, objective, notes }`.
-
-1. Query candidatos: `discovery_prospects` + cruzar com `vod_audits` (quem expôs target_games/providers historicamente) — escopado por `org_id`.
-2. Para cada candidato calcular **score** (0-100):
-   - 40% relevância (qtd segundos de exposição ao target nos últimos 90d)
-   - 25% engajamento (eng_rate do discovery_prospects)
-   - 20% alcance (viewer_minutes médio)
-   - 15% aderência região/objetivo
-3. **Alcance estimado** = avg(concurrent_viewers) × duração esperada da live (heurística: 4h)
-4. **Faixa de custo** por tier:
-   - Nano <10k seg: R$ 200-800
-   - Micro 10-50k: R$ 800-3k
-   - Mid 50-200k: R$ 3-15k
-   - Macro 200k+: R$ 15-80k
-   - Tiers editáveis em tabela `pricing_tiers (org_id, tier_name, min_followers, max_followers, min_price, max_price)`
-5. Gemini gera justificativa curta (1-2 frases) por perfil contra o briefing.
-6. "Encaixe orçamentário": greedy fit dos top N que cabem no budget.
-
-### Tabela
-- `campaigns (org_id, name, briefing jsonb, results jsonb, created_at, created_by)` para salvar/reusar briefings.
-
-### Frontend: nova aba "Planejador"
-- Formulário do briefing
-- Resultado: header com "Com R$ X você consegue ~N perfis, alcance ~Y"
-- Cards ranqueados (perfil, score, alcance, faixa custo, justificativa)
-- Botão "Salvar campanha" e "Exportar Excel/PDF" (segue padrão do projeto)
-- Botão "Gerar abordagem" desabilitado por enquanto (Fase 4 futura = agente #4)
-
----
-
-## Detalhes técnicos importantes
-
-### Multi-org sem refazer 28 tabelas
-- Helper `get_org_scoped(table, org_id)` na edge function que sabe quais tabelas têm `org_id` e quais ainda usam global.
-- Marcamos tabelas migradas em comentário SQL pra rastreio.
-
-### Segurança SQL livre
-- Role Postgres `analyst_readonly` com GRANT SELECT só em views específicas `analyst_v_*` (nunca tabela raw).
-- Cada view já tem `WHERE org_id = current_setting('app.current_org_id')::uuid`.
-- Edge function faz `SET LOCAL app.current_org_id = '<uuid>'` antes de rodar a query.
-- Isso é **defense in depth**: mesmo se LLM injetar SQL malicioso e regex falhar, a view filtra.
-
-### Modelo Gemini
-- `google/gemini-2.5-flash` para SQL e síntese (rápido, barato, bom em estrutura).
-- Sem streaming na v1 (relatório aguarda completar; chat retorna resposta inteira).
-
----
-
-## Ordem de entrega
-
-1. **Fase 1** (1 migration grande + UI seletor de org) → testar criação/troca de org
-2. **Fase 2** (edge function + RPC + cron + aba Analista) → testar pergunta real
-3. **Fase 3** (edge function + tabelas + aba Planejador) → testar briefing real
-
-Cada fase eu paro e peço sua validação antes da próxima.
-
----
-
-## O que NÃO está incluído
-
-- Outreach Writer, Alertas, Compliance (agentes 3, 4, 5) — depois
-- Migração das outras 23 tabelas pra `org_id` — sob demanda
-- Convite de membros por email — começa só com `INSERT` manual via Admin
-- Persistência de chat do Analista — v1 é só estado local
-- Streaming de resposta — v1 retorna resposta completa
+- Lint/typecheck automático após o edit.
+- `supabase--test_edge_functions` com um VOD curto já conhecido para conferir que (a) Pass 1 gera shortlist, (b) Pass 2 respeita ela, (c) `out_of_library_count` aparece nos logs.
