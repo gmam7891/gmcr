@@ -1212,6 +1212,8 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           evidence: det.evidence || null,
           is_unknown_game: isUnknownGame,
           library_matched: libraryMatched,
+          out_of_library: outOfLibrary,
+          alternatives: Array.isArray(det.alternatives) ? det.alternatives.slice(0, 3) : [],
         };
 
 
