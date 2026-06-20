@@ -41,6 +41,12 @@ const GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
 const MOSAICS_PER_CHUNK = 8;          // process up to 8 storyboard mosaics per HTTP chunk (was 4 — too thin for medium variant)
 const CHECKPOINT_FRAMES = 50;         // persist progress every N frames within a chunk
 const MAX_RETRIES = 3;                // exponential backoff retries for AI / Twitch
+// ── Two-pass detection tuning ────────────────────────────────────────────────
+const CONF_THRESHOLD = 70;            // 0-100, calibrated. Pass-2 below this → abstain.
+const PASS1_SAMPLE_EVERY = 5;         // pass-1 scans 1 of every N mosaics (~20% triage)
+const SHORTLIST_MIN_HITS = 2;         // a game needs ≥N hits in pass-1 to enter the shortlist
+const SHORTLIST_HIGH_CONF = 0.7;      // OR one detection ≥ this confidence
+const SHORTLIST_TOP_K = 8;            // safety net: always keep the top-K most-counted games
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY") || "";
