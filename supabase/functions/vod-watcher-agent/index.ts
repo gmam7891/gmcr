@@ -1132,32 +1132,33 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
           ? rawScreenState
           : "other";
 
-        // ── Validação contra game_visual_library (anti-alucinação) ──────────
-        // Confidence floor: each trained game can have its own threshold
-        // (agent_confidence_threshold), set during training by the
-        // intelligent-vod-agent solo pipeline. Falls back to 0.5 for games
-        // that don't have a calibrated threshold yet.
-        const DEFAULT_LIBRARY_MATCH_FLOOR = 0.5;
-        const UNKNOWN_GAME_CONF_FLOOR = 0.55;
+        // ── Validação contra SHORTLIST (pass-2, anti-alucinação) ───────────
+        // Source of truth in pass-2 = shortlistIndex (≤ K games from pass-1).
+        // The narrowed prompt also exposes out_of_library + CONF_THRESHOLD.
+        const DEFAULT_LIBRARY_MATCH_FLOOR = Math.max(0.5, CONF_THRESHOLD / 100);
         const isUnknownGame = !!det.is_unknown_game;
+        const outOfLibrary = !!det.out_of_library;
         let validatedGameName: string | null = null;
         let validatedProvider: string | null = null;
         let libraryMatched = false;
 
-        if (det.game_name && (screenState === "gameplay" || screenState === "loading")) {
+        if (outOfLibrary) outOfLibraryCount++;
+
+        if (det.game_name && (screenState === "gameplay" || screenState === "loading") && !outOfLibrary) {
           const rawGame = String(det.game_name).trim();
-          const match = libraryIndex.get(gameMatchKey(rawGame));
+          const match = shortlistIndex.get(gameMatchKey(rawGame));
           const effectiveFloor = match?.confidenceThreshold ?? DEFAULT_LIBRARY_MATCH_FLOOR;
 
           if (match && conf >= effectiveFloor) {
-            // Match canônico na biblioteca COM confiança suficiente
+            // Match dentro da shortlist E acima do threshold calibrado
             validatedGameName = match.name;
             validatedProvider = match.provider;
             libraryMatched = true;
           } else if (match) {
-            // Está na biblioteca mas confiança baixa → provavelmente chute
+            // Está na shortlist mas abaixo do threshold → absteve
+            belowThresholdCount++;
             console.warn(
-              `[Watcher ${audit.id}] Discarding low-confidence library guess: "${rawGame}" ` +
+              `[Watcher ${audit.id}] Pass-2 abstention (below threshold): "${rawGame}" ` +
               `(conf=${conf.toFixed(2)} < ${effectiveFloor}). evidence="${det.evidence || ""}"`,
             );
             rejectedRows.push({
@@ -1168,21 +1169,15 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
               proposed_game: rawGame,
               proposed_provider: match.provider,
               confidence: conf,
-              reason: "low_confidence_library_match",
+              reason: "below_conf_threshold",
               evidence: det.evidence || null,
-              raw_payload: { screen_state: screenState, det },
+              raw_payload: { screen_state: screenState, det, alternatives: det.alternatives || [] },
             });
-          } else if (isUnknownGame && conf >= UNKNOWN_GAME_CONF_FLOOR) {
-            // Fora da biblioteca, mas Gemini admitiu — aceita com flag
-            validatedGameName = rawGame.slice(0, 80);
-            validatedProvider = det.provider_name
-              ? normalizeProviderName(String(det.provider_name).trim().slice(0, 50))
-              : null;
           } else {
-            // Tentou retornar jogo fora da biblioteca SEM admitir incerteza → alucinação
+            // Modelo retornou nome fora da shortlist sem marcar out_of_library
             console.warn(
-              `[Watcher ${audit.id}] Discarding hallucinated game: "${rawGame}" ` +
-              `(not in library, is_unknown_game=${isUnknownGame}, conf=${conf.toFixed(2)})`,
+              `[Watcher ${audit.id}] Pass-2 dropped name outside shortlist: "${rawGame}" ` +
+              `(conf=${conf.toFixed(2)}, alternatives=${(det.alternatives || []).length})`,
             );
             rejectedRows.push({
               vod_id: audit.vod_id,
@@ -1192,9 +1187,9 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
               proposed_game: rawGame,
               proposed_provider: det.provider_name || null,
               confidence: conf,
-              reason: isUnknownGame ? "unknown_game_low_confidence" : "hallucinated_outside_library",
+              reason: "outside_shortlist",
               evidence: det.evidence || null,
-              raw_payload: { screen_state: screenState, det },
+              raw_payload: { screen_state: screenState, det, alternatives: det.alternatives || [] },
             });
           }
         }
