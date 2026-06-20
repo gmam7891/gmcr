@@ -829,6 +829,26 @@ Deno.serve(async (req) => {
     const endIdx = Math.min(startIdx + MOSAICS_PER_CHUNK, plan.mosaics.length);
 
     if (startIdx >= plan.mosaics.length) {
+      // Pass-1 just finished? Build shortlist, reset cursor, kick pass-2.
+      if (!plan.pass1_done) {
+        const finalized = finalizeShortlist(plan.shortlist_counts || {});
+        plan.shortlist = finalized;
+        plan.pass1_done = true;
+        plan.processed_mosaic = 0;
+        await sb.from("vod_audits").update({
+          progress_message: `Triagem (pass-1) concluída. Shortlist: ${finalized.length} jogos. Iniciando análise final...`,
+          last_checkpoint_at: new Date().toISOString(),
+          pending_audit_segments: { plan, flagged } as any,
+        }).eq("id", audit_id);
+        console.log(`[Watcher ${audit_id}] Pass-1 done. shortlist=${JSON.stringify(finalized)}`);
+        if (finalized.length === 0) {
+          // Nothing found → finalize empty audit, no point running pass-2.
+          await finalizeAudit(sb, audit, flagged);
+          return jsonResponse({ status: "completed", reason: "empty_shortlist" });
+        }
+        selfInvokeResume(audit_id);
+        return jsonResponse({ status: "pass1_done", shortlist: finalized });
+      }
       await finalizeAudit(sb, audit, flagged);
       return jsonResponse({ status: "completed" });
     }
