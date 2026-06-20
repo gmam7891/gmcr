@@ -1343,23 +1343,32 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
 
     // Update progress + plan (final state for this chunk)
     plan.processed_mosaic = endIdx;
+    plan.shortlist_counts = shortlistCounts;
     const processedFrames = endIdx * (plan.mosaics[0]?.cols || 5) * (plan.mosaics[0]?.rows || 10);
     const cappedProcessed = Math.min(processedFrames, audit.expected_frames || processedFrames);
     const currentMin = Math.round(((endIdx / plan.mosaics.length) * (audit.vod_duration_seconds || 0)) / 60);
 
-    const { data: gamesCount } = await sb
-      .from("stream_snapshots")
-      .select("game_detected")
-      .eq("vod_id", audit.vod_id)
-      .eq("source", "storyboard")
-      .not("game_detected", "is", null);
-    const uniqueGames = new Set((gamesCount || []).map((r: any) => r.game_detected)).size;
+    let progressMessage: string;
+    let uniqueGames = 0;
+    if (!pass1Done) {
+      const distinct = Object.keys(shortlistCounts).length;
+      progressMessage = `Triagem (pass-1) ${endIdx}/${plan.mosaics.length} mosaicos | ${distinct} candidatos`;
+    } else {
+      const { data: gamesCount } = await sb
+        .from("stream_snapshots")
+        .select("game_detected")
+        .eq("vod_id", audit.vod_id)
+        .eq("source", "storyboard")
+        .not("game_detected", "is", null);
+      uniqueGames = new Set((gamesCount || []).map((r: any) => r.game_detected)).size;
+      progressMessage = `Análise final (pass-2) ${endIdx}/${plan.mosaics.length} | ${uniqueGames} jogos (+${totalDetectionsThisChunk} frames, out_of_lib=${outOfLibraryCount}, below_thr=${belowThresholdCount})`;
+    }
 
     await sb.from("vod_audits").update({
       progress_phase: "analyzing",
       progress_current_minute: currentMin,
       progress_games_found: uniqueGames,
-      progress_message: `Agente assistindo... mosaico ${endIdx}/${plan.mosaics.length} | ${uniqueGames} jogos detectados (+${totalDetectionsThisChunk} frames)`,
+      progress_message: progressMessage,
       processed_frames: cappedProcessed,
       last_checkpoint_at: new Date().toISOString(),
       pending_audit_segments: { plan, flagged } as any,
@@ -1369,9 +1378,30 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       selfInvokeResume(audit_id);
       return jsonResponse({
         status: "chunk_done",
+        pass: pass1Done ? 2 : 1,
         processed_mosaic: endIdx,
         total_mosaics: plan.mosaics.length,
       });
+    }
+
+    // End of mosaics for this pass. If pass-1, transition to pass-2.
+    if (!pass1Done) {
+      const finalized = finalizeShortlist(shortlistCounts);
+      plan.shortlist = finalized;
+      plan.pass1_done = true;
+      plan.processed_mosaic = 0;
+      await sb.from("vod_audits").update({
+        progress_message: `Triagem (pass-1) concluída. Shortlist: ${finalized.length} jogos. Iniciando análise final...`,
+        last_checkpoint_at: new Date().toISOString(),
+        pending_audit_segments: { plan, flagged } as any,
+      }).eq("id", audit_id);
+      console.log(`[Watcher ${audit_id}] Pass-1 done. shortlist=${JSON.stringify(finalized)}`);
+      if (finalized.length === 0) {
+        await finalizeAudit(sb, audit, flagged);
+        return jsonResponse({ status: "completed", reason: "empty_shortlist" });
+      }
+      selfInvokeResume(audit_id);
+      return jsonResponse({ status: "pass1_done", shortlist: finalized });
     }
 
     await finalizeAudit(sb, audit, flagged);
