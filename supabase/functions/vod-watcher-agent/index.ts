@@ -1065,7 +1065,7 @@ Use a categoria Twitch apenas como contexto secundário; identifique cassino som
       const isCasinoChapter = casinoHints.some((k) => chapterCategory.toLowerCase().includes(k));
       if (isCasinoChapter && detections.length === 0) {
         const retry = await callAI([
-          { role: "system", content: mosaicPrompt + "\n\nESTE MOSAICO COBRE PERÍODO CONFIRMADO COMO CASSINO. Identifique TODOS os tiles que tenham slot/cassino visível, mesmo se a thumb for baixa resolução." },
+          { role: "system", content: activePrompt + "\n\nESTE MOSAICO COBRE PERÍODO CONFIRMADO COMO CASSINO. Identifique TODOS os tiles que tenham slot/cassino visível, mesmo se a thumb for baixa resolução." },
           { role: "user", content: [
             { type: "text", text: userText },
             { type: "image_url", image_url: { url: mosaic.url, detail: "high" } },
