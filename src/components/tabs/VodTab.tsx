@@ -67,6 +67,7 @@ export function VodTab() {
   const [singleVod, setSingleVod] = useState<TwitchVod | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"single" | "channel" | null>(null);
+  const [analysisScope, setAnalysisScope] = useState<"all" | "igaming">("igaming");
 
   const [chaptersMap, setChaptersMap] = useState<Record<string, VodChapter[]>>({});
   const [loadingChapters, setLoadingChapters] = useState<string | null>(null);
