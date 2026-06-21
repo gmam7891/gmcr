@@ -706,26 +706,30 @@ export function VodTab() {
                       {hasChapters && hasChapters.length > 0 && (
                         <ChapterDisplay chapters={hasChapters} compact />
                       )}
-                      {showProgress && auditProgress && (
-                        <VodAuditProgressBar progress={auditProgress} />
-                      )}
-                      {scanErr && (
-                        <div className="text-xs text-destructive border border-destructive/30 rounded p-2">
-                          ⚠ {scanErr}
-                        </div>
-                      )}
-                      {auditId && (
-                        <AuditReportCard auditId={auditId} autoLoad />
-                      )}
-                      <VodAgentReadPanel vodId={vod.id} streamerLogin={vod.user_login} />
-                      {!hasAudit && !isScanning && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => analyzeWithAI(vod)}
-                        >
-                          {t("vod.ai_deep_scan")}
-                        </Button>
+                      {analysisScope === "igaming" && (
+                        <>
+                          {showProgress && auditProgress && (
+                            <VodAuditProgressBar progress={auditProgress} />
+                          )}
+                          {scanErr && (
+                            <div className="text-xs text-destructive border border-destructive/30 rounded p-2">
+                              ⚠ {scanErr}
+                            </div>
+                          )}
+                          {auditId && (
+                            <AuditReportCard auditId={auditId} autoLoad />
+                          )}
+                          <VodAgentReadPanel vodId={vod.id} streamerLogin={vod.user_login} />
+                          {!hasAudit && !isScanning && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => analyzeWithAI(vod)}
+                            >
+                              {t("vod.ai_deep_scan")}
+                            </Button>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
