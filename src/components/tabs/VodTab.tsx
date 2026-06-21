@@ -682,20 +682,22 @@ export function VodTab() {
                     ) : (
                       <span className="text-xs text-muted-foreground">🔍 Chapters</span>
                     )}
-                    {isScanning ? (
-                      <div className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-                    ) : hasAudit ? (
-                      <span className="text-xs text-accent">🤖 ✓</span>
-                    ) : (
-                      <button
-                        className="text-xs text-muted-foreground hover:text-accent"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          analyzeWithAI(vod);
-                        }}
-                      >
-                        🤖 Scan IA
-                      </button>
+                    {analysisScope === "igaming" && (
+                      isScanning ? (
+                        <div className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                      ) : hasAudit ? (
+                        <span className="text-xs text-accent">🤖 ✓</span>
+                      ) : (
+                        <button
+                          className="text-xs text-muted-foreground hover:text-accent"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            analyzeWithAI(vod);
+                          }}
+                        >
+                          🤖 Scan IA
+                        </button>
+                      )
                     )}
                   </div>
 
