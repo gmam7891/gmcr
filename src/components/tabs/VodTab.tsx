@@ -599,31 +599,35 @@ export function VodTab() {
                               <ChapterDisplay chapters={hasChapters} compact />
                             )}
 
-                            {showProgress && auditProgress && (
-                              <VodAuditProgressBar progress={auditProgress} />
-                            )}
+                            {analysisScope === "igaming" && (
+                              <>
+                                {showProgress && auditProgress && (
+                                  <VodAuditProgressBar progress={auditProgress} />
+                                )}
 
-                            {scanErr && (
-                              <div className="text-xs text-destructive border border-destructive/30 rounded p-2">
-                                ⚠ Erro ao iniciar scan: {scanErr}
-                              </div>
-                            )}
+                                {scanErr && (
+                                  <div className="text-xs text-destructive border border-destructive/30 rounded p-2">
+                                    ⚠ Erro ao iniciar scan: {scanErr}
+                                  </div>
+                                )}
 
-                            {auditId && (
-                              <AuditReportCard auditId={auditId} autoLoad />
-                            )}
+                                {auditId && (
+                                  <AuditReportCard auditId={auditId} autoLoad />
+                                )}
 
-                            <VodAgentReadPanel vodId={vod.id} streamerLogin={vod.user_login} />
+                                <VodAgentReadPanel vodId={vod.id} streamerLogin={vod.user_login} />
 
-                            {!hasAudit && !isScanning && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => analyzeWithAI(vod)}
-                                disabled={isScanning}
-                              >
-                                {t("vod.ai_deep_scan")}
-                              </Button>
+                                {!hasAudit && !isScanning && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => analyzeWithAI(vod)}
+                                    disabled={isScanning}
+                                  >
+                                    {t("vod.ai_deep_scan")}
+                                  </Button>
+                                )}
+                              </>
                             )}
                           </div>
                         )}
