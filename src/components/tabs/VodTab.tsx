@@ -347,6 +347,40 @@ export function VodTab() {
         </Button>
       </div>
 
+      <div className="card-surface p-2 inline-flex items-center gap-1 self-start">
+        <button
+          type="button"
+          onClick={() => setAnalysisScope("all")}
+          className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+            analysisScope === "all"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {language === "pt" ? "Todas as categorias" : "All categories"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setAnalysisScope("igaming")}
+          className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+            analysisScope === "igaming"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          iGaming
+        </button>
+        <span className="text-[11px] text-muted-foreground ml-2 pr-2">
+          {analysisScope === "igaming"
+            ? language === "pt"
+              ? "Inclui varredura visual de cassino (IA)"
+              : "Includes casino visual AI scan"
+            : language === "pt"
+              ? "Somente chapters/categorias da Twitch"
+              : "Twitch chapters/categories only"}
+        </span>
+      </div>
+
       {loading && (
         <div className="card-surface p-6 text-center">
           <div className="inline-block w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
