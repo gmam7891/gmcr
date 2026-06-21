@@ -430,50 +430,54 @@ export function VodTab() {
               </div>
             )}
 
-            {!auditId && (
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => analyzeWithAI(singleVod)}
-                  disabled={isScanning}
-                >
-                  {isScanning ? `🤖 Iniciando agente...` : t("vod.ai_deep_scan")}
-                </Button>
-                <span className="text-xs text-muted-foreground">{t("vod.ai_deep_desc")}</span>
-              </div>
-            )}
-
-            {scanErr && (
-              <div className="card-surface border-destructive/30 p-3 text-xs text-destructive">
-                ⚠ Erro ao iniciar scan: {scanErr}
-              </div>
-            )}
-
-            {showProgress && auditProgress && (
-              <VodAuditProgressBar progress={auditProgress} />
-            )}
-
-            {auditId && (
+            {analysisScope === "igaming" && (
               <>
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => analyzeWithAI(singleVod, true)}
-                    disabled={isScanning}
-                  >
-                    {isScanning ? "🔄 Iniciando releitura..." : "🔄 Reler VOD"}
-                  </Button>
-                  <span className="text-xs text-muted-foreground">
-                    Inicia uma nova auditoria do zero (a anterior fica no histórico).
-                  </span>
-                </div>
-                <AuditReportCard auditId={auditId} autoLoad />
+                {!auditId && (
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => analyzeWithAI(singleVod)}
+                      disabled={isScanning}
+                    >
+                      {isScanning ? `🤖 Iniciando agente...` : t("vod.ai_deep_scan")}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">{t("vod.ai_deep_desc")}</span>
+                  </div>
+                )}
+
+                {scanErr && (
+                  <div className="card-surface border-destructive/30 p-3 text-xs text-destructive">
+                    ⚠ Erro ao iniciar scan: {scanErr}
+                  </div>
+                )}
+
+                {showProgress && auditProgress && (
+                  <VodAuditProgressBar progress={auditProgress} />
+                )}
+
+                {auditId && (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => analyzeWithAI(singleVod, true)}
+                        disabled={isScanning}
+                      >
+                        {isScanning ? "🔄 Iniciando releitura..." : "🔄 Reler VOD"}
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        Inicia uma nova auditoria do zero (a anterior fica no histórico).
+                      </span>
+                    </div>
+                    <AuditReportCard auditId={auditId} autoLoad />
+                  </>
+                )}
+
+                <VodAgentReadPanel vodId={singleVod.id} streamerLogin={singleVod.user_login} />
               </>
             )}
-
-            <VodAgentReadPanel vodId={singleVod.id} streamerLogin={singleVod.user_login} />
           </div>
         );
       })()}
