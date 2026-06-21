@@ -189,12 +189,12 @@ Deno.serve(async (req) => {
         method: 'POST',
         headers: { 'Client-ID': GQL_CLIENT_ID, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          operationName: "VideoPlayer_ChapterSelectButtonVideo",
-          variables: { videoID: String(vod_id) },
-          extensions: { persistedQuery: { version: 1, sha256Hash: "8d2793384aac3773beab5e59bd5d6f585aedb923d292800571571c2d1f41881c" } }
+          query: `query VodChapters($id: ID!) { video(id: $id) { lengthSeconds moments(momentRequestType: VIDEO_CHAPTER_MARKERS) { edges { node { description positionMilliseconds durationMilliseconds details { ... on GameChangeMomentDetails { game { id displayName boxArtURL } } } } } } } }`,
+          variables: { id: String(vod_id) },
         }),
       });
       const gqlData = await gqlRes.json();
+      if (gqlData?.errors) console.warn('[get_vod_chapters] GQL errors:', JSON.stringify(gqlData.errors));
       const moments = gqlData?.data?.video?.moments?.edges ?? [];
       const chapters = moments.map((edge: any) => {
         const node = edge.node;
