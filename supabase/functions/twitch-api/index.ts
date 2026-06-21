@@ -193,10 +193,7 @@ Deno.serve(async (req) => {
           variables: { id: String(vod_id) },
         }),
       });
-      const rawText = await gqlRes.text();
-      console.log('[get_vod_chapters] vod_id=', vod_id, 'status=', gqlRes.status, 'body=', rawText.slice(0, 800));
-      let gqlData: any = {};
-      try { gqlData = JSON.parse(rawText); } catch (_) {}
+      const gqlData = await gqlRes.json().catch(() => ({}));
       if (gqlData?.errors) console.warn('[get_vod_chapters] GQL errors:', JSON.stringify(gqlData.errors));
       const moments = gqlData?.data?.video?.moments?.edges ?? [];
       const chapters = moments.map((edge: any) => {
