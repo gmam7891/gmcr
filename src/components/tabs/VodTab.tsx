@@ -572,7 +572,9 @@ export function VodTab() {
                             )}
                           </div>
                           <div className="p-3 text-center w-16">
-                            {isScanning ? (
+                            {analysisScope !== "igaming" ? (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            ) : isScanning ? (
                               <div className="inline-block w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
                             ) : hasAudit ? (
                               <span className="text-xs text-accent">✓</span>
