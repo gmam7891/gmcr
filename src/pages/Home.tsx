@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
-import { Shield, LogOut, ArrowRight, BarChart3, Instagram, Tv, Youtube, Monitor, Zap, Search, Video, Target, Globe, ScanLine } from "lucide-react";
+import { Shield, LogOut, ArrowRight, BarChart3, Instagram, Tv, Youtube, Monitor, Zap, Search, Video, Target, Globe, ScanLine, Sparkles } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
 import type { TranslationKey } from "@/lib/translations";
@@ -28,6 +28,8 @@ const modules: ModuleConfig[] = [
   { id: "monitor", icon: Monitor, titleKey: "mod.monitor.title", descKey: "mod.monitor.desc", color: "from-cyan-500/20 to-cyan-600/10" },
   { id: "simulator", icon: Zap, titleKey: "mod.simulator.title", descKey: "mod.simulator.desc", color: "from-yellow-500/20 to-yellow-600/10" },
   { id: "authenticity", icon: Search, titleKey: "mod.authenticity.title", descKey: "mod.authenticity.desc", color: "from-emerald-500/20 to-emerald-600/10" },
+  { id: "analyst", icon: Sparkles, titleKey: "mod.analyst.title", descKey: "mod.analyst.desc", color: "from-indigo-500/20 to-indigo-600/10" },
+  { id: "planner", icon: Target, titleKey: "mod.planner.title", descKey: "mod.planner.desc", color: "from-rose-500/20 to-rose-600/10" },
 ];
 
 const Home = () => {
