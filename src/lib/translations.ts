@@ -60,6 +60,10 @@ const pt = {
   "mod.authenticity.desc": "Analise a autenticidade da audiência de streamers. Detecte padrões suspeitos de engajamento e obtenha um score de confiabilidade.",
   "mod.scanner.title": "Casino Scanner",
   "mod.scanner.desc": "Plataforma completa de monitoramento e analytics para iGaming. Detecção de jogos, provedoras, análise de VODs, sentimento de chat e relatórios.",
+  "mod.analyst.title": "Analista",
+  "mod.analyst.desc": "Converse com o analista de dados IA. Tire dúvidas, gere relatórios executivos semanais e obtenha insights estratégicos sobre seus dados.",
+  "mod.planner.title": "Planejador",
+  "mod.planner.desc": "Planeje campanhas de marketing com influenciadores. Defina budget, targets e gere recomendações personalizadas de candidatos.",
 
   // Index / expired
   "index.expired_title": "Starklytic",
@@ -833,6 +837,10 @@ const en: Record<keyof typeof pt, string> = {
   "mod.authenticity.desc": "Analyze streamer audience authenticity. Detect suspicious engagement patterns and get a reliability score.",
   "mod.scanner.title": "Casino Scanner",
   "mod.scanner.desc": "Complete monitoring and analytics platform for iGaming. Game detection, providers, VOD analysis, chat sentiment, and reports.",
+  "mod.analyst.title": "Analyst",
+  "mod.analyst.desc": "Chat with the AI data analyst. Ask questions, generate weekly executive reports, and get strategic insights from your data.",
+  "mod.planner.title": "Planner",
+  "mod.planner.desc": "Plan influencer marketing campaigns. Define budget, targets, and generate personalized candidate recommendations.",
 
   // Index / expired
   "index.expired_title": "Starklytic",
