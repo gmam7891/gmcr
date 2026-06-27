@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.intelligent-vod-agent]
 verify_jwt = false
+
+[functions.twitch-vod-chapters]
+verify_jwt = false
