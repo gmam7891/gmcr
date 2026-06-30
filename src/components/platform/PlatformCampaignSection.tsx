@@ -13,13 +13,15 @@ interface Props {
   platformReach: number;
   /** Fee already set in the platform section */
   fee: number;
+  /** Platform name shown in the section title (e.g. "Twitch", "YouTube", "Kick") */
+  platformLabel?: string;
 }
 
 /**
  * Reusable campaign calculator section for streaming platforms (Twitch, YouTube, Kick, TikTok).
  * Takes the platform's base reach and fee, then applies campaign-type-specific calculations.
  */
-export function PlatformCampaignSection({ platformReach, fee }: Props) {
+export function PlatformCampaignSection({ platformReach, fee, platformLabel }: Props) {
   const { t } = useLanguage();
   const [campaignType, setCampaignType] = useState<CampaignType>("igaming");
   const [values, setValues] = useState<Record<string, number>>({});
@@ -58,7 +60,7 @@ export function PlatformCampaignSection({ platformReach, fee }: Props) {
     <div className="space-y-5">
       <div>
         <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          {t("ig.title")}
+          {platformLabel ? `${platformLabel} Campaign Calculator` : t("ig.title")}
         </h3>
         <CampaignTypeSelector value={campaignType} onChange={setCampaignType} />
       </div>
