@@ -68,6 +68,7 @@ export function VodTab() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"single" | "channel" | null>(null);
   const [analysisScope, setAnalysisScope] = useState<"all" | "igaming">("igaming");
+  const [periodDays, setPeriodDays] = useState<number>(30);
 
   const [chaptersMap, setChaptersMap] = useState<Record<string, VodChapter[]>>({});
   const [loadingChapters, setLoadingChapters] = useState<string | null>(null);
@@ -158,7 +159,7 @@ export function VodTab() {
         setChaptersMap({ [vodId]: chapters });
         setExpandedVod(vodId);
 
-        const channelVods = await getVods(vod.user_id, 20);
+        const channelVods = await getVods(vod.user_id, 100);
         setVods(channelVods);
       } else {
         const login = input
@@ -167,7 +168,7 @@ export function VodTab() {
           .toLowerCase();
         const user = await getUser(login);
         if (!user) throw new Error(t("vod.channel_not_found"));
-        const channelVods = await getVods(user.id, 20);
+        const channelVods = await getVods(user.id, 100);
         setVods(channelVods);
         setMode("channel");
       }
@@ -262,8 +263,13 @@ export function VodTab() {
     return aggregateChapters(allChapters);
   }, [chaptersMap]);
 
-  const totalViews = vods.reduce((s, v) => s + v.view_count, 0);
-  const totalHours = vods.reduce((s, v) => s + parseDuration(v.duration) / 60, 0);
+  const filteredVods = useMemo(() => {
+    const cutoff = Date.now() - periodDays * 86400000;
+    return vods.filter((v) => new Date(v.created_at).getTime() >= cutoff);
+  }, [vods, periodDays]);
+
+  const totalViews = filteredVods.reduce((s, v) => s + v.view_count, 0);
+  const totalHours = filteredVods.reduce((s, v) => s + parseDuration(v.duration) / 60, 0);
   const avgViewsPerHour = totalHours > 0 ? totalViews / totalHours : 0;
 
   const downloadExcel = () => {
@@ -271,7 +277,7 @@ export function VodTab() {
       ["VOD Analyzer - Relatório"],
       [""],
       ["Resumo", ""],
-      ["Total VODs", vods.length],
+      ["Total VODs", filteredVods.length],
       ["Total views", totalViews],
       ["Total horas", `${totalHours.toFixed(1)}h`],
       ["Avg views/hora", Math.round(avgViewsPerHour)],
@@ -279,7 +285,7 @@ export function VodTab() {
       ["VODs", "", "", "", ""],
       ["Título", "Duração", "Views", "Views/h", "Data"],
     ];
-    for (const vod of vods) {
+    for (const vod of filteredVods) {
       const mins = parseDuration(vod.duration);
       const hours = mins / 60;
       const vph = hours > 0 ? vod.view_count / hours : 0;
@@ -299,7 +305,7 @@ export function VodTab() {
   };
 
   const analyzeAllVods = async () => {
-    for (const vod of vods) {
+    for (const vod of filteredVods) {
       if (!chaptersMap[vod.id]) {
         setLoadingChapters(vod.id);
         try {
@@ -379,6 +385,26 @@ export function VodTab() {
               ? "Somente chapters/categorias da Twitch"
               : "Twitch chapters/categories only"}
         </span>
+      </div>
+
+      <div className="card-surface p-2 inline-flex flex-wrap items-center gap-1 self-start">
+        <span className="text-[11px] text-muted-foreground px-2 uppercase tracking-wider">
+          {language === "pt" ? "Período" : "Period"}
+        </span>
+        {[7, 14, 30, 90, 180].map((d) => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => setPeriodDays(d)}
+            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+              periodDays === d
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {d}d
+          </button>
+        ))}
       </div>
 
       {loading && (
@@ -495,7 +521,7 @@ export function VodTab() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-              {mode === "single" ? t("vod.other_vods") : t("vod.channel_vods")} ({vods.length})
+              {mode === "single" ? t("vod.other_vods") : t("vod.channel_vods")} ({filteredVods.length})
             </h3>
             <Button variant="outline" size="sm" onClick={analyzeAllVods} disabled={!!loadingChapters}>
               {loadingChapters ? t("vod.analyzing") : t("vod.analyze_all")}
@@ -503,7 +529,7 @@ export function VodTab() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-            <MetricCard label={t("vod.total_vods")} value={fmtInt(vods.length)} />
+            <MetricCard label={t("vod.total_vods")} value={fmtInt(filteredVods.length)} />
             <MetricCard label={t("yt.total_views")} value={fmtInt(totalViews)} />
             <MetricCard label={t("yt.total_hours")} value={`${totalHours.toFixed(1)}h`} />
             <MetricCard
@@ -527,7 +553,7 @@ export function VodTab() {
                 </tr>
               </thead>
               <tbody>
-                {vods.map((vod) => {
+                {filteredVods.map((vod) => {
                   const mins = parseDuration(vod.duration);
                   const hours = mins / 60;
                   const vph = hours > 0 ? vod.view_count / hours : 0;
@@ -640,7 +666,7 @@ export function VodTab() {
           </div>
 
           <div className="space-y-2 md:hidden">
-            {vods.map((vod) => {
+            {filteredVods.map((vod) => {
               const mins = parseDuration(vod.duration);
               const hours = mins / 60;
               const vph = hours > 0 ? vod.view_count / hours : 0;
