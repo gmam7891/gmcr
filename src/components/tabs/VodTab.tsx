@@ -277,7 +277,7 @@ export function VodTab() {
       ["VOD Analyzer - Relatório"],
       [""],
       ["Resumo", ""],
-      ["Total VODs", vods.length],
+      ["Total VODs", filteredVods.length],
       ["Total views", totalViews],
       ["Total horas", `${totalHours.toFixed(1)}h`],
       ["Avg views/hora", Math.round(avgViewsPerHour)],
@@ -285,7 +285,7 @@ export function VodTab() {
       ["VODs", "", "", "", ""],
       ["Título", "Duração", "Views", "Views/h", "Data"],
     ];
-    for (const vod of vods) {
+    for (const vod of filteredVods) {
       const mins = parseDuration(vod.duration);
       const hours = mins / 60;
       const vph = hours > 0 ? vod.view_count / hours : 0;
@@ -305,7 +305,7 @@ export function VodTab() {
   };
 
   const analyzeAllVods = async () => {
-    for (const vod of vods) {
+    for (const vod of filteredVods) {
       if (!chaptersMap[vod.id]) {
         setLoadingChapters(vod.id);
         try {
@@ -501,7 +501,7 @@ export function VodTab() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-              {mode === "single" ? t("vod.other_vods") : t("vod.channel_vods")} ({vods.length})
+              {mode === "single" ? t("vod.other_vods") : t("vod.channel_vods")} ({filteredVods.length})
             </h3>
             <Button variant="outline" size="sm" onClick={analyzeAllVods} disabled={!!loadingChapters}>
               {loadingChapters ? t("vod.analyzing") : t("vod.analyze_all")}
@@ -509,7 +509,7 @@ export function VodTab() {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-            <MetricCard label={t("vod.total_vods")} value={fmtInt(vods.length)} />
+            <MetricCard label={t("vod.total_vods")} value={fmtInt(filteredVods.length)} />
             <MetricCard label={t("yt.total_views")} value={fmtInt(totalViews)} />
             <MetricCard label={t("yt.total_hours")} value={`${totalHours.toFixed(1)}h`} />
             <MetricCard
@@ -533,7 +533,7 @@ export function VodTab() {
                 </tr>
               </thead>
               <tbody>
-                {vods.map((vod) => {
+                {filteredVods.map((vod) => {
                   const mins = parseDuration(vod.duration);
                   const hours = mins / 60;
                   const vph = hours > 0 ? vod.view_count / hours : 0;
@@ -646,7 +646,7 @@ export function VodTab() {
           </div>
 
           <div className="space-y-2 md:hidden">
-            {vods.map((vod) => {
+            {filteredVods.map((vod) => {
               const mins = parseDuration(vod.duration);
               const hours = mins / 60;
               const vph = hours > 0 ? vod.view_count / hours : 0;
