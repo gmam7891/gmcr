@@ -263,8 +263,13 @@ export function VodTab() {
     return aggregateChapters(allChapters);
   }, [chaptersMap]);
 
-  const totalViews = vods.reduce((s, v) => s + v.view_count, 0);
-  const totalHours = vods.reduce((s, v) => s + parseDuration(v.duration) / 60, 0);
+  const filteredVods = useMemo(() => {
+    const cutoff = Date.now() - periodDays * 86400000;
+    return vods.filter((v) => new Date(v.created_at).getTime() >= cutoff);
+  }, [vods, periodDays]);
+
+  const totalViews = filteredVods.reduce((s, v) => s + v.view_count, 0);
+  const totalHours = filteredVods.reduce((s, v) => s + parseDuration(v.duration) / 60, 0);
   const avgViewsPerHour = totalHours > 0 ? totalViews / totalHours : 0;
 
   const downloadExcel = () => {
