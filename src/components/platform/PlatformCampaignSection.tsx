@@ -60,7 +60,7 @@ export function PlatformCampaignSection({ platformReach, fee, platformLabel }: P
     <div className="space-y-5">
       <div>
         <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
-          {t("ig.title")}
+          {platformLabel ? `${platformLabel} Campaign Calculator` : t("ig.title")}
         </h3>
         <CampaignTypeSelector value={campaignType} onChange={setCampaignType} />
       </div>
