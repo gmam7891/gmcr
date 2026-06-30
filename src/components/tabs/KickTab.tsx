@@ -244,7 +244,7 @@ export function KickTab() {
 
         {/* Campaign Calculator Section */}
         <div className="border-t border-border pt-6 mt-6">
-          <PlatformCampaignSection platformReach={platformReach} fee={fee} />
+          <PlatformCampaignSection platformReach={platformReach} fee={fee} platformLabel="Kick" />
         </div>
 
         {!loading && !channel && (
