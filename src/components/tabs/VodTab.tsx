@@ -159,7 +159,7 @@ export function VodTab() {
         setChaptersMap({ [vodId]: chapters });
         setExpandedVod(vodId);
 
-        const channelVods = await getVods(vod.user_id, 20);
+        const channelVods = await getVods(vod.user_id, 100);
         setVods(channelVods);
       } else {
         const login = input
@@ -168,7 +168,7 @@ export function VodTab() {
           .toLowerCase();
         const user = await getUser(login);
         if (!user) throw new Error(t("vod.channel_not_found"));
-        const channelVods = await getVods(user.id, 20);
+        const channelVods = await getVods(user.id, 100);
         setVods(channelVods);
         setMode("channel");
       }
