@@ -387,6 +387,26 @@ export function VodTab() {
         </span>
       </div>
 
+      <div className="card-surface p-2 inline-flex flex-wrap items-center gap-1 self-start">
+        <span className="text-[11px] text-muted-foreground px-2 uppercase tracking-wider">
+          {language === "pt" ? "Período" : "Period"}
+        </span>
+        {[7, 14, 30, 90, 180].map((d) => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => setPeriodDays(d)}
+            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+              periodDays === d
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {d}d
+          </button>
+        ))}
+      </div>
+
       {loading && (
         <div className="card-surface p-6 text-center">
           <div className="inline-block w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
