@@ -4,12 +4,20 @@ import { cn } from "@/lib/utils";
 interface Props {
   value: CampaignType;
   onChange: (type: CampaignType) => void;
+  /** Optional filter — only these types will be shown. Defaults to all. */
+  enabledTypes?: CampaignType[];
 }
 
-export function CampaignTypeSelector({ value, onChange }: Props) {
+export function CampaignTypeSelector({ value, onChange, enabledTypes }: Props) {
+  const visible = enabledTypes
+    ? CAMPAIGN_TYPES.filter((t) => enabledTypes.includes(t.value))
+    : CAMPAIGN_TYPES;
+
+  if (visible.length === 0) return null;
+
   return (
     <div className="flex flex-wrap gap-1.5 p-1 bg-secondary/50 rounded-lg border border-border">
-      {CAMPAIGN_TYPES.map((type) => (
+      {visible.map((type) => (
         <button
           key={type.value}
           onClick={() => onChange(type.value)}
