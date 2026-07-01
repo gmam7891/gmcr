@@ -6,6 +6,7 @@ interface Props {
   cards: ResultCardDef[];
   results: Record<string, number>;
   fee: number;
+  inputs?: Record<string, number>;
 }
 
 function formatValue(value: number, format: ResultCardDef["format"]): string {
@@ -38,16 +39,14 @@ function getStatus(key: string, value: number, fee: number): "go" | "warning" | 
     if (value >= 40) return "warning";
     return "nogo";
   }
-  if (key.includes("Revenue") || key.includes("revenue")) {
-    return value > 0 ? "go" : undefined;
-  }
   return undefined;
 }
 
-export function ResultCardsGrid({ cards, results, fee }: Props) {
+export function ResultCardsGrid({ cards, results, fee, inputs }: Props) {
+  const visible = cards.filter((c) => !c.showIf || c.showIf(results, inputs ?? {}));
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-      {cards.map((card) => {
+      {visible.map((card) => {
         const value = results[card.key] ?? 0;
         return (
           <MetricCard

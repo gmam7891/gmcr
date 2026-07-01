@@ -1,134 +1,84 @@
-import { safeDivide, clamp } from "@/lib/safeMath";
+import { safeDivide } from "@/lib/safeMath";
 import type { CampaignType } from "./campaignTypes";
 
 type Inputs = Record<string, number>;
 
-/** Combined base audience from Reels + Stories, preferring reach or views */
-function getBase(inputs: Inputs, preferReach = true): number {
-  // Weighted total exposure across both formats
-  const reelsTotal = (inputs.reelsViews || 0) * Math.max(inputs.reelsDeliveries || 0, 1);
-  const storiesTotal = (inputs.storiesViews || 0) * Math.max(inputs.storiesDeliveries || 0, 1);
-  const viewsBase = reelsTotal + storiesTotal;
-
-  const reachBase = inputs.avgReach || 0;
-  const totalDeliveries = (inputs.reelsDeliveries || 0) + (inputs.storiesDeliveries || 0);
-  const reachTotal = reachBase * Math.max(totalDeliveries, 1);
-
-  if (preferReach) return reachTotal > 0 ? reachTotal : viewsBase;
-  return viewsBase > 0 ? viewsBase : reachTotal;
+/**
+ * Base audience passed in from the platform tab (Instagram alcance, Twitch/YT/Kick/TikTok
+ * unique reach or views totals). CPM/CPE benchmarks are used ONLY for comparison —
+ * never as a source to derive audience.
+ */
+function baseReach(i: Inputs): number {
+  return Math.max(i.avgReach || 0, 0);
 }
-
-/** Single-delivery base (avg per content) */
-function getBasePerContent(inputs: Inputs, preferReach = true): number {
-  const reelsViews = inputs.reelsViews || 0;
-  const storiesViews = inputs.storiesViews || 0;
-  const avgViews = reelsViews > 0 && storiesViews > 0
-    ? (reelsViews + storiesViews) / 2
-    : reelsViews || storiesViews;
-  const reach = inputs.avgReach || 0;
-
-  if (preferReach) return reach > 0 ? reach : avgViews;
-  return avgViews > 0 ? avgViews : reach;
-}
-
 
 const calculators: Record<CampaignType, (inputs: Inputs) => Record<string, number>> = {
   igaming: (i) => {
-    const base = getBasePerContent(i);
-    const qualifiedAudience = base * (i.icpPercent / 100);
-    const estimatedClicks = qualifiedAudience * (i.estimatedCtr / 100);
-    const estimatedRegistrations = estimatedClicks * (i.registrationRate / 100);
-    const estimatedFtds = estimatedRegistrations * (i.ftdRate / 100);
-    const estimatedRevenue = estimatedFtds * i.valuePerFtd;
-    const estimatedRevenueAlt = i.avgTicket > 0 && i.profitMargin > 0
-      ? estimatedFtds * i.avgTicket * (i.profitMargin / 100)
-      : 0;
-    const estimatedCpa = safeDivide(i.influencerFee, Math.max(estimatedFtds, 1));
-    const estimatedRoi = safeDivide((estimatedRevenue - i.influencerFee), Math.max(i.influencerFee, 1)) * 100;
-    const recommendedMaxFee = safeDivide(estimatedRevenue, 3);
+    const base = baseReach(i);
+    const qualified = base * ((i.icpPercent || 0) / 100);
+    const estimatedImpressions = qualified;
+    const estimatedClicks = qualified * ((i.estimatedCtr || 0) / 100);
+    const estimatedFtds = estimatedClicks * ((i.ftdRate || 0) / 100);
+    const estimatedRevenue = estimatedFtds * (i.valuePerFtd || 0);
+    const fee = i.influencerFee || 0;
+    const estimatedCpa = estimatedFtds > 0 ? safeDivide(fee, estimatedFtds) : 0;
+    const estimatedRoas = fee > 0 ? safeDivide(estimatedRevenue, fee) : 0;
 
-    return {
-      qualifiedAudience, estimatedClicks, estimatedRegistrations,
-      estimatedFtds, estimatedRevenue, estimatedRevenueAlt,
-      estimatedCpa, estimatedRoi, recommendedMaxFee,
-    };
+    return { estimatedImpressions, estimatedClicks, estimatedFtds, estimatedRevenue, estimatedCpa, estimatedRoas };
   },
 
   awareness: (i) => {
-    const totalExposure = getBase(i);
+    const base = baseReach(i);
     const freq = Math.max(i.averageFrequency || 1, 1);
-    const estimatedImpressions = totalExposure * freq;
-    const estimatedUniqueReach = totalExposure;
-    const effectiveRate = i.qualifiedReachRate > 0 ? i.qualifiedReachRate : i.icpPercent;
-    const qualifiedReach = estimatedUniqueReach * (effectiveRate / 100);
-    const realCpm = safeDivide(i.influencerFee, Math.max(estimatedImpressions, 1)) * 1000;
-    const costPerReachedUser = safeDivide(i.influencerFee, Math.max(estimatedUniqueReach, 1));
-    const qualifiedCpm = safeDivide(i.influencerFee, Math.max(qualifiedReach, 1)) * 1000;
+    const estimatedUniqueReach = base;
+    const estimatedImpressions = base * freq;
+    const rate = i.qualifiedReachRate || i.icpPercent || 0;
+    const qualifiedReach = estimatedUniqueReach * (rate / 100);
+    const fee = i.influencerFee || 0;
+    const effectiveCpm = estimatedImpressions > 0 ? safeDivide(fee, estimatedImpressions) * 1000 : 0;
 
-    return {
-      estimatedImpressions, estimatedUniqueReach, qualifiedReach,
-      averageFrequency: freq, realCpm, costPerReachedUser, qualifiedCpm,
-    };
+    return { estimatedImpressions, estimatedUniqueReach, qualifiedReach, effectiveCpm };
   },
 
   consideration: (i) => {
-    const base = getBasePerContent(i, false);
-    const qualifiedAudience = base * (i.icpPercent / 100);
-    const estimatedClicks = qualifiedAudience * (i.estimatedCtr / 100);
-    const engagedUsers = qualifiedAudience * (i.qualifiedEngagementRate / 100);
-    const qualifiedTraffic = estimatedClicks * (i.contentRetentionRate / 100);
-    const estimatedCpc = safeDivide(i.influencerFee, Math.max(estimatedClicks, 1));
-    const costPerEngagedUser = safeDivide(i.influencerFee, Math.max(engagedUsers, 1));
-    const considerationScore = clamp(
-      (i.estimatedCtr * 0.35) + (i.contentRetentionRate * 0.40) + (i.qualifiedEngagementRate * 0.25),
-      0, 100
-    );
+    const base = baseReach(i);
+    const qualified = base * ((i.icpPercent || 0) / 100);
+    const engagedUsers = qualified * ((i.qualifiedEngagementRate || 0) / 100);
+    const estimatedClicks = qualified * ((i.estimatedCtr || 0) / 100);
+    const considerationReach = qualified;
+    const fee = i.influencerFee || 0;
+    const estimatedCpe = engagedUsers > 0 ? safeDivide(fee, engagedUsers) : 0;
 
-    return {
-      estimatedClicks, engagedUsers, qualifiedTraffic,
-      estimatedCpc, costPerEngagedUser, considerationScore,
-      contentRetentionRate: i.contentRetentionRate,
-    };
+    return { engagedUsers, estimatedClicks, considerationReach, estimatedCpe };
   },
 
   conversion: (i) => {
-    const totalExposure = getBase(i);
-    const qualifiedAudience = totalExposure * (i.icpPercent / 100);
-    const estimatedClicks = qualifiedAudience * (i.estimatedCtr / 100);
-    const estimatedConversions = estimatedClicks * (i.finalConversionRate / 100);
-    const grossRevenue = estimatedConversions * i.valuePerConversion;
-    const estimatedRevenue = i.conversionMargin > 0
-      ? grossRevenue * (i.conversionMargin / 100)
-      : grossRevenue;
-    const costPerConversion = safeDivide(i.influencerFee, Math.max(estimatedConversions, 1));
-    const estimatedRoi = safeDivide((estimatedRevenue - i.influencerFee), Math.max(i.influencerFee, 1)) * 100;
-    const estimatedRoas = safeDivide(estimatedRevenue, Math.max(i.influencerFee, 1));
+    const base = baseReach(i);
+    const qualified = base * ((i.icpPercent || 0) / 100);
+    const estimatedClicks = qualified * ((i.estimatedCtr || 0) / 100);
+    const estimatedConversions = estimatedClicks * ((i.finalConversionRate || 0) / 100);
+    const fee = i.influencerFee || 0;
+    const costPerConversion = estimatedConversions > 0 ? safeDivide(fee, estimatedConversions) : 0;
+    const productValue = i.productValue || 0;
+    const estimatedRevenue = productValue > 0 ? estimatedConversions * productValue : 0;
+    const estimatedRoas = productValue > 0 && fee > 0 ? safeDivide(estimatedRevenue, fee) : 0;
 
-    return {
-      estimatedClicks, estimatedConversions, estimatedRevenue,
-      costPerConversion, estimatedRoi, estimatedRoas,
-    };
+    return { estimatedClicks, estimatedConversions, costPerConversion, estimatedRevenue, estimatedRoas };
   },
 
   retention: (i) => {
-    const base = getBasePerContent(i);
-    const qualifiedAudience = base * (i.icpPercent / 100);
-    const retainedUsers = qualifiedAudience * (i.repurchaseRate / 100);
-    const reactivatedUsers = qualifiedAudience * (i.reactivationRate / 100);
-    const activeUsers = retainedUsers + reactivatedUsers;
+    const base = baseReach(i);
+    const qualified = base * ((i.icpPercent || 0) / 100);
+    const retainedUsers = qualified * ((i.repurchaseRate || 0) / 100);
     const freq = Math.max(i.repurchaseFrequency || 1, 1);
-    const churnFactor = 1 - (i.estimatedChurn / 100);
-    const estimatedRecurringRevenue = activeUsers * i.estimatedLtv * freq * churnFactor;
-    const costPerRetainedUser = safeDivide(i.influencerFee, Math.max(activeUsers, 1));
-    const retentionRoi = safeDivide((estimatedRecurringRevenue - i.influencerFee), Math.max(i.influencerFee, 1)) * 100;
-    const monthlyRevenue = safeDivide(estimatedRecurringRevenue, 12);
-    const estimatedPayback = safeDivide(i.influencerFee, Math.max(monthlyRevenue, 1));
+    const estimatedRepurchases = retainedUsers * freq;
+    const fee = i.influencerFee || 0;
+    const costPerRetainedUser = retainedUsers > 0 ? safeDivide(fee, retainedUsers) : 0;
+    const productValue = i.productValue || 0;
+    const estimatedLtv = productValue > 0 ? productValue * freq : 0;
+    const estimatedRecurringRevenue = productValue > 0 ? retainedUsers * estimatedLtv : 0;
 
-    return {
-      retainedUsers, reactivatedUsers, activeUsers,
-      estimatedRecurringRevenue, costPerRetainedUser, retentionRoi,
-      estimatedPayback, estimatedLtv: i.estimatedLtv, estimatedChurn: i.estimatedChurn,
-    };
+    return { retainedUsers, estimatedRepurchases, costPerRetainedUser, estimatedLtv, estimatedRecurringRevenue };
   },
 };
 
