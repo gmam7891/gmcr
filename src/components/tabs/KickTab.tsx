@@ -1,8 +1,7 @@
 import { useState, useMemo } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { NumberField, FieldSection } from "@/components/FieldGroup";
-import { StatusBadge } from "@/components/StatusBadge";
-import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
+import { fmtInt } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -20,16 +19,8 @@ export function KickTab() {
   const [loading, setLoading] = useState(false);
   const [channel, setChannel] = useState<KickChannel | null>(null);
   const [videos, setVideos] = useState<KickVideo[]>([]);
-
-  // Financial inputs
-  const [fee, setFee] = useState(0);
-  const [ctr, setCtr] = useState(0);
-  const [cvr, setCvr] = useState(0);
-  const [valueFtd, setValueFtd] = useState(0);
   const [avgViewers, setAvgViewers] = useState(0);
   const [plannedHours, setPlannedHours] = useState(0);
-
-  // AI analysis
   const [aiGames, setAiGames] = useState<GameDetection[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
 
@@ -42,13 +33,10 @@ export function KickTab() {
       toast.success(`${ch.displayName} — ${t("kick.channel_loaded")}`, {
         description: `${fmtInt(ch.followers)} ${t("kick.followers")}${ch.isLive ? ' · LIVE' : ''}`,
       });
-
       try {
         const vids = await getKickVideos(username.trim());
         setVideos(vids);
-      } catch {
-        setVideos([]);
-      }
+      } catch { setVideos([]); }
     } catch (err: any) {
       toast.error(t("kick.error_channel"), { description: err.message });
     }
@@ -69,21 +57,8 @@ export function KickTab() {
     setAiLoading(false);
   };
 
-  
-
-  const results = useMemo(() => {
-    const viewerHours = avgViewers * plannedHours;
-    const clicks = viewerHours * (ctr / 100);
-    const ftd = clicks * (cvr / 100);
-    const revenue = ftd * valueFtd;
-    const roi = fee > 0 ? ((revenue - fee) / fee) * 100 : 0;
-    const cpa = ftd > 0 ? fee / ftd : null;
-    const profit = revenue - fee;
-    return { viewerHours, clicks, ftd, revenue, roi, cpa, profit };
-  }, [avgViewers, plannedHours, ctr, cvr, valueFtd, fee]);
-
-  /** Platform reach for campaign calculator */
-  const platformReach = results.viewerHours;
+  const viewerHours = useMemo(() => avgViewers * plannedHours, [avgViewers, plannedHours]);
+  const platformReach = viewerHours;
 
   const downloadExcel = () => {
     const data: any[][] = [
@@ -95,18 +70,7 @@ export function KickTab() {
       [""],
       ["Avg viewers", avgViewers],
       ["Horas contratadas", plannedHours],
-      ["CTR", `${ctr}%`],
-      ["CVR para FTD", `${cvr}%`],
-      ["Valor por FTD", valueFtd],
-      ["Fee", fee],
-      [""],
-      ["Viewer-hours (live)", results.viewerHours],
-      ["Cliques", Math.round(results.clicks)],
-      ["FTD", Math.round(results.ftd)],
-      ["Receita", results.revenue],
-      ["ROI", `${results.roi.toFixed(1)}%`],
-      ["CPA", results.cpa],
-      ["Lucro", results.profit],
+      ["Viewer-hours (live)", viewerHours],
     ];
     if (aiGames.length > 0) {
       data.push([""], ["--- Jogos detectados (IA) ---"], ["Jogo", "Provedora", "Categoria"]);
@@ -150,23 +114,11 @@ export function KickTab() {
               </div>
             </div>
           )}
-          {channel?.isLive && channel.livestream && (
-            <div className="card-surface p-3 text-sm">
-              <p className="font-medium">{channel.livestream.title}</p>
-              <p className="text-xs text-muted-foreground">
-                {fmtInt(channel.livestream.viewers)} viewers · {channel.livestream.category || 'N/A'}
-              </p>
-            </div>
-          )}
         </FieldSection>
 
-        <FieldSection title={t("kick.financial_projection")}>
+        <FieldSection title="Base de audiência">
           <NumberField label={t("kick.avg_viewers")} value={avgViewers} onChange={setAvgViewers} step={100} />
           <NumberField label={t("kick.contracted_hours")} value={plannedHours} onChange={setPlannedHours} />
-          <NumberField label="CTR" value={ctr} onChange={setCtr} step={0.1} suffix="%" />
-          <NumberField label={t("tw.cvr_ftd")} value={cvr} onChange={setCvr} step={0.1} suffix="%" />
-          <NumberField label={t("tw.value_per_ftd")} value={valueFtd} onChange={setValueFtd} step={50} suffix="R$" />
-          <NumberField label={t("tw.fee")} value={fee} onChange={setFee} step={1000} suffix="R$" />
         </FieldSection>
       </div>
 
@@ -177,18 +129,11 @@ export function KickTab() {
         </div>
 
         <div className="grid grid-cols-3 gap-3">
-          <MetricCard label={t("kick.viewer_hours")} value={fmtInt(results.viewerHours)} />
-          <MetricCard label={t("tw.estimated_clicks")} value={fmtInt(results.clicks)} />
-          <MetricCard label={t("tw.projected_ftd")} value={fmtInt(results.ftd)} />
+          <MetricCard label={t("kick.viewer_hours")} value={fmtInt(viewerHours)} />
+          <MetricCard label={t("kick.avg_viewers")} value={fmtInt(avgViewers)} />
+          <MetricCard label={t("kick.contracted_hours")} value={fmtInt(plannedHours)} />
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <MetricCard label={t("tw.projected_revenue")} value={fmtMoney(results.revenue)} status={results.revenue > 0 ? "go" : undefined} />
-          <MetricCard label="ROI" value={fee > 0 ? fmtPercent(results.roi, 0) : "-"} status={fee > 0 ? (results.roi >= 200 ? "go" : results.roi >= 0 ? "warning" : "nogo") : undefined} />
-          <MetricCard label={t("tw.profit_loss")} value={fee > 0 ? fmtMoney(results.profit) : "-"} status={fee > 0 ? (results.profit > 0 ? "go" : results.profit < 0 ? "nogo" : undefined) : undefined} />
-        </div>
-        {fee > 0 && <StatusBadge status={results.profit > 0 ? "go" : results.profit === 0 ? "warning" : "nogo"} />}
 
-        {/* AI Analysis */}
         {videos.length > 0 && (
           <div className="flex items-center gap-3 pt-2">
             <Button variant="outline" size="sm" onClick={analyzeWithAI} disabled={aiLoading}>
@@ -213,7 +158,6 @@ export function KickTab() {
           </div>
         )}
 
-        {/* VOD list */}
         {videos.length > 0 && (
           <div className="space-y-2">
             <h3 className="text-xs text-muted-foreground uppercase tracking-wider">VODs ({videos.length})</h3>
@@ -242,9 +186,8 @@ export function KickTab() {
           </div>
         )}
 
-        {/* Campaign Calculator Section */}
         <div className="border-t border-border pt-6 mt-6">
-          <PlatformCampaignSection platformReach={platformReach} fee={fee} platformLabel="Kick" />
+          <PlatformCampaignSection platformReach={platformReach} platformLabel="Kick" />
         </div>
 
         {!loading && !channel && (

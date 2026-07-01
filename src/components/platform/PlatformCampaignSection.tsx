@@ -8,23 +8,26 @@ import { calculateCampaign } from "@/lib/instagram/campaignCalculators";
 import { getCampaignConfigs } from "@/lib/instagram/campaignFieldConfig";
 import { CAMPAIGN_TYPES, type CampaignType } from "@/lib/instagram/campaignTypes";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { fmtInt } from "@/lib/formatters";
 
 interface Props {
+  /** Base audience number pulled from the platform's own API (views / reach / impressions). */
   platformReach: number;
-  fee: number;
-  platformLabel?: string;
+  /** Human label for the platform (Twitch, YouTube, Kick, TikTok, Instagram). */
+  platformLabel: string;
 }
 
 const ALL_TYPES = CAMPAIGN_TYPES.map((t) => t.value);
 
-export function PlatformCampaignSection({ platformReach, fee, platformLabel }: Props) {
+export function PlatformCampaignSection({ platformReach, platformLabel }: Props) {
   const { t } = useLanguage();
-  const storageKey = `campaign-stages:${platformLabel ?? "default"}`;
+  const stagesKey = `campaign-stages:${platformLabel}`;
+  const valuesKey = `campaign-values:${platformLabel}`;
 
   const [enabledStages, setEnabledStages] = useState<CampaignType[]>(() => {
     if (typeof window === "undefined") return ALL_TYPES;
     try {
-      const raw = localStorage.getItem(storageKey);
+      const raw = localStorage.getItem(stagesKey);
       if (raw) {
         const parsed = JSON.parse(raw) as CampaignType[];
         if (Array.isArray(parsed)) return parsed.filter((s) => ALL_TYPES.includes(s));
@@ -35,25 +38,33 @@ export function PlatformCampaignSection({ platformReach, fee, platformLabel }: P
 
   useEffect(() => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify(enabledStages));
+      localStorage.setItem(stagesKey, JSON.stringify(enabledStages));
     } catch {}
-  }, [storageKey, enabledStages]);
+  }, [stagesKey, enabledStages]);
 
-  const [campaignType, setCampaignType] = useState<CampaignType>(
-    enabledStages[0] ?? "igaming",
-  );
+  const [campaignType, setCampaignType] = useState<CampaignType>(enabledStages[0] ?? "igaming");
 
-  // If the active stage becomes disabled, fall back to the first enabled one.
   useEffect(() => {
     if (enabledStages.length > 0 && !enabledStages.includes(campaignType)) {
       setCampaignType(enabledStages[0]);
     }
   }, [enabledStages, campaignType]);
 
-  // Values are kept per-stage so unchecking + rechecking preserves data.
-  const [valuesByStage, setValuesByStage] = useState<
-    Record<string, Record<string, number>>
-  >({});
+  // Values persisted per stage
+  const [valuesByStage, setValuesByStage] = useState<Record<string, Record<string, number>>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = localStorage.getItem(valuesKey);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return {};
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(valuesKey, JSON.stringify(valuesByStage));
+    } catch {}
+  }, [valuesKey, valuesByStage]);
 
   const values = valuesByStage[campaignType] ?? {};
 
@@ -73,37 +84,31 @@ export function PlatformCampaignSection({ platformReach, fee, platformLabel }: P
   const allInputs = useMemo(() => {
     const merged: Record<string, number> = { ...values };
     merged.avgReach = platformReach;
-    merged.reelsDeliveries = 1;
-    merged.storiesDeliveries = 0;
-    merged.reelsViews = 0;
-    merged.storiesViews = 0;
-    merged.influencerFee = fee;
     config.fields.forEach((f) => {
       if (merged[f.key] == null) merged[f.key] = f.defaultValue ?? 0;
     });
     return merged;
-  }, [values, config, platformReach, fee]);
+  }, [values, config, platformReach]);
 
-  const results = useMemo(
-    () => calculateCampaign(campaignType, allInputs),
-    [campaignType, allInputs],
-  );
+  const results = useMemo(() => calculateCampaign(campaignType, allInputs), [campaignType, allInputs]);
+  const stageFee = values.influencerFee ?? 0;
 
   return (
     <div className="space-y-5">
       <div className="space-y-3">
-        <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-          {platformLabel ? `${platformLabel} Campaign Calculator` : t("ig.title")}
-        </h3>
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+          <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+            {platformLabel} · Calculadora de campanha
+          </h3>
+          <span className="text-[11px] text-muted-foreground font-mono">
+            Base de público: {fmtInt(platformReach)} (via API {platformLabel})
+          </span>
+        </div>
 
         <StageMultiSelect
           value={enabledStages}
           onChange={setEnabledStages}
-          label={
-            platformLabel
-              ? `Quais etapas este pacote usa no ${platformLabel}?`
-              : "Quais etapas este pacote usa?"
-          }
+          label={`Quais etapas este pacote usa no ${platformLabel}?`}
         />
 
         {enabledStages.length > 0 ? (
@@ -125,10 +130,9 @@ export function PlatformCampaignSection({ platformReach, fee, platformLabel }: P
             fields={config.fields}
             values={values}
             onChange={handleChange}
-            title={`${t("ig.params")} · ${config.label}`}
+            title={`Parâmetros · ${config.label}`}
           />
-
-          <ResultCardsGrid cards={config.resultCards} results={results} fee={fee} />
+          <ResultCardsGrid cards={config.resultCards} results={results} fee={stageFee} inputs={allInputs} />
           <InsightCards rules={config.insightRules} results={results} inputs={allInputs} />
         </>
       )}

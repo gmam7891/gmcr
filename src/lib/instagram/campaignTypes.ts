@@ -22,6 +22,10 @@ export interface FieldDef {
   step?: number;
   defaultValue?: number;
   group?: string;
+  /** Optional helper text below the label */
+  hint?: string;
+  /** Optional flag — field can be left blank without failing the calc */
+  optional?: boolean;
 }
 
 export interface ResultCardDef {
@@ -29,6 +33,8 @@ export interface ResultCardDef {
   label: string;
   format: "integer" | "currency" | "percent" | "decimal" | "months";
   highlight?: boolean;
+  /** Only render this card when the predicate returns true */
+  showIf?: (results: Record<string, number>, inputs: Record<string, number>) => boolean;
 }
 
 export type InsightLevel = "positive" | "neutral" | "warning";

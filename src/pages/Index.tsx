@@ -4,6 +4,7 @@ import { InstagramTab } from "@/components/tabs/InstagramTab";
 import { TwitchTab } from "@/components/tabs/TwitchTab";
 import { YouTubeTab } from "@/components/tabs/YouTubeTab";
 import { KickTab } from "@/components/tabs/KickTab";
+import { TikTokTab } from "@/components/tabs/TikTokTab";
 import { IcpTab } from "@/components/tabs/IcpTab";
 import { DiscoveryTab } from "@/components/tabs/DiscoveryTab";
 import { VodTab } from "@/components/tabs/VodTab";
@@ -48,6 +49,7 @@ const Index = () => {
     { id: "twitch", label: t("mod.twitch.title"), icon: twitchLogo, component: TwitchTab },
     { id: "youtube", label: t("mod.youtube.title"), icon: youtubeLogo, component: YouTubeTab },
     { id: "kick", label: t("mod.kick.title"), icon: kickLogo, component: KickTab },
+    { id: "tiktok", label: t("mod.tiktok.title"), icon: "🎵", component: TikTokTab },
     { id: "vod", label: t("mod.vod.title"), icon: "📈", component: VodTab },
     { id: "monitor", label: t("mod.monitor.title"), icon: "📡", component: MonitorTab },
     { id: "simulator", label: t("mod.simulator.title"), icon: "⚡", component: SimulatorTab },

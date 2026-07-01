@@ -1,106 +1,72 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
-import { CampaignTypeSelector } from "@/components/instagram/CampaignTypeSelector";
-import { StageMultiSelect } from "@/components/instagram/StageMultiSelect";
-import { BaseInfluencerFields } from "@/components/instagram/BaseInfluencerFields";
-import { DynamicCampaignFields } from "@/components/instagram/DynamicCampaignFields";
-import { ResultCardsGrid } from "@/components/instagram/ResultCardsGrid";
-import { InsightCards } from "@/components/instagram/InsightCards";
-import { calculateCampaign } from "@/lib/instagram/campaignCalculators";
-import { getCampaignConfigs } from "@/lib/instagram/campaignFieldConfig";
-import { CAMPAIGN_TYPES, type CampaignType } from "@/lib/instagram/campaignTypes";
+import { useState, useMemo } from "react";
+import { NumberField, FieldSection } from "@/components/FieldGroup";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import { fmtInt } from "@/lib/formatters";
+import { PlatformCampaignSection } from "@/components/platform/PlatformCampaignSection";
 import { useLanguage } from "@/contexts/LanguageContext";
-import * as XLSX from "xlsx";
 
-const ALL_TYPES = CAMPAIGN_TYPES.map((t) => t.value);
-const STAGES_STORAGE_KEY = "campaign-stages:Instagram";
-
-const BASE_KEYS = [
-  "followers", "avgReach", "influencerFee", "engagementRate",
-  "reelsDeliveries", "reelsViews", "reelsEngagement",
-  "storiesDeliveries", "storiesViews", "storiesEngagement",
-];
+interface ProfileData {
+  username: string;
+  fullName: string;
+  profilePicUrl: string;
+  followers: number;
+  avgReelsViews: number;
+  engagementRate: number;
+  isVerified: boolean;
+  storiesViewEstimate: number;
+  estimatedCtr: number;
+  reelsEngagementRate?: number;
+  storiesEngagementRate?: number;
+}
 
 export function InstagramTab() {
   const { t } = useLanguage();
-
-  const [enabledStages, setEnabledStages] = useState<CampaignType[]>(() => {
-    if (typeof window === "undefined") return ALL_TYPES;
-    try {
-      const raw = localStorage.getItem(STAGES_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as CampaignType[];
-        if (Array.isArray(parsed)) return parsed.filter((s) => ALL_TYPES.includes(s));
-      }
-    } catch {}
-    return ALL_TYPES;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STAGES_STORAGE_KEY, JSON.stringify(enabledStages));
-    } catch {}
-  }, [enabledStages]);
-
-  const [campaignType, setCampaignType] = useState<CampaignType>(
-    enabledStages[0] ?? "igaming",
-  );
-
-  useEffect(() => {
-    if (enabledStages.length > 0 && !enabledStages.includes(campaignType)) {
-      setCampaignType(enabledStages[0]);
-    }
-  }, [enabledStages, campaignType]);
-
   const [username, setUsername] = useState("");
-  const [values, setValues] = useState<Record<string, number>>(() => {
-    const init: Record<string, number> = {};
-    BASE_KEYS.forEach((k) => (init[k] = 0));
-    return init;
-  });
+  const [loading, setLoading] = useState(false);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
 
-  const handleChange = useCallback((key: string, value: number) => {
-    setValues((prev) => ({ ...prev, [key]: value }));
-  }, []);
+  // Delivery inputs (base audience source)
+  const [avgReach, setAvgReach] = useState(0);
+  const [reelsDeliveries, setReelsDeliveries] = useState(1);
+  const [reelsViews, setReelsViews] = useState(0);
+  const [storiesDeliveries, setStoriesDeliveries] = useState(0);
+  const [storiesViews, setStoriesViews] = useState(0);
 
-  const campaignConfigs = getCampaignConfigs(t);
-  const config = campaignConfigs[campaignType];
-
-  const allInputs = useMemo(() => {
-    const merged: Record<string, number> = { ...values };
-    config.fields.forEach((f) => {
-      if (merged[f.key] == null) merged[f.key] = f.defaultValue ?? 0;
-    });
-    return merged;
-  }, [values, config]);
-
-  const results = useMemo(() => calculateCampaign(campaignType, allInputs), [campaignType, allInputs]);
-
-  const downloadExcel = () => {
-    const rows: (string | number)[][] = [
-      ["Campaign type", config.label],
-      [""],
-      ["Field", "Value"],
-      ["Followers", values.followers ?? 0],
-      ["Avg reach", values.avgReach ?? 0],
-      ["Fee", values.influencerFee ?? 0],
-      ["Reels · Qty", values.reelsDeliveries ?? 0],
-      ["Reels · Avg views", values.reelsViews ?? 0],
-      ["Reels · Engagement (%)", values.reelsEngagement ?? 0],
-      ["Stories · Qty", values.storiesDeliveries ?? 0],
-      ["Stories · Avg views", values.storiesViews ?? 0],
-      ["Stories · Engagement (%)", values.storiesEngagement ?? 0],
-      ...config.fields.map((f) => [f.label, values[f.key] ?? f.defaultValue ?? 0]),
-      [""],
-      ["Result", "Value"],
-      ...config.resultCards.map((c) => [c.label, results[c.key] ?? 0]),
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws["!cols"] = [{ wch: 35 }, { wch: 22 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Instagram Campaign");
-    XLSX.writeFile(wb, `campanha-instagram-${campaignType}.xlsx`);
+  const fetchProfile = async () => {
+    if (!username.trim()) return;
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("instagram-profile", {
+        body: { username: username.trim() },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      setProfile(data);
+      if (data.avgReelsViews) setReelsViews(Math.round(data.avgReelsViews * 0.95));
+      if (data.storiesViewEstimate) {
+        setStoriesViews(Math.round(data.storiesViewEstimate * 0.95));
+        setAvgReach(Math.round(data.storiesViewEstimate * 0.95));
+      }
+      toast.success(`Perfil @${data.username} carregado!`, {
+        description: `${fmtInt(data.followers)} seguidores`,
+      });
+    } catch (err: any) {
+      toast.error("Erro ao buscar perfil", { description: err.message });
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // Total exposure across all Reels + Stories deliveries
+  const platformReach = useMemo(() => {
+    const reelsTotal = reelsViews * Math.max(reelsDeliveries, 0);
+    const storiesTotal = storiesViews * Math.max(storiesDeliveries, 0);
+    const combined = reelsTotal + storiesTotal;
+    return combined > 0 ? combined : avgReach;
+  }, [avgReach, reelsViews, reelsDeliveries, storiesViews, storiesDeliveries]);
 
   return (
     <div className="space-y-6">
@@ -109,42 +75,70 @@ export function InstagramTab() {
         <p className="text-sm text-muted-foreground mt-1">{t("ig.subtitle")}</p>
       </div>
 
-      <StageMultiSelect
-        value={enabledStages}
-        onChange={setEnabledStages}
-        label="Quais etapas este pacote usa no Instagram?"
-      />
-
-      {enabledStages.length === 0 ? (
-        <div className="card-surface p-6 text-sm text-muted-foreground text-center">
-          Selecione ao menos uma etapa acima para configurar a campanha do Instagram.
-        </div>
-      ) : (
-        <>
-          <CampaignTypeSelector
-            value={campaignType}
-            onChange={setCampaignType}
-            enabledTypes={enabledStages}
-          />
-
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            <div className="lg:col-span-2 space-y-6">
-              <BaseInfluencerFields values={values} onChange={handleChange} username={username} setUsername={setUsername} />
-              <DynamicCampaignFields fields={config.fields} values={values} onChange={handleChange} title={`${t("ig.params")} · ${config.label}`} />
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <FieldSection title="Buscar perfil">
+            <div className="flex gap-2">
+              <Input
+                placeholder="@username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && fetchProfile()}
+                className="font-mono"
+              />
+              <Button onClick={fetchProfile} disabled={loading} size="sm" className="shrink-0">
+                {loading ? "Buscando…" : "Buscar"}
+              </Button>
             </div>
-
-            <div className="lg:col-span-3 space-y-5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("app.results")}</h3>
-                <Button variant="outline" size="sm" onClick={downloadExcel}>{t("app.export_excel")}</Button>
+            {profile && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-secondary/50 border border-border mt-2">
+                {profile.profilePicUrl && (
+                  <img
+                    src={`https://couivtyswlgvyyqiueap.supabase.co/functions/v1/instagram-image-proxy?url=${encodeURIComponent(profile.profilePicUrl)}`}
+                    alt={profile.username}
+                    className="w-10 h-10 rounded-full object-cover bg-secondary"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-sm truncate">@{profile.username}</span>
+                    {profile.isVerified && <span className="text-primary text-xs">✓</span>}
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {fmtInt(profile.followers)} seg · {profile.engagementRate.toFixed(2)}% eng
+                  </span>
+                </div>
               </div>
-              <ResultCardsGrid cards={config.resultCards} results={results} fee={values.influencerFee ?? 0} />
-              <InsightCards rules={config.insightRules} results={results} inputs={allInputs} />
-              <p className="text-xs text-muted-foreground mt-4">{t("ig.calculations_note")}</p>
+            )}
+          </FieldSection>
+
+          <FieldSection title="Entregas · Reels">
+            <div className="grid grid-cols-2 gap-3">
+              <NumberField label="Quantidade" value={reelsDeliveries} onChange={setReelsDeliveries} step={1} />
+              <NumberField label="Views médias" value={reelsViews} onChange={setReelsViews} step={1000} />
             </div>
-          </div>
-        </>
-      )}
+          </FieldSection>
+
+          <FieldSection title="Entregas · Stories">
+            <div className="grid grid-cols-2 gap-3">
+              <NumberField label="Quantidade" value={storiesDeliveries} onChange={setStoriesDeliveries} step={1} />
+              <NumberField label="Views médias" value={storiesViews} onChange={setStoriesViews} step={1000} />
+            </div>
+          </FieldSection>
+
+          <FieldSection title="Alcance médio (opcional)">
+            <NumberField label="Alcance médio" value={avgReach} onChange={setAvgReach} step={1000} />
+            <p className="text-[11px] text-muted-foreground">
+              Usado como base de público apenas quando não há entregas informadas.
+            </p>
+          </FieldSection>
+        </div>
+
+        <div className="lg:col-span-3">
+          <PlatformCampaignSection platformReach={platformReach} platformLabel="Instagram" />
+        </div>
+      </div>
     </div>
   );
 }
