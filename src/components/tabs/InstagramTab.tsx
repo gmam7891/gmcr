@@ -1,15 +1,19 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { CampaignTypeSelector } from "@/components/instagram/CampaignTypeSelector";
+import { StageMultiSelect } from "@/components/instagram/StageMultiSelect";
 import { BaseInfluencerFields } from "@/components/instagram/BaseInfluencerFields";
 import { DynamicCampaignFields } from "@/components/instagram/DynamicCampaignFields";
 import { ResultCardsGrid } from "@/components/instagram/ResultCardsGrid";
 import { InsightCards } from "@/components/instagram/InsightCards";
 import { calculateCampaign } from "@/lib/instagram/campaignCalculators";
 import { getCampaignConfigs } from "@/lib/instagram/campaignFieldConfig";
-import type { CampaignType } from "@/lib/instagram/campaignTypes";
+import { CAMPAIGN_TYPES, type CampaignType } from "@/lib/instagram/campaignTypes";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import * as XLSX from "xlsx";
+
+const ALL_TYPES = CAMPAIGN_TYPES.map((t) => t.value);
+const STAGES_STORAGE_KEY = "campaign-stages:Instagram";
 
 const BASE_KEYS = [
   "followers", "avgReach", "influencerFee", "engagementRate",
