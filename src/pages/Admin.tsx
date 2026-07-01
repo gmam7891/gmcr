@@ -11,6 +11,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Loader2, UserPlus, Trash2, Shield, ArrowLeft, Key } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { StageEntitlementEditor } from "@/components/admin/StageEntitlementEditor";
+import { defaultAllowedStages, type AllowedStages } from "@/lib/campaign/stageEntitlements";
 
 const ALL_TABS = [
   { id: "simulator", label: "Simulador" },
@@ -50,6 +52,7 @@ interface Package {
   id: string;
   name: string;
   allowed_tabs: string[];
+  allowed_stages: AllowedStages | null;
 }
 
 export default function Admin() {
@@ -67,12 +70,14 @@ export default function Admin() {
 
   const [pkgName, setPkgName] = useState("");
   const [pkgTabs, setPkgTabs] = useState<string[]>([]);
+  const [pkgStages, setPkgStages] = useState<AllowedStages>(defaultAllowedStages);
   const [creatingPkg, setCreatingPkg] = useState(false);
 
   const [selectedUser, setSelectedUser] = useState<string>("");
   const [accessMode, setAccessMode] = useState<"package" | "custom">("package");
   const [selectedPkg, setSelectedPkg] = useState<string>("");
   const [customTabs, setCustomTabs] = useState<string[]>([]);
+  const [customStages, setCustomStages] = useState<AllowedStages>(defaultAllowedStages);
   const [duration, setDuration] = useState<string>("30");
   const [settingAccess, setSettingAccess] = useState(false);
 
@@ -157,10 +162,14 @@ export default function Admin() {
     if (!pkgName || pkgTabs.length === 0) return;
     setCreatingPkg(true);
     try {
-      const { error } = await supabase.from("access_packages").insert({ name: pkgName, allowed_tabs: pkgTabs });
+      const { error } = await supabase.from("access_packages").insert({
+        name: pkgName,
+        allowed_tabs: pkgTabs,
+        allowed_stages: pkgStages as any,
+      });
       if (error) throw error;
       toast.success(t("admin.package_created"));
-      setPkgName(""); setPkgTabs([]);
+      setPkgName(""); setPkgTabs([]); setPkgStages(defaultAllowedStages());
       fetchData();
     } catch (e: any) { toast.error(e.message); }
     setCreatingPkg(false);
@@ -172,10 +181,13 @@ export default function Admin() {
     try {
       const payload: any = { user_id: selectedUser, duration_days: duration === "unlimited" ? null : parseInt(duration) };
       if (accessMode === "package" && selectedPkg) payload.package_id = selectedPkg;
-      else if (accessMode === "custom" && customTabs.length > 0) payload.custom_tabs = customTabs;
+      else if (accessMode === "custom" && customTabs.length > 0) {
+        payload.custom_tabs = customTabs;
+        payload.allowed_stages = customStages;
+      }
       await invokeAdmin("set_access", payload);
       toast.success(t("admin.access_set"));
-      setSelectedUser(""); setSelectedPkg(""); setCustomTabs([]);
+      setSelectedUser(""); setSelectedPkg(""); setCustomTabs([]); setCustomStages(defaultAllowedStages());
       fetchData();
     } catch (e: any) { toast.error(e.message); }
     setSettingAccess(false);
@@ -269,6 +281,7 @@ export default function Admin() {
                     </label>
                   ))}
                 </div>
+                <StageEntitlementEditor value={pkgStages} onChange={setPkgStages} />
                 <Button onClick={handleCreatePackage} disabled={creatingPkg} size="sm" variant="secondary">
                   {creatingPkg ? <Loader2 className="h-4 w-4 animate-spin" /> : t("admin.create_package")}
                 </Button>
@@ -319,13 +332,16 @@ export default function Admin() {
                   </SelectContent>
                 </Select>
               ) : (
-                <div className="flex flex-wrap gap-3">
-                  {ALL_TABS.map((tab) => (
-                    <label key={tab.id} className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
-                      <Checkbox checked={customTabs.includes(tab.id)} onCheckedChange={() => toggleTab(tab.id, customTabs, setCustomTabs)} />
-                      {tab.label}
-                    </label>
-                  ))}
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-3">
+                    {ALL_TABS.map((tab) => (
+                      <label key={tab.id} className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
+                        <Checkbox checked={customTabs.includes(tab.id)} onCheckedChange={() => toggleTab(tab.id, customTabs, setCustomTabs)} />
+                        {tab.label}
+                      </label>
+                    ))}
+                  </div>
+                  <StageEntitlementEditor value={customStages} onChange={setCustomStages} />
                 </div>
               )}
               <Button onClick={handleSetAccess} disabled={settingAccess} size="sm">
