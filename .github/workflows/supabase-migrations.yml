@@ -1,0 +1,34 @@
+name: Apply Supabase migrations
+
+# Aplica automaticamente as migrations de supabase/migrations/ no banco de
+# produção sempre que forem mergeadas na main. Evita ter que rodar SQL na mão
+# (ex.: erro "Could not find the 'x' column ... in the schema cache").
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: couivtyswlgvyyqiueap
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Push migrations
+        run: supabase db push
