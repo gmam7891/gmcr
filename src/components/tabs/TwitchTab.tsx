@@ -1,8 +1,7 @@
 import { useState, useMemo } from "react";
 import { MetricCard } from "@/components/MetricCard";
 import { NumberField, FieldSection } from "@/components/FieldGroup";
-import { StatusBadge } from "@/components/StatusBadge";
-import { fmtMoney, fmtInt, fmtPercent } from "@/lib/formatters";
+import { fmtInt } from "@/lib/formatters";
 import { getUser, getStream, getVods, parseDuration, type TwitchUser, type TwitchStream, type TwitchVod } from "@/lib/twitch-api";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -14,16 +13,10 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGri
 export function TwitchTab() {
   const { t, language } = useLanguage();
   const [channel, setChannel] = useState("");
-  const [fee, setFee] = useState(0);
   const [plannedHours, setPlannedHours] = useState(0);
   const [churnFactor, setChurnFactor] = useState(0);
   const [avgViewers, setAvgViewers] = useState(0);
   const [peakViewers, setPeakViewers] = useState(0);
-  const [roiAlvo, setRoiAlvo] = useState(0);
-  const [cpaAlvo, setCpaAlvo] = useState(0);
-  const [ctrTw, setCtrTw] = useState(0);
-  const [cvrTw, setCvrTw] = useState(0);
-  const [valueFtdTw, setValueFtdTw] = useState(0);
   const [vodViewsPerHour, setVodViewsPerHour] = useState(0);
   const [loading, setLoading] = useState(false);
   const [sullyLoading, setSullyLoading] = useState(false);
@@ -58,7 +51,6 @@ export function TwitchTab() {
     } catch (err) { console.error('Twitch fetch error:', err); }
     setLoading(false);
 
-    // Auto-populate avgViewers and peakViewers from SullyGnome historical CCV
     setSullyLoading(true);
     try {
       const { data: sully } = await supabase.functions.invoke("sullygnome-scraper", {
@@ -78,38 +70,19 @@ export function TwitchTab() {
     setSullyLoading(false);
   };
 
-  const results = useMemo(() => {
+  const reachStats = useMemo(() => {
     const avgViewerHours = avgViewers * plannedHours;
     const peakViewerHours = peakViewers * plannedHours;
     const churnMultiplier = churnFactor > 0 && churnFactor <= 1 ? churnFactor : 1;
     const uniqueLiveViewers = avgViewers * churnMultiplier;
     const vodViews = vodViewsPerHour * plannedHours;
     const totalReach = (uniqueLiveViewers * plannedHours) + vodViews;
-    const clicks = totalReach * (ctrTw / 100);
-    const ftd = clicks * (cvrTw / 100);
-    const revenue = ftd * valueFtdTw;
-    const roi = fee > 0 ? ((revenue - fee) / fee) * 100 : 0;
-    const cpa = ftd > 0 ? fee / ftd : null;
-    const roas = fee > 0 ? revenue / fee : 0;
-    const profit = revenue - fee;
-    const targetRoi = roiAlvo / 100;
-    const feeMaxRoi = targetRoi > 0 ? revenue / (1 + targetRoi) : null;
-    return { avgViewerHours, peakViewerHours, uniqueLiveViewers, vodViews, totalReach, clicks, ftd, revenue, roi, cpa, roas, profit, feeMaxRoi };
-  }, [avgViewers, peakViewers, plannedHours, churnFactor, vodViewsPerHour, ctrTw, cvrTw, valueFtdTw, fee, roiAlvo]);
-
-  const getStatus = () => {
-    if (fee <= 0) return undefined;
-    const targetRoi = roiAlvo / 100;
-    if (results.roi / 100 >= targetRoi && (results.cpa == null || results.cpa <= cpaAlvo)) return "go" as const;
-    if (results.roi >= 0) return "warning" as const;
-    return "nogo" as const;
-  };
+    return { avgViewerHours, peakViewerHours, uniqueLiveViewers, vodViews, totalReach };
+  }, [avgViewers, peakViewers, plannedHours, churnFactor, vodViewsPerHour]);
 
   const isLive = !!streamData;
   const isCasino = streamData?.game_id === "29452";
-
-  /** Platform reach for campaign calculator = unique live viewers + VOD views */
-  const platformReach = results.totalReach;
+  const platformReach = reachStats.totalReach;
 
   const downloadExcel = () => {
     const data = [
@@ -122,26 +95,11 @@ export function TwitchTab() {
       [t("tw.uniqueness_factor"), churnFactor],
       [t("tw.vod_views_hour"), vodViewsPerHour],
       ["", ""],
-      [t("tw.ctr_twitch"), `${ctrTw}%`],
-      [t("tw.cvr_ftd"), `${cvrTw}%`],
-      [t("tw.value_per_ftd"), valueFtdTw],
-      [t("tw.fee"), fee],
-      [t("tw.target_roi"), `${roiAlvo}%`],
-      [t("tw.target_cpa"), cpaAlvo],
-      ["", ""],
-      [t("tw.viewer_hours_avg"), results.avgViewerHours],
-      [t("tw.viewer_hours_peak"), results.peakViewerHours],
-      [t("tw.unique_viewers"), results.uniqueLiveViewers],
-      [t("tw.vod_views"), results.vodViews],
-      [t("tw.total_reach"), results.totalReach],
-      [t("tw.estimated_clicks"), Math.round(results.clicks)],
-      [t("tw.projected_ftd"), Math.round(results.ftd)],
-      [t("tw.projected_revenue"), results.revenue],
-      ["ROAS", results.roas],
-      ["CPA (FTD)", results.cpa],
-      ["ROI", `${results.roi.toFixed(1)}%`],
-      [t("tw.profit_loss"), results.profit],
-      [t("tw.max_fee"), results.feeMaxRoi],
+      [t("tw.viewer_hours_avg"), reachStats.avgViewerHours],
+      [t("tw.viewer_hours_peak"), reachStats.peakViewerHours],
+      [t("tw.unique_viewers"), reachStats.uniqueLiveViewers],
+      [t("tw.vod_views"), reachStats.vodViews],
+      [t("tw.total_reach"), reachStats.totalReach],
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
     ws["!cols"] = [{ wch: 30 }, { wch: 20 }];
@@ -163,17 +121,8 @@ export function TwitchTab() {
               </Button>
             </div>
           </div>
-          <NumberField label={t("tw.fee")} value={fee} onChange={setFee} step={1000} suffix="R$" />
           <NumberField label={t("tw.contracted_hours")} value={plannedHours} onChange={setPlannedHours} />
           <NumberField label={t("tw.uniqueness_factor")} value={churnFactor} onChange={setChurnFactor} step={0.1} />
-        </FieldSection>
-
-        <FieldSection title={t("tw.financial_valuation")}>
-          <NumberField label={t("tw.target_roi")} value={roiAlvo} onChange={setRoiAlvo} step={5} suffix="%" />
-          <NumberField label={t("tw.target_cpa")} value={cpaAlvo} onChange={setCpaAlvo} step={25} suffix="R$" />
-          <NumberField label={t("tw.ctr_twitch")} value={ctrTw} onChange={setCtrTw} step={0.1} suffix="%" />
-          <NumberField label={t("tw.cvr_ftd")} value={cvrTw} onChange={setCvrTw} step={0.1} suffix="%" />
-          <NumberField label={t("tw.value_per_ftd")} value={valueFtdTw} onChange={setValueFtdTw} step={50} suffix="R$" />
         </FieldSection>
 
         <FieldSection title={t("tw.manual_data")}>
@@ -228,27 +177,12 @@ export function TwitchTab() {
 
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider pt-2">{t("tw.reach_projection")} ({fmtInt(plannedHours)}{t("tw.contracted_hours_label")})</h2>
         <div className="grid grid-cols-5 gap-3">
-          <MetricCard label={t("tw.viewer_hours_avg")} value={fmtInt(results.avgViewerHours)} />
-          <MetricCard label={t("tw.viewer_hours_peak")} value={fmtInt(results.peakViewerHours)} />
-          <MetricCard label={t("tw.unique_viewers")} value={fmtInt(results.uniqueLiveViewers)} />
-          <MetricCard label={t("tw.vod_views")} value={fmtInt(results.vodViews)} />
-          <MetricCard label={t("tw.total_reach")} value={fmtInt(results.totalReach)} />
+          <MetricCard label={t("tw.viewer_hours_avg")} value={fmtInt(reachStats.avgViewerHours)} />
+          <MetricCard label={t("tw.viewer_hours_peak")} value={fmtInt(reachStats.peakViewerHours)} />
+          <MetricCard label={t("tw.unique_viewers")} value={fmtInt(reachStats.uniqueLiveViewers)} />
+          <MetricCard label={t("tw.vod_views")} value={fmtInt(reachStats.vodViews)} />
+          <MetricCard label={t("tw.total_reach")} value={fmtInt(reachStats.totalReach)} />
         </div>
-
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider pt-2">{t("tw.financial_projection")}</h2>
-        <div className="grid grid-cols-4 gap-3">
-          <MetricCard label={t("tw.estimated_clicks")} value={fmtInt(results.clicks)} />
-          <MetricCard label={t("tw.projected_ftd")} value={fmtInt(results.ftd)} />
-          <MetricCard label={t("tw.projected_revenue")} value={fmtMoney(results.revenue)} />
-          <MetricCard label="ROAS" value={fmtInt(results.roas)} />
-        </div>
-        <div className="grid grid-cols-4 gap-3">
-          <MetricCard label="CPA (FTD)" value={fmtMoney(results.cpa)} />
-          <MetricCard label="ROI" value={fee > 0 ? fmtPercent(results.roi, 0) : "-"} status={getStatus()} />
-          <MetricCard label={t("tw.profit_loss")} value={fmtMoney(results.profit)} status={results.profit > 0 ? "go" : results.profit < 0 ? "nogo" : undefined} />
-          <MetricCard label={t("tw.max_fee")} value={fmtMoney(results.feeMaxRoi)} />
-        </div>
-        {fee > 0 && getStatus() && <StatusBadge status={getStatus()!} />}
 
         {gameViewership.length > 0 && (
           <div className="card-surface p-4 space-y-3">
@@ -260,24 +194,9 @@ export function TwitchTab() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={gameViewership} margin={{ top: 8, right: 8, left: 0, bottom: 56 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis
-                    dataKey="category"
-                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                    angle={-30}
-                    textAnchor="end"
-                    interval={0}
-                    height={60}
-                  />
+                  <XAxis dataKey="category" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} angle={-30} textAnchor="end" interval={0} height={60} />
                   <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "hsl(var(--background))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: 6,
-                      fontSize: 12,
-                    }}
-                    formatter={(v: any, name: string) => [fmtInt(v), name === "avgViewers" ? "Avg Viewers" : "Hours Watched"]}
-                  />
+                  <Tooltip contentStyle={{ background: "hsl(var(--background))", border: "1px solid hsl(var(--border))", borderRadius: 6, fontSize: 12 }} formatter={(v: any, name: string) => [fmtInt(v), name === "avgViewers" ? "Avg Viewers" : "Hours Watched"]} />
                   <Bar dataKey="avgViewers" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -285,9 +204,8 @@ export function TwitchTab() {
           </div>
         )}
 
-        {/* Campaign Calculator Section */}
         <div className="border-t border-border pt-6 mt-6">
-          <PlatformCampaignSection platformReach={platformReach} fee={fee} platformLabel="Twitch" />
+          <PlatformCampaignSection platformReach={platformReach} platformLabel="Twitch" />
         </div>
       </div>
     </div>
