@@ -23,7 +23,35 @@ const BASE_KEYS = [
 
 export function InstagramTab() {
   const { t } = useLanguage();
-  const [campaignType, setCampaignType] = useState<CampaignType>("igaming");
+
+  const [enabledStages, setEnabledStages] = useState<CampaignType[]>(() => {
+    if (typeof window === "undefined") return ALL_TYPES;
+    try {
+      const raw = localStorage.getItem(STAGES_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as CampaignType[];
+        if (Array.isArray(parsed)) return parsed.filter((s) => ALL_TYPES.includes(s));
+      }
+    } catch {}
+    return ALL_TYPES;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STAGES_STORAGE_KEY, JSON.stringify(enabledStages));
+    } catch {}
+  }, [enabledStages]);
+
+  const [campaignType, setCampaignType] = useState<CampaignType>(
+    enabledStages[0] ?? "igaming",
+  );
+
+  useEffect(() => {
+    if (enabledStages.length > 0 && !enabledStages.includes(campaignType)) {
+      setCampaignType(enabledStages[0]);
+    }
+  }, [enabledStages, campaignType]);
+
   const [username, setUsername] = useState("");
   const [values, setValues] = useState<Record<string, number>>(() => {
     const init: Record<string, number> = {};
