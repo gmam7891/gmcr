@@ -24,6 +24,7 @@ const modules: ModuleConfig[] = [
   { id: "twitch", icon: Tv, titleKey: "mod.twitch.title", descKey: "mod.twitch.desc", color: "from-violet-500/20 to-violet-600/10" },
   { id: "youtube", icon: Youtube, titleKey: "mod.youtube.title", descKey: "mod.youtube.desc", color: "from-red-500/20 to-red-600/10" },
   { id: "kick", icon: Tv, titleKey: "mod.kick.title", descKey: "mod.kick.desc", color: "from-green-500/20 to-green-600/10" },
+  { id: "tiktok", icon: Video, titleKey: "mod.tiktok.title", descKey: "mod.tiktok.desc", color: "from-fuchsia-500/20 to-cyan-500/10" },
   { id: "vod", icon: Video, titleKey: "mod.vod.title", descKey: "mod.vod.desc", color: "from-amber-500/20 to-amber-600/10" },
   { id: "monitor", icon: Monitor, titleKey: "mod.monitor.title", descKey: "mod.monitor.desc", color: "from-cyan-500/20 to-cyan-600/10" },
   { id: "simulator", icon: Zap, titleKey: "mod.simulator.title", descKey: "mod.simulator.desc", color: "from-yellow-500/20 to-yellow-600/10" },

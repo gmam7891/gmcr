@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserAccess({
         allowed_tabs: [
           "simulator", "monitor", "authenticity", "instagram", "twitch",
-          "youtube", "kick", "icp", "vod", "discovery", "scanner",
+          "youtube", "kick", "tiktok", "icp", "vod", "discovery", "scanner",
           "scanner_dashboard", "scanner_streamers", "scanner_games",
           "scanner_providers", "scanner_chat", "scanner_vod_quality",
           "scanner_queue", "scanner_audit", "scanner_review",
