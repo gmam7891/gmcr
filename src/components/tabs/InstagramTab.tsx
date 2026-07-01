@@ -109,24 +109,42 @@ export function InstagramTab() {
         <p className="text-sm text-muted-foreground mt-1">{t("ig.subtitle")}</p>
       </div>
 
-      <CampaignTypeSelector value={campaignType} onChange={setCampaignType} />
+      <StageMultiSelect
+        value={enabledStages}
+        onChange={setEnabledStages}
+        label="Quais etapas este pacote usa no Instagram?"
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <BaseInfluencerFields values={values} onChange={handleChange} username={username} setUsername={setUsername} />
-          <DynamicCampaignFields fields={config.fields} values={values} onChange={handleChange} title={`${t("ig.params")} · ${config.label}`} />
+      {enabledStages.length === 0 ? (
+        <div className="card-surface p-6 text-sm text-muted-foreground text-center">
+          Selecione ao menos uma etapa acima para configurar a campanha do Instagram.
         </div>
+      ) : (
+        <>
+          <CampaignTypeSelector
+            value={campaignType}
+            onChange={setCampaignType}
+            enabledTypes={enabledStages}
+          />
 
-        <div className="lg:col-span-3 space-y-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("app.results")}</h3>
-            <Button variant="outline" size="sm" onClick={downloadExcel}>{t("app.export_excel")}</Button>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div className="lg:col-span-2 space-y-6">
+              <BaseInfluencerFields values={values} onChange={handleChange} username={username} setUsername={setUsername} />
+              <DynamicCampaignFields fields={config.fields} values={values} onChange={handleChange} title={`${t("ig.params")} · ${config.label}`} />
+            </div>
+
+            <div className="lg:col-span-3 space-y-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">{t("app.results")}</h3>
+                <Button variant="outline" size="sm" onClick={downloadExcel}>{t("app.export_excel")}</Button>
+              </div>
+              <ResultCardsGrid cards={config.resultCards} results={results} fee={values.influencerFee ?? 0} />
+              <InsightCards rules={config.insightRules} results={results} inputs={allInputs} />
+              <p className="text-xs text-muted-foreground mt-4">{t("ig.calculations_note")}</p>
+            </div>
           </div>
-          <ResultCardsGrid cards={config.resultCards} results={results} fee={values.influencerFee ?? 0} />
-          <InsightCards rules={config.insightRules} results={results} inputs={allInputs} />
-          <p className="text-xs text-muted-foreground mt-4">{t("ig.calculations_note")}</p>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }
