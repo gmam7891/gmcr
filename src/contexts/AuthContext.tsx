@@ -1,9 +1,12 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
+import type { AllowedStages } from "@/lib/campaign/stageEntitlements";
 
 interface UserAccess {
   allowed_tabs: string[];
+  /** Per-platform campaign stage entitlements. null = no restriction (all stages). */
+  allowed_stages: AllowedStages | null;
   expires_at: string | null;
   is_active: boolean;
   package_name: string | null;
@@ -104,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           "scanner_quality", "scanner_ai_lab", "scanner_results",
           "analyst", "planner",
         ],
+        allowed_stages: null,
         expires_at: null,
         is_active: true,
         package_name: "Admin",
@@ -113,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: accessData } = await supabase
       .from("user_access")
-      .select("*, access_packages(name, allowed_tabs)")
+      .select("*, access_packages(name, allowed_tabs, allowed_stages)")
       .eq("user_id", userId)
       .eq("is_active", true)
       .order("created_at", { ascending: false })
@@ -124,9 +128,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isExpired = accessData.expires_at && new Date(accessData.expires_at) < new Date();
       const pkg = accessData.access_packages as any;
       const tabs = accessData.custom_tabs || (pkg?.allowed_tabs) || [];
+      const stages =
+        (accessData.allowed_stages as AllowedStages | null) ??
+        (pkg?.allowed_stages as AllowedStages | null) ??
+        null;
 
       setUserAccess({
         allowed_tabs: isExpired ? [] : tabs,
+        allowed_stages: isExpired ? null : stages,
         expires_at: accessData.expires_at,
         is_active: !isExpired && accessData.is_active,
         package_name: pkg?.name || "Personalizado",
@@ -134,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       setUserAccess({
         allowed_tabs: [],
+        allowed_stages: null,
         expires_at: null,
         is_active: false,
         package_name: null,

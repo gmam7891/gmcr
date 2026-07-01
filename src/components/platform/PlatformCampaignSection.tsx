@@ -1,13 +1,14 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { CampaignTypeSelector } from "@/components/instagram/CampaignTypeSelector";
-import { StageMultiSelect } from "@/components/instagram/StageMultiSelect";
 import { DynamicCampaignFields } from "@/components/instagram/DynamicCampaignFields";
 import { ResultCardsGrid } from "@/components/instagram/ResultCardsGrid";
 import { InsightCards } from "@/components/instagram/InsightCards";
 import { calculateCampaign } from "@/lib/instagram/campaignCalculators";
 import { getCampaignConfigs } from "@/lib/instagram/campaignFieldConfig";
-import { CAMPAIGN_TYPES, type CampaignType } from "@/lib/instagram/campaignTypes";
+import { type CampaignType } from "@/lib/instagram/campaignTypes";
+import { resolveEnabledStages } from "@/lib/campaign/stageEntitlements";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { fmtInt } from "@/lib/formatters";
 
 interface Props {
@@ -17,30 +18,17 @@ interface Props {
   platformLabel: string;
 }
 
-const ALL_TYPES = CAMPAIGN_TYPES.map((t) => t.value);
-
 export function PlatformCampaignSection({ platformReach, platformLabel }: Props) {
   const { t } = useLanguage();
-  const stagesKey = `campaign-stages:${platformLabel}`;
+  const { userAccess } = useAuth();
   const valuesKey = `campaign-values:${platformLabel}`;
 
-  const [enabledStages, setEnabledStages] = useState<CampaignType[]>(() => {
-    if (typeof window === "undefined") return ALL_TYPES;
-    try {
-      const raw = localStorage.getItem(stagesKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as CampaignType[];
-        if (Array.isArray(parsed)) return parsed.filter((s) => ALL_TYPES.includes(s));
-      }
-    } catch {}
-    return ALL_TYPES;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(stagesKey, JSON.stringify(enabledStages));
-    } catch {}
-  }, [stagesKey, enabledStages]);
+  // Which stages this client contracted for this platform — configured by the
+  // admin, enforced here (no longer a self-service toggle).
+  const enabledStages = useMemo(
+    () => resolveEnabledStages(userAccess?.allowed_stages, platformLabel),
+    [userAccess?.allowed_stages, platformLabel],
+  );
 
   const [campaignType, setCampaignType] = useState<CampaignType>(enabledStages[0] ?? "igaming");
 
@@ -105,12 +93,6 @@ export function PlatformCampaignSection({ platformReach, platformLabel }: Props)
           </span>
         </div>
 
-        <StageMultiSelect
-          value={enabledStages}
-          onChange={setEnabledStages}
-          label={`Quais etapas este pacote usa no ${platformLabel}?`}
-        />
-
         {enabledStages.length > 0 ? (
           <CampaignTypeSelector
             value={campaignType}
@@ -119,7 +101,7 @@ export function PlatformCampaignSection({ platformReach, platformLabel }: Props)
           />
         ) : (
           <div className="card-surface p-4 text-sm text-muted-foreground">
-            Selecione ao menos uma etapa acima para configurar a campanha.
+            Nenhuma etapa liberada para {platformLabel} neste pacote. Fale com o administrador.
           </div>
         )}
       </div>

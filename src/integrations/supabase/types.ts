@@ -85,6 +85,7 @@ export type Database = {
       }
       access_packages: {
         Row: {
+          allowed_stages: Json | null
           allowed_tabs: string[]
           created_at: string
           description: string | null
@@ -96,6 +97,7 @@ export type Database = {
           tier: string | null
         }
         Insert: {
+          allowed_stages?: Json | null
           allowed_tabs?: string[]
           created_at?: string
           description?: string | null
@@ -107,6 +109,7 @@ export type Database = {
           tier?: string | null
         }
         Update: {
+          allowed_stages?: Json | null
           allowed_tabs?: string[]
           created_at?: string
           description?: string | null
@@ -1591,6 +1594,7 @@ export type Database = {
       }
       user_access: {
         Row: {
+          allowed_stages: Json | null
           created_at: string
           created_by: string | null
           custom_tabs: string[] | null
@@ -1604,6 +1608,7 @@ export type Database = {
           vods_used_month: number | null
         }
         Insert: {
+          allowed_stages?: Json | null
           created_at?: string
           created_by?: string | null
           custom_tabs?: string[] | null
@@ -1617,6 +1622,7 @@ export type Database = {
           vods_used_month?: number | null
         }
         Update: {
+          allowed_stages?: Json | null
           created_at?: string
           created_by?: string | null
           custom_tabs?: string[] | null

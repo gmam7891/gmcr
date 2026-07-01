@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
 
       const { data: accesses } = await adminClient
         .from("user_access")
-        .select("*, access_packages(name, allowed_tabs)");
+        .select("*, access_packages(name, allowed_tabs, allowed_stages)");
 
       const { data: roles } = await adminClient
         .from("user_roles")
@@ -122,7 +122,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === "set_access") {
-      const { user_id, package_id, custom_tabs, duration_days } = payload;
+      const { user_id, package_id, custom_tabs, allowed_stages, duration_days } = payload;
       if (!user_id) {
         return new Response(JSON.stringify({ error: "user_id required" }), {
           status: 400,
@@ -144,6 +144,7 @@ Deno.serve(async (req) => {
         user_id,
         package_id: package_id || null,
         custom_tabs: custom_tabs || null,
+        allowed_stages: allowed_stages ?? null,
         expires_at,
         is_active: true,
         created_by: user.id,
