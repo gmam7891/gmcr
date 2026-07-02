@@ -290,9 +290,44 @@ async function tick() {
   return { polled: running?.length || 0, started: slots };
 }
 
+const FFMPEG_WORKER_URL = Deno.env.get("FFMPEG_WORKER_URL") || "";
+const FFMPEG_WORKER_TOKEN = Deno.env.get("FFMPEG_WORKER_TOKEN") || "";
+
+// Proxy an ffmpeg-based frame extraction to the external worker.
+// Streams NDJSON straight back to the caller — no buffering.
+async function proxyFfmpegScan(payload: Record<string, unknown>): Promise<Response> {
+  if (!FFMPEG_WORKER_URL) return json({ error: "FFMPEG_WORKER_URL not configured" }, 500);
+  const upstream = await fetch(`${FFMPEG_WORKER_URL.replace(/\/$/, "")}/scan`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(FFMPEG_WORKER_TOKEN ? { Authorization: `Bearer ${FFMPEG_WORKER_TOKEN}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  });
+  return new Response(upstream.body, {
+    status: upstream.status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": upstream.headers.get("Content-Type") || "application/x-ndjson",
+      "Cache-Control": "no-cache, no-transform",
+    },
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
+    // Manual actions (POST body) — ffmpeg frame extraction
+    if (req.method === "POST") {
+      const body = await req.json().catch(() => ({} as any));
+      if (body?.action === "scan_ffmpeg") {
+        const { vod_url, fps, start, end, width } = body;
+        if (!vod_url) return json({ error: "vod_url required" }, 400);
+        return await proxyFfmpegScan({ vod_url, fps, start, end, width });
+      }
+    }
+    // Default: cron tick — poll queue
     const summary = await tick();
     return json({ ok: true, ...summary });
   } catch (err) {
@@ -301,3 +336,4 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: msg }, 500);
   }
 });
+
