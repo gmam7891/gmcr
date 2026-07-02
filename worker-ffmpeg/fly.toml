@@ -1,0 +1,20 @@
+# fly.toml — deploy: `fly launch --no-deploy && fly secrets set AUTH_TOKEN=... && fly deploy`
+app = "starklytic-ffmpeg"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1gb"
+
+[env]
+  MAX_DURATION_S = "21600"
