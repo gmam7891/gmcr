@@ -15,9 +15,12 @@ import { StageEntitlementEditor } from "@/components/admin/StageEntitlementEdito
 import { defaultAllowedStages, type AllowedStages } from "@/lib/campaign/stageEntitlements";
 
 const ALL_TABS = [
+  { id: "analyst", label: "Analista" },
+  { id: "planner", label: "Planejador" },
   { id: "simulator", label: "Simulador" },
   { id: "monitor", label: "Monitor" },
   { id: "authenticity", label: "Authenticity" },
+  { id: "tiktok", label: "TikTok" },
   { id: "instagram", label: "Instagram" },
   { id: "twitch", label: "Twitch" },
   { id: "youtube", label: "YouTube" },
