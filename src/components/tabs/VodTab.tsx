@@ -335,9 +335,39 @@ export function VodTab() {
           <p className="text-xs text-primary font-medium uppercase tracking-wider">{t("vod.title_header")}</p>
           <p className="text-xs sm:text-sm text-muted-foreground">{t("vod.description")}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={downloadExcel} className="shrink-0 self-start">
-          {t("app.export_excel")}
-        </Button>
+        <div className="flex gap-2 shrink-0 self-start">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              const { data, error } = await supabase.functions.invoke("vod-scan-worker", {
+                body: { action: "test_ffmpeg" },
+              });
+              if (error) {
+                toast({ title: "Erro ao testar worker", description: error.message, variant: "destructive" });
+                return;
+              }
+              if (!data?.configured) {
+                toast({
+                  title: "Worker ffmpeg não configurado",
+                  description: "Rode `bash worker-ffmpeg/deploy.sh` e adicione FFMPEG_WORKER_URL + FFMPEG_WORKER_TOKEN nos secrets.",
+                  variant: "destructive",
+                });
+                return;
+              }
+              toast({
+                title: data.ok ? "✅ Worker ffmpeg online" : "⚠ Worker configurado, mas não respondeu",
+                description: data.ok ? `Resposta: ${data.worker_response}` : (data.error || `HTTP ${data.status}`),
+                variant: data.ok ? "default" : "destructive",
+              });
+            }}
+          >
+            Testar ffmpeg
+          </Button>
+          <Button variant="outline" size="sm" onClick={downloadExcel}>
+            {t("app.export_excel")}
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
