@@ -292,9 +292,8 @@ async function tick() {
 
 const FFMPEG_WORKER_URL = Deno.env.get("FFMPEG_WORKER_URL") || "";
 const FFMPEG_WORKER_TOKEN = Deno.env.get("FFMPEG_WORKER_TOKEN") || "";
+const TWITCH_GQL_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko"; // public Twitch web player client-id
 
-// Proxy an ffmpeg-based frame extraction to the external worker.
-// Streams NDJSON straight back to the caller — no buffering.
 async function proxyFfmpegScan(payload: Record<string, unknown>): Promise<Response> {
   if (!FFMPEG_WORKER_URL) return json({ error: "FFMPEG_WORKER_URL not configured" }, 500);
   const upstream = await fetch(`${FFMPEG_WORKER_URL.replace(/\/$/, "")}/scan`, {
@@ -313,6 +312,190 @@ async function proxyFfmpegScan(payload: Record<string, unknown>): Promise<Respon
       "Cache-Control": "no-cache, no-transform",
     },
   });
+}
+
+// Resolve Twitch VOD → HLS m3u8 URL (no OAuth needed; uses public web client-id).
+async function resolveTwitchHls(vodId: string): Promise<string> {
+  const gql = await fetch("https://gql.twitch.tv/gql", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Client-ID": TWITCH_GQL_CLIENT_ID },
+    body: JSON.stringify({
+      operationName: "PlaybackAccessToken",
+      extensions: { persistedQuery: { version: 1, sha256Hash: "0828119ded1c13477966434e15800ff57ddacf13ba1911c129dc2200705b0712" } },
+      variables: { isLive: false, login: "", isVod: true, vodID: vodId, playerType: "site" },
+    }),
+  });
+  if (!gql.ok) throw new Error(`Twitch GQL ${gql.status}`);
+  const data = await gql.json();
+  const tok = data?.data?.videoPlaybackAccessToken;
+  if (!tok?.value || !tok?.signature) throw new Error("Twitch não retornou token de playback (VOD privado ou removido).");
+  const params = new URLSearchParams({
+    allow_source: "true",
+    allow_audio_only: "true",
+    allow_spectre: "true",
+    player: "twitchweb",
+    playlist_include_framerate: "true",
+    nauth: tok.value,
+    nauthsig: tok.signature,
+  });
+  const m3u8Url = `https://usher.ttvnw.net/vod/${vodId}.m3u8?${params}`;
+  const master = await fetch(m3u8Url);
+  if (!master.ok) throw new Error(`Twitch HLS master ${master.status}`);
+  const text = await master.text();
+  // Pick the first variant playlist URL (worst→best); we scale down anyway via ffmpeg.
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const variant = lines.find((l) => l.startsWith("https://") && l.endsWith(".m3u8"));
+  return variant || m3u8Url;
+}
+
+// End-to-end ffmpeg fallback scan.
+// 1) resolve HLS, 2) stream frames from ffmpeg worker, 3) batch-analyze via twitch-api,
+// 4) save evidences, 5) run pipeline, 6) upsert vod_audit.
+async function scanVodFfmpeg(body: any): Promise<Response> {
+  const vodId = String(body?.vod_id || "").trim();
+  const streamer = String(body?.streamer_login || "").trim();
+  const durationSec = Number(body?.vod_duration_seconds || 0);
+  const title = String(body?.vod_title || "");
+  const fps = Number(body?.fps || 1 / 60); // default: 1 frame/min
+  if (!vodId || !streamer || !durationSec) return json({ error: "vod_id, streamer_login, vod_duration_seconds required" }, 400);
+  if (!FFMPEG_WORKER_URL) return json({ error: "FFMPEG_WORKER_URL not configured" }, 500);
+
+  const auditPayload = {
+    vod_id: vodId,
+    streamer_login: streamer,
+    platform: "twitch",
+    status: "processing" as const,
+    vod_duration_seconds: Math.round(durationSec),
+    expected_frames: Math.max(1, Math.round(durationSec * fps)),
+    processed_frames: 0,
+    started_at: new Date().toISOString(),
+    progress_phase: "ffmpeg_scan",
+    progress_message: "Iniciando varredura HD via ffmpeg…",
+    partial_reason: "ffmpeg_fallback",
+    sullygnome_snapshot: {},
+    pending_audit_segments: {} as any,
+  };
+  const { data: auditRow, error: auditErr } = await sb
+    .from("vod_audits")
+    .upsert(auditPayload, { onConflict: "vod_id,platform" })
+    .select("id")
+    .single();
+  if (auditErr) return json({ error: `vod_audits upsert: ${auditErr.message}` }, 500);
+  const auditId = auditRow.id;
+
+  // Kick off async work; return immediately.
+  (async () => {
+    try {
+      const hls = await resolveTwitchHls(vodId);
+      const resp = await fetch(`${FFMPEG_WORKER_URL.replace(/\/$/, "")}/scan`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(FFMPEG_WORKER_TOKEN ? { Authorization: `Bearer ${FFMPEG_WORKER_TOKEN}` } : {}),
+        },
+        body: JSON.stringify({ vod_url: hls, fps, width: 640 }),
+      });
+      if (!resp.ok || !resp.body) throw new Error(`ffmpeg worker ${resp.status}`);
+
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let carry = "";
+      const BATCH = 6;
+      let batchUrls: string[] = [];
+      let batchTs: number[] = [];
+      let processed = 0;
+      const runId = `ffmpeg_${vodId}_${Date.now()}`;
+
+      const flush = async () => {
+        if (!batchUrls.length) return;
+        const analyze = await invokeFn("twitch-api", {
+          action: "analyze_vod_frames",
+          thumbnail_urls: batchUrls,
+          timestamps: batchTs,
+          vod_title: title,
+        }).catch((e) => { console.warn("[ffmpeg] analyze err:", e); return null; });
+
+        const games = (analyze?.games || []).filter((g: any) => g.category !== "not_game");
+        const timeline = (analyze?.gameTimeline || []).filter((s: any) => s.category !== "not_game");
+        const evidences: any[] = [];
+        for (const g of games) {
+          evidences.push({
+            vod_id: vodId, streamer_login: streamer, platform: "twitch",
+            source_type: "vod", source_id: vodId,
+            timestamp_seconds: g.timestampSeconds ?? 0,
+            game: g.game, provider: g.provider,
+            confidence: g.confidence === "high" ? 0.95 : g.confidence === "medium" ? 0.75 : 0.5,
+          });
+        }
+        for (const s of timeline) {
+          evidences.push({
+            vod_id: vodId, streamer_login: streamer, platform: "twitch",
+            source_type: "vod", source_id: vodId,
+            timestamp_seconds: s.startSeconds ?? 0,
+            game: s.game, provider: s.provider,
+            confidence: 0.85,
+          });
+        }
+        if (evidences.length) {
+          await invokeFn("scanner-write", { action: "save_raw_evidences", evidences, run_id: runId }).catch((e) => console.warn("[ffmpeg] save err:", e));
+        }
+        processed += batchUrls.length;
+        await sb.from("vod_audits").update({
+          processed_frames: processed,
+          progress_current_minute: Math.round((batchTs[batchTs.length - 1] || 0) / 60),
+          progress_total_minutes: Math.round(durationSec / 60),
+          progress_games_found: (auditRow as any).progress_games_found || 0,
+          progress_message: `ffmpeg: ${processed} frames processados`,
+          updated_at: new Date().toISOString(),
+        }).eq("id", auditId);
+        batchUrls = []; batchTs = [];
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        carry += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = carry.indexOf("\n")) >= 0) {
+          const line = carry.slice(0, nl).trim();
+          carry = carry.slice(nl + 1);
+          if (!line) continue;
+          let ev: any; try { ev = JSON.parse(line); } catch { continue; }
+          if (ev.done) continue;
+          if (ev.error) { console.warn("[ffmpeg] frame err:", ev.error); continue; }
+          if (ev.jpeg_b64) {
+            batchUrls.push(`data:image/jpeg;base64,${ev.jpeg_b64}`);
+            batchTs.push(Math.round(ev.t || 0));
+            if (batchUrls.length >= BATCH) await flush();
+          }
+        }
+      }
+      await flush();
+
+      // Consolida + métricas
+      await invokeFn("scanner-write", { action: "run_pipeline", vod_id: vodId, streamer_login: streamer, vod_duration_seconds: durationSec }).catch((e) => console.warn("[ffmpeg] pipeline err:", e));
+
+      await sb.from("vod_audits").update({
+        status: "completed",
+        completed_at: new Date().toISOString(),
+        progress_phase: "completed",
+        progress_message: `ffmpeg: ${processed} frames analisados`,
+        processed_frames: processed,
+      }).eq("id", auditId);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[ffmpeg fallback] failed:", msg);
+      await sb.from("vod_audits").update({
+        status: "failed",
+        completed_at: new Date().toISOString(),
+        error_message: `ffmpeg fallback: ${msg}`,
+        progress_phase: "failed",
+        progress_message: msg,
+      }).eq("id", auditId);
+    }
+  })();
+
+  return json({ ok: true, audit_id: auditId, message: "ffmpeg fallback iniciado em background" });
 }
 
 async function testFfmpegWorker(): Promise<Response> {
@@ -346,6 +529,7 @@ Deno.serve(async (req) => {
         if (!vod_url) return json({ error: "vod_url required" }, 400);
         return await proxyFfmpegScan({ vod_url, fps, start, end, width });
       }
+      if (body?.action === "scan_vod_ffmpeg") return await scanVodFfmpeg(body);
     }
     // Default: cron tick — poll queue
     const summary = await tick();
