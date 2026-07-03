@@ -514,7 +514,7 @@ export function VodTab() {
 
                 {auditId && (
                   <>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <Button
                         variant="outline"
                         size="sm"
@@ -523,8 +523,37 @@ export function VodTab() {
                       >
                         {isScanning ? "🔄 Iniciando releitura..." : "🔄 Reler VOD"}
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          const durationSecs = parseDuration(singleVod.duration) * 60;
+                          const { data, error } = await supabase.functions.invoke("vod-scan-worker", {
+                            body: {
+                              action: "scan_vod_ffmpeg",
+                              vod_id: singleVod.id,
+                              streamer_login: singleVod.user_login,
+                              vod_duration_seconds: Math.round(durationSecs),
+                              vod_title: singleVod.title,
+                              fps: 1 / 60,
+                            },
+                          });
+                          if (error) {
+                            toast({ title: "Erro no fallback ffmpeg", description: error.message, variant: "destructive" });
+                            return;
+                          }
+                          if (data?.audit_id) {
+                            setScanState((prev) => ({ ...prev, [singleVod.id]: { auditId: data.audit_id, loading: false, error: null } }));
+                            toast({ title: "🎬 Varredura HD (ffmpeg) iniciada", description: "Processando em background — o progresso aparece abaixo." });
+                          } else {
+                            toast({ title: "Fallback não iniciado", description: data?.error || "Verifique se FFMPEG_WORKER_URL está configurado.", variant: "destructive" });
+                          }
+                        }}
+                      >
+                        🎬 Fallback ffmpeg (HD)
+                      </Button>
                       <span className="text-xs text-muted-foreground">
-                        Inicia uma nova auditoria do zero (a anterior fica no histórico).
+                        Reler a partir do zero ou usar varredura HD via ffmpeg quando o storyboard falhar.
                       </span>
                     </div>
                     <AuditReportCard auditId={auditId} autoLoad />
