@@ -315,12 +315,32 @@ async function proxyFfmpegScan(payload: Record<string, unknown>): Promise<Respon
   });
 }
 
+async function testFfmpegWorker(): Promise<Response> {
+  if (!FFMPEG_WORKER_URL) {
+    return json({
+      ok: false,
+      configured: false,
+      error: "FFMPEG_WORKER_URL não configurado. Rode `bash worker-ffmpeg/deploy.sh` e adicione os secrets.",
+    }, 200);
+  }
+  try {
+    const r = await fetch(`${FFMPEG_WORKER_URL.replace(/\/$/, "")}/health`, {
+      headers: FFMPEG_WORKER_TOKEN ? { Authorization: `Bearer ${FFMPEG_WORKER_TOKEN}` } : {},
+    });
+    const body = await r.text();
+    return json({ ok: r.ok, configured: true, status: r.status, worker_response: body.slice(0, 500) });
+  } catch (e) {
+    return json({ ok: false, configured: true, error: e instanceof Error ? e.message : String(e) }, 200);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     // Manual actions (POST body) — ffmpeg frame extraction
     if (req.method === "POST") {
       const body = await req.json().catch(() => ({} as any));
+      if (body?.action === "test_ffmpeg") return await testFfmpegWorker();
       if (body?.action === "scan_ffmpeg") {
         const { vod_url, fps, start, end, width } = body;
         if (!vod_url) return json({ error: "vod_url required" }, 400);
