@@ -529,6 +529,7 @@ Deno.serve(async (req) => {
         if (!vod_url) return json({ error: "vod_url required" }, 400);
         return await proxyFfmpegScan({ vod_url, fps, start, end, width });
       }
+      if (body?.action === "scan_vod_ffmpeg") return await scanVodFfmpeg(body);
     }
     // Default: cron tick — poll queue
     const summary = await tick();
