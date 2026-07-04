@@ -78,6 +78,12 @@ export function VodTab() {
   const [scanState, setScanState] = useState<Record<string, VodScanState>>({});
   const [existingAudits, setExistingAudits] = useState<Record<string, string>>({});
 
+  // ffmpeg fallback controls
+  const [ffFps, setFfFps] = useState<number>(1);            // frames per minute
+  const [ffStartMin, setFfStartMin] = useState<string>(""); // minutes
+  const [ffEndMin, setFfEndMin] = useState<string>("");     // minutes
+  const [ffBatch, setFfBatch] = useState<number>(6);
+
   const activeScanAuditId = useMemo(() => {
     const entry = Object.entries(scanState).find(([, s]) => s.auditId !== null);
     return entry?.[1].auditId ?? null;
