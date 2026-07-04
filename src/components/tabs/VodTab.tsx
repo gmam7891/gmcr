@@ -540,6 +540,13 @@ export function VodTab() {
                         size="sm"
                         onClick={async () => {
                           const durationSecs = parseDuration(singleVod.duration) * 60;
+                          const startSec = ffStartMin.trim() === "" ? undefined : Math.max(0, Number(ffStartMin) * 60);
+                          const endSec = ffEndMin.trim() === "" ? undefined : Math.max(0, Number(ffEndMin) * 60);
+                          if (startSec != null && endSec != null && endSec <= startSec) {
+                            toast({ title: "Janela inválida", description: "O tempo final deve ser maior que o inicial.", variant: "destructive" });
+                            return;
+                          }
+                          const fpsPerSec = Math.max(0.05, Math.min(10, ffFps)) / 60;
                           const { data, error } = await supabase.functions.invoke("vod-scan-worker", {
                             body: {
                               action: "scan_vod_ffmpeg",
@@ -547,7 +554,10 @@ export function VodTab() {
                               streamer_login: singleVod.user_login,
                               vod_duration_seconds: Math.round(durationSecs),
                               vod_title: singleVod.title,
-                              fps: 1 / 60,
+                              fps: fpsPerSec,
+                              start: startSec,
+                              end: endSec,
+                              batch_size: Math.max(1, Math.min(24, Math.round(ffBatch))),
                             },
                           });
                           if (error) {
@@ -567,6 +577,44 @@ export function VodTab() {
                       <span className="text-xs text-muted-foreground">
                         Reler a partir do zero ou usar varredura HD via ffmpeg quando o storyboard falhar.
                       </span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-w-2xl">
+                      <label className="text-[11px] text-muted-foreground uppercase tracking-wider space-y-1">
+                        <span>FPS (frames/min)</span>
+                        <Input
+                          type="number" step="0.5" min="0.05" max="10"
+                          value={ffFps}
+                          onChange={(e) => setFfFps(Number(e.target.value) || 1)}
+                          className="h-8 font-mono text-xs"
+                        />
+                      </label>
+                      <label className="text-[11px] text-muted-foreground uppercase tracking-wider space-y-1">
+                        <span>Início (min)</span>
+                        <Input
+                          type="number" min="0" placeholder="0"
+                          value={ffStartMin}
+                          onChange={(e) => setFfStartMin(e.target.value)}
+                          className="h-8 font-mono text-xs"
+                        />
+                      </label>
+                      <label className="text-[11px] text-muted-foreground uppercase tracking-wider space-y-1">
+                        <span>Fim (min)</span>
+                        <Input
+                          type="number" min="0" placeholder="fim do VOD"
+                          value={ffEndMin}
+                          onChange={(e) => setFfEndMin(e.target.value)}
+                          className="h-8 font-mono text-xs"
+                        />
+                      </label>
+                      <label className="text-[11px] text-muted-foreground uppercase tracking-wider space-y-1">
+                        <span>Batch size</span>
+                        <Input
+                          type="number" min="1" max="24" step="1"
+                          value={ffBatch}
+                          onChange={(e) => setFfBatch(Number(e.target.value) || 6)}
+                          className="h-8 font-mono text-xs"
+                        />
+                      </label>
                     </div>
                     <AuditReportCard auditId={auditId} autoLoad />
                   </>
