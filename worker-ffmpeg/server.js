@@ -48,8 +48,12 @@ function bad(res, code, msg) {
 
 http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/health") {
+    if (AUTH_TOKEN) {
+      const auth = req.headers.authorization || "";
+      if (auth !== `Bearer ${AUTH_TOKEN}`) return bad(res, 401, "unauthorized");
+    }
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ ok: true }));
+    return res.end(JSON.stringify({ ok: true, ts: Date.now() }));
   }
   if (req.method !== "POST" || req.url !== "/scan") return bad(res, 404, "not found");
 

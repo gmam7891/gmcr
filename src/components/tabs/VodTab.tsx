@@ -341,24 +341,30 @@ export function VodTab() {
             size="sm"
             onClick={async () => {
               const { data, error } = await supabase.functions.invoke("vod-scan-worker", {
-                body: { action: "test_ffmpeg" },
+                body: { action: "ping_ffmpeg" },
               });
               if (error) {
                 toast({ title: "Erro ao testar worker", description: error.message, variant: "destructive" });
                 return;
               }
-              if (!data?.configured) {
+              const code = data?.code;
+              if (data?.ok) {
                 toast({
-                  title: "Worker ffmpeg não configurado",
-                  description: "Rode `bash worker-ffmpeg/deploy.sh` e adicione FFMPEG_WORKER_URL + FFMPEG_WORKER_TOKEN nos secrets.",
-                  variant: "destructive",
+                  title: "✅ Worker ffmpeg online",
+                  description: `Latência: ${data.latency_ms} ms`,
                 });
                 return;
               }
+              const titleMap: Record<string, string> = {
+                missing_url: "Secret ausente",
+                token_rejected: "Token rejeitado",
+                unreachable: "Worker inacessível",
+                bad_status: "Worker com erro",
+              };
               toast({
-                title: data.ok ? "✅ Worker ffmpeg online" : "⚠ Worker configurado, mas não respondeu",
-                description: data.ok ? `Resposta: ${data.worker_response}` : (data.error || `HTTP ${data.status}`),
-                variant: data.ok ? "default" : "destructive",
+                title: titleMap[code] || "Falha no worker ffmpeg",
+                description: data?.error || "Erro desconhecido",
+                variant: "destructive",
               });
             }}
           >
