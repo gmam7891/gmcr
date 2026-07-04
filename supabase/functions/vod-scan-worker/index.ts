@@ -562,6 +562,7 @@ Deno.serve(async (req) => {
     // Manual actions (POST body) — ffmpeg frame extraction
     if (req.method === "POST") {
       const body = await req.json().catch(() => ({} as any));
+      if (body?.action === "ping_ffmpeg") return await pingFfmpegWorker();
       if (body?.action === "test_ffmpeg") return await testFfmpegWorker();
       if (body?.action === "scan_ffmpeg") {
         const { vod_url, fps, start, end, width } = body;
