@@ -498,24 +498,63 @@ async function scanVodFfmpeg(body: any): Promise<Response> {
   return json({ ok: true, audit_id: auditId, message: "ffmpeg fallback iniciado em background" });
 }
 
-async function testFfmpegWorker(): Promise<Response> {
+async function pingFfmpegWorker(): Promise<Response> {
   if (!FFMPEG_WORKER_URL) {
     return json({
       ok: false,
-      configured: false,
-      error: "FFMPEG_WORKER_URL não configurado. Rode `bash worker-ffmpeg/deploy.sh` e adicione os secrets.",
+      code: "missing_url",
+      error: "Secret FFMPEG_WORKER_URL ausente no Lovable Cloud",
     }, 200);
   }
+  const url = `${FFMPEG_WORKER_URL.replace(/\/$/, "")}/health`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10_000);
+  const t0 = Date.now();
   try {
-    const r = await fetch(`${FFMPEG_WORKER_URL.replace(/\/$/, "")}/health`, {
+    const r = await fetch(url, {
       headers: FFMPEG_WORKER_TOKEN ? { Authorization: `Bearer ${FFMPEG_WORKER_TOKEN}` } : {},
+      signal: ctrl.signal,
     });
-    const body = await r.text();
-    return json({ ok: r.ok, configured: true, status: r.status, worker_response: body.slice(0, 500) });
+    const latency_ms = Date.now() - t0;
+    const body = await r.text().catch(() => "");
+    if (r.status === 401 || r.status === 403) {
+      return json({
+        ok: false,
+        code: "token_rejected",
+        status: r.status,
+        latency_ms,
+        error: "Token rejeitado: FFMPEG_WORKER_TOKEN não confere com o AUTH_TOKEN do Railway",
+      }, 200);
+    }
+    if (!r.ok) {
+      return json({
+        ok: false,
+        code: "bad_status",
+        status: r.status,
+        latency_ms,
+        error: `Worker respondeu HTTP ${r.status}`,
+        worker_response: body.slice(0, 300),
+      }, 200);
+    }
+    return json({ ok: true, code: "online", status: 200, latency_ms, worker_response: body.slice(0, 300) });
   } catch (e) {
-    return json({ ok: false, configured: true, error: e instanceof Error ? e.message : String(e) }, 200);
+    const latency_ms = Date.now() - t0;
+    const msg = e instanceof Error ? e.message : String(e);
+    return json({
+      ok: false,
+      code: "unreachable",
+      latency_ms,
+      error: "Worker inacessível: confira se a URL começa com https:// e se o deploy no Railway terminou",
+      detail: msg,
+    }, 200);
+  } finally {
+    clearTimeout(timer);
   }
 }
+
+// Backward-compat alias
+async function testFfmpegWorker(): Promise<Response> { return pingFfmpegWorker(); }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
