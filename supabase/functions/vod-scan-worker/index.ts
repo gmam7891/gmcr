@@ -357,8 +357,13 @@ async function scanVodFfmpeg(body: any): Promise<Response> {
   const durationSec = Number(body?.vod_duration_seconds || 0);
   const title = String(body?.vod_title || "");
   const fps = Number(body?.fps || 1 / 60); // default: 1 frame/min
+  const startSec = body?.start != null ? Math.max(0, Number(body.start)) : undefined;
+  const endSecRaw = body?.end != null ? Number(body.end) : undefined;
+  const endSec = endSecRaw != null && durationSec ? Math.min(endSecRaw, durationSec) : endSecRaw;
+  const BATCH = Math.max(1, Math.min(24, Number(body?.batch_size || 6)));
   if (!vodId || !streamer || !durationSec) return json({ error: "vod_id, streamer_login, vod_duration_seconds required" }, 400);
   if (!FFMPEG_WORKER_URL) return json({ error: "FFMPEG_WORKER_URL not configured" }, 500);
+  const windowSec = Math.max(1, (endSec ?? durationSec) - (startSec ?? 0));
 
   const auditPayload = {
     vod_id: vodId,
