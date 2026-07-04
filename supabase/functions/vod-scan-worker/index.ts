@@ -398,14 +398,13 @@ async function scanVodFfmpeg(body: any): Promise<Response> {
           "Content-Type": "application/json",
           ...(FFMPEG_WORKER_TOKEN ? { Authorization: `Bearer ${FFMPEG_WORKER_TOKEN}` } : {}),
         },
-        body: JSON.stringify({ vod_url: hls, fps, width: 640 }),
+        body: JSON.stringify({ vod_url: hls, fps, width: 640, ...(startSec != null ? { start: startSec } : {}), ...(endSec != null ? { end: endSec } : {}) }),
       });
       if (!resp.ok || !resp.body) throw new Error(`ffmpeg worker ${resp.status}`);
 
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
       let carry = "";
-      const BATCH = 6;
       let batchUrls: string[] = [];
       let batchTs: number[] = [];
       let processed = 0;
