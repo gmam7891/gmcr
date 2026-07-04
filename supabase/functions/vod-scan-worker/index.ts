@@ -371,7 +371,7 @@ async function scanVodFfmpeg(body: any): Promise<Response> {
     platform: "twitch",
     status: "processing" as const,
     vod_duration_seconds: Math.round(durationSec),
-    expected_frames: Math.max(1, Math.round(durationSec * fps)),
+    expected_frames: Math.max(1, Math.round(windowSec * fps)),
     processed_frames: 0,
     started_at: new Date().toISOString(),
     progress_phase: "ffmpeg_scan",
