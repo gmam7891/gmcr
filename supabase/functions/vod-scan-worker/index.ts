@@ -357,8 +357,13 @@ async function scanVodFfmpeg(body: any): Promise<Response> {
   const durationSec = Number(body?.vod_duration_seconds || 0);
   const title = String(body?.vod_title || "");
   const fps = Number(body?.fps || 1 / 60); // default: 1 frame/min
+  const startSec = body?.start != null ? Math.max(0, Number(body.start)) : undefined;
+  const endSecRaw = body?.end != null ? Number(body.end) : undefined;
+  const endSec = endSecRaw != null && durationSec ? Math.min(endSecRaw, durationSec) : endSecRaw;
+  const BATCH = Math.max(1, Math.min(24, Number(body?.batch_size || 6)));
   if (!vodId || !streamer || !durationSec) return json({ error: "vod_id, streamer_login, vod_duration_seconds required" }, 400);
   if (!FFMPEG_WORKER_URL) return json({ error: "FFMPEG_WORKER_URL not configured" }, 500);
+  const windowSec = Math.max(1, (endSec ?? durationSec) - (startSec ?? 0));
 
   const auditPayload = {
     vod_id: vodId,
@@ -366,7 +371,7 @@ async function scanVodFfmpeg(body: any): Promise<Response> {
     platform: "twitch",
     status: "processing" as const,
     vod_duration_seconds: Math.round(durationSec),
-    expected_frames: Math.max(1, Math.round(durationSec * fps)),
+    expected_frames: Math.max(1, Math.round(windowSec * fps)),
     processed_frames: 0,
     started_at: new Date().toISOString(),
     progress_phase: "ffmpeg_scan",
@@ -393,14 +398,13 @@ async function scanVodFfmpeg(body: any): Promise<Response> {
           "Content-Type": "application/json",
           ...(FFMPEG_WORKER_TOKEN ? { Authorization: `Bearer ${FFMPEG_WORKER_TOKEN}` } : {}),
         },
-        body: JSON.stringify({ vod_url: hls, fps, width: 640 }),
+        body: JSON.stringify({ vod_url: hls, fps, width: 640, ...(startSec != null ? { start: startSec } : {}), ...(endSec != null ? { end: endSec } : {}) }),
       });
       if (!resp.ok || !resp.body) throw new Error(`ffmpeg worker ${resp.status}`);
 
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
       let carry = "";
-      const BATCH = 6;
       let batchUrls: string[] = [];
       let batchTs: number[] = [];
       let processed = 0;
