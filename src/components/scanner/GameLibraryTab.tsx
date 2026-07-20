@@ -51,7 +51,25 @@ interface LibraryEntry {
   agent_times_corrected?: number | null;
   agent_average_confidence?: number | null;
   agent_learned_at?: string | null;
+  thumbnail_phash?: string | null;
 }
+
+// Formata bytea vindo do PostgREST ("\x0123..." ou base64) em hex minúsculo.
+function formatPhash(raw: unknown): string | null {
+  if (!raw) return null;
+  if (typeof raw !== "string") return null;
+  if (raw.startsWith("\\x")) return raw.slice(2).toLowerCase();
+  // fallback base64 → hex
+  try {
+    const bin = atob(raw);
+    let hex = "";
+    for (let i = 0; i < bin.length; i++) hex += bin.charCodeAt(i).toString(16).padStart(2, "0");
+    return hex || null;
+  } catch {
+    return raw.toLowerCase();
+  }
+}
+
 
 const ELITE_PROVIDERS = [
   { slug: "pg_soft", name: "PG Soft", color: "from-yellow-500 to-orange-500" },
@@ -753,6 +771,19 @@ export function GameLibraryTab() {
                             </Button>
                           </div>
                         )}
+                      </div>
+
+                      {/* Hash / Impressão digital */}
+                      <div className="border-t border-border pt-3 space-y-2">
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Impressão digital</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-1 text-xs">
+                          <span className="text-muted-foreground">Algoritmo hash:</span>
+                          <span className="font-mono text-foreground">pHash (perceptual hash) · 64-bit</span>
+                          <span className="text-muted-foreground">Resumo digital hash:</span>
+                          <span className="font-mono text-foreground break-all select-all">
+                            {formatPhash(entry.thumbnail_phash) || <span className="text-muted-foreground italic">— não calculado —</span>}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Actions */}
