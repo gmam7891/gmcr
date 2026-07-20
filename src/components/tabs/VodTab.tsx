@@ -7,7 +7,7 @@ import {
   formatDuration, formatSeconds, parseDuration,
   type TwitchVod, type VodChapter,
 } from "@/lib/twitch-api";
-import { startWatcher } from "@/lib/vod-watcher";
+import { startWatcher, startAuditPro, type AuditProStrategy } from "@/lib/vod-watcher";
 import { AuditReportCard } from "@/components/AuditReportCard";
 import { fmtInt } from "@/lib/formatters";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -83,6 +83,12 @@ export function VodTab() {
   const [ffStartMin, setFfStartMin] = useState<string>(""); // minutes
   const [ffEndMin, setFfEndMin] = useState<string>("");     // minutes
   const [ffBatch, setFfBatch] = useState<number>(6);
+
+  // Audit Pro (parallel high-precision pipeline)
+  const [useAuditPro, setUseAuditPro] = useState<boolean>(false);
+  const [auditProStrategy, setAuditProStrategy] = useState<AuditProStrategy>("balanced");
+  const [auditProProvider, setAuditProProvider] = useState<string>("iGaming");
+  const [auditProHighPrecision, setAuditProHighPrecision] = useState<boolean>(false);
 
   const activeScanAuditId = useMemo(() => {
     const entry = Object.entries(scanState).find(([, s]) => s.auditId !== null);
@@ -220,13 +226,23 @@ export function VodTab() {
 
     try {
       const durationSecs = parseDuration(vod.duration) * 60;
-      const result = await startWatcher({
-        vodId: vod.id,
-        streamerLogin: vod.user_login,
-        vodDurationSeconds: Math.round(durationSecs),
-        thumbnailUrl: vod.thumbnail_url,
-        vodTitle: vod.title,
-      });
+      const result = useAuditPro
+        ? await startAuditPro({
+            vodId: vod.id,
+            streamerLogin: vod.user_login,
+            vodDurationSeconds: Math.round(durationSecs),
+            vodTitle: vod.title,
+            provider: auditProProvider,
+            strategy: auditProStrategy,
+            highPrecision: auditProHighPrecision,
+          })
+        : await startWatcher({
+            vodId: vod.id,
+            streamerLogin: vod.user_login,
+            vodDurationSeconds: Math.round(durationSecs),
+            thumbnailUrl: vod.thumbnail_url,
+            vodTitle: vod.title,
+          });
 
       setScanState((prev) => ({
         ...prev,
@@ -428,6 +444,57 @@ export function VodTab() {
               : "Twitch chapters/categories only"}
         </span>
       </div>
+
+      {analysisScope === "igaming" && (
+        <div className="card-surface p-3 flex flex-wrap items-center gap-3 self-start">
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={useAuditPro}
+              onChange={(e) => setUseAuditPro(e.target.checked)}
+              className="accent-primary"
+            />
+            <span className="font-medium">Modo Audit Pro</span>
+            <span className="text-muted-foreground">(referências visuais + estratégias)</span>
+          </label>
+          {useAuditPro && (
+            <>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Provedora:</span>
+                <input
+                  type="text"
+                  value={auditProProvider}
+                  onChange={(e) => setAuditProProvider(e.target.value)}
+                  placeholder="iGaming"
+                  className="w-32 px-2 py-1 rounded border border-input bg-background text-xs"
+                />
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Estratégia:</span>
+                <select
+                  value={auditProStrategy}
+                  onChange={(e) => setAuditProStrategy(e.target.value as AuditProStrategy)}
+                  className="px-2 py-1 rounded border border-input bg-background text-xs"
+                >
+                  <option value="balanced">Balanced</option>
+                  <option value="title_first">Title First</option>
+                  <option value="hud_first">HUD First</option>
+                  <option value="aggressive_casino">Aggressive Casino</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={auditProHighPrecision}
+                  onChange={(e) => setAuditProHighPrecision(e.target.checked)}
+                  className="accent-primary"
+                />
+                <span>Alta precisão (gemini-2.5-pro)</span>
+              </label>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="card-surface p-2 inline-flex flex-wrap items-center gap-1 self-start">
         <span className="text-[11px] text-muted-foreground px-2 uppercase tracking-wider">
