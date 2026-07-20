@@ -7,7 +7,7 @@ import {
   formatDuration, formatSeconds, parseDuration,
   type TwitchVod, type VodChapter,
 } from "@/lib/twitch-api";
-import { startWatcher } from "@/lib/vod-watcher";
+import { startWatcher, startAuditPro, type AuditProStrategy } from "@/lib/vod-watcher";
 import { AuditReportCard } from "@/components/AuditReportCard";
 import { fmtInt } from "@/lib/formatters";
 import { useLanguage } from "@/contexts/LanguageContext";
