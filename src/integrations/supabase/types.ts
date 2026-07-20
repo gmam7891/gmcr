@@ -1671,6 +1671,8 @@ export type Database = {
           coverage_percent: number | null
           created_at: string
           data_quality_status: string | null
+          detection_strategy: string | null
+          diagnostics: Json | null
           discarded_blocks: number | null
           discarded_evidences: number | null
           error_message: string | null
@@ -1683,6 +1685,7 @@ export type Database = {
           org_id: string | null
           partial_reason: string | null
           pending_audit_segments: Json | null
+          pending_frames: Json | null
           platform: string
           processed_duration_seconds: number | null
           processed_frames: number | null
@@ -1697,10 +1700,12 @@ export type Database = {
           rules_version: string | null
           started_at: string | null
           status: Database["public"]["Enums"]["vod_status"]
+          storyboard_variant: string | null
           streamer_login: string
           sullygnome_snapshot: Json | null
           suspect_blocks: number | null
           total_evidences: number | null
+          total_frames: number | null
           updated_at: string
           valid_evidences: number | null
           vod_created_at: string | null
@@ -1714,6 +1719,8 @@ export type Database = {
           coverage_percent?: number | null
           created_at?: string
           data_quality_status?: string | null
+          detection_strategy?: string | null
+          diagnostics?: Json | null
           discarded_blocks?: number | null
           discarded_evidences?: number | null
           error_message?: string | null
@@ -1726,6 +1733,7 @@ export type Database = {
           org_id?: string | null
           partial_reason?: string | null
           pending_audit_segments?: Json | null
+          pending_frames?: Json | null
           platform?: string
           processed_duration_seconds?: number | null
           processed_frames?: number | null
@@ -1740,10 +1748,12 @@ export type Database = {
           rules_version?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["vod_status"]
+          storyboard_variant?: string | null
           streamer_login: string
           sullygnome_snapshot?: Json | null
           suspect_blocks?: number | null
           total_evidences?: number | null
+          total_frames?: number | null
           updated_at?: string
           valid_evidences?: number | null
           vod_created_at?: string | null
@@ -1757,6 +1767,8 @@ export type Database = {
           coverage_percent?: number | null
           created_at?: string
           data_quality_status?: string | null
+          detection_strategy?: string | null
+          diagnostics?: Json | null
           discarded_blocks?: number | null
           discarded_evidences?: number | null
           error_message?: string | null
@@ -1769,6 +1781,7 @@ export type Database = {
           org_id?: string | null
           partial_reason?: string | null
           pending_audit_segments?: Json | null
+          pending_frames?: Json | null
           platform?: string
           processed_duration_seconds?: number | null
           processed_frames?: number | null
@@ -1783,10 +1796,12 @@ export type Database = {
           rules_version?: string | null
           started_at?: string | null
           status?: Database["public"]["Enums"]["vod_status"]
+          storyboard_variant?: string | null
           streamer_login?: string
           sullygnome_snapshot?: Json | null
           suspect_blocks?: number | null
           total_evidences?: number | null
+          total_frames?: number | null
           updated_at?: string
           valid_evidences?: number | null
           vod_created_at?: string | null
@@ -2209,6 +2224,11 @@ export type Database = {
         Args: { _org_id: string; _sql: string }
         Returns: Json
       }
+      apply_chunk_result: {
+        Args: { _audit_id: string; _delta: Json }
+        Returns: Json
+      }
+      claim_next_sprite: { Args: { _audit_id: string }; Returns: Json }
       find_game_by_phash: {
         Args: { max_distance?: number; query_phash: string }
         Returns: {
