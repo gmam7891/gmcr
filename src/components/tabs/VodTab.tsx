@@ -445,6 +445,57 @@ export function VodTab() {
         </span>
       </div>
 
+      {analysisScope === "igaming" && (
+        <div className="card-surface p-3 flex flex-wrap items-center gap-3 self-start">
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={useAuditPro}
+              onChange={(e) => setUseAuditPro(e.target.checked)}
+              className="accent-primary"
+            />
+            <span className="font-medium">Modo Audit Pro</span>
+            <span className="text-muted-foreground">(referências visuais + estratégias)</span>
+          </label>
+          {useAuditPro && (
+            <>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Provedora:</span>
+                <input
+                  type="text"
+                  value={auditProProvider}
+                  onChange={(e) => setAuditProProvider(e.target.value)}
+                  placeholder="iGaming"
+                  className="w-32 px-2 py-1 rounded border border-input bg-background text-xs"
+                />
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Estratégia:</span>
+                <select
+                  value={auditProStrategy}
+                  onChange={(e) => setAuditProStrategy(e.target.value as AuditProStrategy)}
+                  className="px-2 py-1 rounded border border-input bg-background text-xs"
+                >
+                  <option value="balanced">Balanced</option>
+                  <option value="title_first">Title First</option>
+                  <option value="hud_first">HUD First</option>
+                  <option value="aggressive_casino">Aggressive Casino</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={auditProHighPrecision}
+                  onChange={(e) => setAuditProHighPrecision(e.target.checked)}
+                  className="accent-primary"
+                />
+                <span>Alta precisão (gemini-2.5-pro)</span>
+              </label>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="card-surface p-2 inline-flex flex-wrap items-center gap-1 self-start">
         <span className="text-[11px] text-muted-foreground px-2 uppercase tracking-wider">
           {language === "pt" ? "Período" : "Period"}
