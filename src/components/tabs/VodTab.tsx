@@ -84,6 +84,12 @@ export function VodTab() {
   const [ffEndMin, setFfEndMin] = useState<string>("");     // minutes
   const [ffBatch, setFfBatch] = useState<number>(6);
 
+  // Audit Pro (parallel high-precision pipeline)
+  const [useAuditPro, setUseAuditPro] = useState<boolean>(false);
+  const [auditProStrategy, setAuditProStrategy] = useState<AuditProStrategy>("balanced");
+  const [auditProProvider, setAuditProProvider] = useState<string>("iGaming");
+  const [auditProHighPrecision, setAuditProHighPrecision] = useState<boolean>(false);
+
   const activeScanAuditId = useMemo(() => {
     const entry = Object.entries(scanState).find(([, s]) => s.auditId !== null);
     return entry?.[1].auditId ?? null;
