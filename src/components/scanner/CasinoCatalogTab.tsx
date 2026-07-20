@@ -578,12 +578,16 @@ export function CasinoCatalogTab() {
                         >
                           {s.status}
                         </Badge>
-                        {s.metadata?.phash_hex && (
-                          <span className="text-[8px] font-mono text-muted-foreground">
-                            {s.metadata.phash_hex.slice(0, 6)}
-                          </span>
-                        )}
                       </div>
+                      <div className="pt-1 border-t border-border/50 space-y-0.5">
+                        <p className="text-[8px] uppercase tracking-wider text-muted-foreground">Algoritmo hash</p>
+                        <p className="text-[9px] font-mono text-foreground">pHash · 64-bit</p>
+                        <p className="text-[8px] uppercase tracking-wider text-muted-foreground mt-1">Resumo digital hash</p>
+                        <p className="text-[9px] font-mono text-foreground break-all select-all" title={s.metadata?.phash_hex || undefined}>
+                          {s.metadata?.phash_hex || <span className="text-muted-foreground italic">— não calculado —</span>}
+                        </p>
+                      </div>
+
                     </div>
                   </div>
                 ))}
