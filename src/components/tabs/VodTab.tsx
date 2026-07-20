@@ -226,13 +226,23 @@ export function VodTab() {
 
     try {
       const durationSecs = parseDuration(vod.duration) * 60;
-      const result = await startWatcher({
-        vodId: vod.id,
-        streamerLogin: vod.user_login,
-        vodDurationSeconds: Math.round(durationSecs),
-        thumbnailUrl: vod.thumbnail_url,
-        vodTitle: vod.title,
-      });
+      const result = useAuditPro
+        ? await startAuditPro({
+            vodId: vod.id,
+            streamerLogin: vod.user_login,
+            vodDurationSeconds: Math.round(durationSecs),
+            vodTitle: vod.title,
+            provider: auditProProvider,
+            strategy: auditProStrategy,
+            highPrecision: auditProHighPrecision,
+          })
+        : await startWatcher({
+            vodId: vod.id,
+            streamerLogin: vod.user_login,
+            vodDurationSeconds: Math.round(durationSecs),
+            thumbnailUrl: vod.thumbnail_url,
+            vodTitle: vod.title,
+          });
 
       setScanState((prev) => ({
         ...prev,
