@@ -94,3 +94,33 @@ export async function getAuditReport(auditId: string): Promise<AuditReport> {
   if (data?.error) throw new Error(data.error);
   return data as AuditReport;
 }
+
+export type AuditProStrategy = "balanced" | "title_first" | "hud_first" | "aggressive_casino";
+
+/** Start VOD Audit Pro pipeline (parallel to watcher). Higher-precision, reference-image aware. */
+export async function startAuditPro(params: {
+  vodId: string;
+  streamerLogin: string;
+  vodDurationSeconds: number;
+  vodTitle: string;
+  provider?: string;
+  strategy?: AuditProStrategy;
+  highPrecision?: boolean;
+}): Promise<WatcherStartResult & { total_sprites?: number; variant?: string }> {
+  const { data, error } = await supabase.functions.invoke("vod-audit-pro", {
+    body: {
+      action: "start",
+      vod_id: params.vodId,
+      streamer_login: params.streamerLogin,
+      vod_duration_seconds: params.vodDurationSeconds,
+      vod_title: params.vodTitle,
+      provider: params.provider ?? "iGaming",
+      strategy: params.strategy ?? "balanced",
+      high_precision: !!params.highPrecision,
+    },
+  });
+  if (error) throw new Error(error.message);
+  if (data?.error) throw new Error(data.error);
+  return data;
+}
+
