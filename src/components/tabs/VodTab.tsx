@@ -85,7 +85,8 @@ export function VodTab() {
   const [ffBatch, setFfBatch] = useState<number>(6);
 
   // Audit Pro (parallel high-precision pipeline)
-  const [useAuditPro, setUseAuditPro] = useState<boolean>(false);
+  // Watcher legado desativado no front — iGaming sempre usa Audit Pro
+  const [useAuditPro] = useState<boolean>(true);
   const [auditProStrategy, setAuditProStrategy] = useState<AuditProStrategy>("balanced");
   const [auditProProvider, setAuditProProvider] = useState<string>("iGaming");
   const [auditProHighPrecision, setAuditProHighPrecision] = useState<boolean>(false);
@@ -447,16 +448,10 @@ export function VodTab() {
 
       {analysisScope === "igaming" && (
         <div className="card-surface p-3 flex flex-wrap items-center gap-3 self-start">
-          <label className="flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={useAuditPro}
-              onChange={(e) => setUseAuditPro(e.target.checked)}
-              className="accent-primary"
-            />
+          <div className="flex items-center gap-2 text-xs">
             <span className="font-medium">Modo Audit Pro</span>
             <span className="text-muted-foreground">(referências visuais + estratégias)</span>
-          </label>
+          </div>
           {useAuditPro && (
             <>
               <div className="flex items-center gap-2 text-xs">
