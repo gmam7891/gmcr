@@ -51,7 +51,25 @@ interface LibraryEntry {
   agent_times_corrected?: number | null;
   agent_average_confidence?: number | null;
   agent_learned_at?: string | null;
+  thumbnail_phash?: string | null;
 }
+
+// Formata bytea vindo do PostgREST ("\x0123..." ou base64) em hex minúsculo.
+function formatPhash(raw: unknown): string | null {
+  if (!raw) return null;
+  if (typeof raw !== "string") return null;
+  if (raw.startsWith("\\x")) return raw.slice(2).toLowerCase();
+  // fallback base64 → hex
+  try {
+    const bin = atob(raw);
+    let hex = "";
+    for (let i = 0; i < bin.length; i++) hex += bin.charCodeAt(i).toString(16).padStart(2, "0");
+    return hex || null;
+  } catch {
+    return raw.toLowerCase();
+  }
+}
+
 
 const ELITE_PROVIDERS = [
   { slug: "pg_soft", name: "PG Soft", color: "from-yellow-500 to-orange-500" },
