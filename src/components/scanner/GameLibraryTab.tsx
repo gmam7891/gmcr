@@ -773,6 +773,19 @@ export function GameLibraryTab() {
                         )}
                       </div>
 
+                      {/* Hash / Impressão digital */}
+                      <div className="border-t border-border pt-3 space-y-2">
+                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Impressão digital</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-1 text-xs">
+                          <span className="text-muted-foreground">Algoritmo hash:</span>
+                          <span className="font-mono text-foreground">pHash (perceptual hash) · 64-bit</span>
+                          <span className="text-muted-foreground">Resumo digital hash:</span>
+                          <span className="font-mono text-foreground break-all select-all">
+                            {formatPhash(entry.thumbnail_phash) || <span className="text-muted-foreground italic">— não calculado —</span>}
+                          </span>
+                        </div>
+                      </div>
+
                       {/* Actions */}
                       <div className="flex justify-end">
                         <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(entry.id)}>
